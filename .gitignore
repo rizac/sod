@@ -1,6 +1,6 @@
 # Added by me
 tmp/
-config.yaml
+jnconfig.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
