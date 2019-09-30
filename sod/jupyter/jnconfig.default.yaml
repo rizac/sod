@@ -1,0 +1,2 @@
+dbpath_old: 'postgresql://<user>:<password>@<host>/<dbname>'  # fill here your dbpath
+dbpath_new: 'postgresql://<user>:<password>@<host>/<dbname>'  # fill here your dbpath
