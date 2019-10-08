@@ -387,6 +387,13 @@ def main(segment, config):
 
     data = []
     data.append(_main(segment, config, trace.copy(), segment.inventory()))
+    
+    # add gain (1)
+    for gain_factor in config['stage_gain_factors']:
+        data.append(_main(segment, config, trace.copy(), segment.inventory(), gain_factor))
+        data[-1]['outlier'] = 1
+        data[-1]['modified'] = "STAGEGAIN:X%s" % str(gain_factor)
+
     # acceleromters/velocimeters:
     if segment.station.id in config['station_ids_both_accel_veloc']:
         # reload inventory (takes more time, but we won't modify cached version):
@@ -403,6 +410,8 @@ def main(segment, config):
     if segment.station.id in config['station_ids_with_wrong_local_inventory']:
         channels_ = config['station_ids_with_wrong_local_inventory'][segment.station.id]
         filename = channels_.get(segment.data_seed_id, None)
+        if filename is None:
+            raise ValueError('%s not found in wrong inventories dict' % segment.data_seed_id)
         if filename is not None:
             inventories_dir = config['inventories_dir']
             wrong_inventory = read_inventory(os.path.join(os.getcwd(), inventories_dir,
@@ -411,11 +420,6 @@ def main(segment, config):
             data[-1]['outlier'] = 1
             data[-1]['modified'] = "INVFILE:%s" % filename
 
-    # add gain (1)
-    for gain_factor in config['stage_gain_factors']:
-        data.append(_main(segment, config, trace.copy(), segment.inventory(), gain_factor))
-        data[-1]['outlier'] = 1
-        data[-1]['modified'] = "STAGEGAIN:X%f" % gain_factor
 
     # add gain (2):
 #     stage_gains = []
@@ -543,7 +547,7 @@ def _main(segment, config, trace, inventory, gain_factor=None):
     trace = _bandpass_remresp(segment, config, trace, inventory)
 
     if gain_factor is not None:
-        trace.data = trace.data * gain_factor
+        trace.data = trace.data * float(gain_factor)  # might be int, let's be sure...
 
     spectra = _sn_spectra(segment, config, trace)
     normal_f0, normal_df, normal_spe = spectra['Signal']
@@ -602,6 +606,7 @@ def _main(segment, config, trace, inventory, gain_factor=None):
     ret['low_snr'] = low_snr
     ret['magnitude'] = magnitude
     ret['distance_km'] = distance
+    ret['event_time'] = segment.event.time
 #     ret['snr1'] = snr1_
 #     ret['snr2'] = snr2_
 #     ret['snr3'] = snr3_
@@ -621,9 +626,9 @@ def _main(segment, config, trace, inventory, gain_factor=None):
     # ret['PGV_diff'] = PGV - ret['PGV_predicted']
 
     periods = config['psd_periods']
-    psdvalues = psd_values(segment, periods)
+    psdvalues = psd_values(segment, periods, inventory)
     for f, a in zip(periods, psdvalues):
-        ret['psd_%.3fs' % f] = float(a)
+        ret['psd@%ssec' % str(f)] = float(a)
 #     ret['t_WA'] = t_WA
 #     ret['maxWA'] = maxWA
 #     ret['channel'] = segment.channel.channel
@@ -642,7 +647,7 @@ def _main(segment, config, trace, inventory, gain_factor=None):
 #     ret['st_ele'] = segment.station.elevation
 #     ret['offset'] = np.abs(meanoff/PGV)
     for f, a in zip(required_freqs, required_amplitudes):
-        ret['%s_%.3fhz' % (spectrum_type, f)] = float(a)
+        ret['%s@%shz' % (spectrum_type, str(f))] = float(a)
 #     ret['channel_location']=segment.channel.location
 #     ret['channel_depth']=segment.channel.depth
     ret['outlier'] = 0
@@ -853,22 +858,25 @@ def gmpe_reso_14(mag, dist, mode='pga', vs30=800, sof='sofN'):
     return 10 ** (e1 + valueFD + valueFM + valueFS + sof_val) / 100.0  # returns m/sec or m/sec2
 
 
-def psd(segment):
-    tr = segment.stream()[0]
-    dt = (segment.arrival_time - tr.stats.starttime.datetime).total_seconds()
-    tr = tr.slice(tr.stats.starttime, UTCDateTime(segment.arrival_time))
-    ppsd = PPSD(tr.stats, metadata=segment.inventory(), ppsd_length=int(dt))
-    ppsd.add(tr)
-    return ppsd
-
-
-def psd_values(segment, periods):
+def psd_values(segment, periods, inventory=None):
     periods = np.asarray(periods)
-    ppsd_ = psd(segment)
+    ppsd_ = psd(segment, inventory)
     val = np.interp(np.log10(periods), np.log10(ppsd_.period_bin_centers), ppsd_.psd_values[0])
     val[periods < ppsd_.period_bin_centers[0]] = np.nan
     val[periods > ppsd_.period_bin_centers[-1]] = np.nan
     return val
+
+
+def psd(segment, inventory=None):
+    if inventory is None:
+        inventory = segment.inventory()
+    tr = segment.stream()[0]
+    dt = (segment.arrival_time - tr.stats.starttime.datetime).total_seconds()
+    tr = tr.slice(tr.stats.starttime, UTCDateTime(segment.arrival_time))
+    ppsd = PPSD(tr.stats, metadata=inventory, ppsd_length=int(dt))
+    ppsd.add(tr)
+    return ppsd
+
 
 
 # GUI RELATED FUNCTIONS (calling already implemented functions above)
