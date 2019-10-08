@@ -357,6 +357,7 @@ import numpy as np
 from obspy import Trace, Stream, UTCDateTime
 from obspy.signal.spectral_estimation import PPSD
 from obspy.core.inventory.inventory import read_inventory
+from obspy.geodetics.base import degrees2kilometers
 # from obspy.geodetics import degrees2kilometers as d2km
 # decorators needed to setup this module @gui.sideplot, @gui.preprocess @gui.customplot:
 from stream2segment.process import gui
@@ -610,11 +611,11 @@ def _main(segment, config, trace, inventory, gain_factor=None):
 #     ret['dist_deg'] = segment.event_distance_deg        # dist
 #     ret['dist_km'] = d2km(segment.event_distance_deg)  # dist_km
 #     ret['t_PGA'] = t_PGA                  # peak info
-    ret['PGA_observed'] = PGA
-    ret['PGA_predicted'] = gmpe_reso_14(magnitude, distance, mode='pga')
+    ret['pga_observed'] = PGA
+    ret['pga_predicted'] = gmpe_reso_14(magnitude, distance, mode='pga')
 #     ret['t_PGV'] = t_PGV                  # peak info
-    ret['PGV_observed'] = PGV
-    ret['PGV_predicted'] = gmpe_reso_14(magnitude, distance, mode='pgv')
+    ret['pgv_observed'] = PGV
+    ret['pgv_predicted'] = gmpe_reso_14(magnitude, distance, mode='pgv')
 
     # ret['PGA_diff'] = PGA - ret['PGA_predicted']
     # ret['PGV_diff'] = PGV - ret['PGV_predicted']
