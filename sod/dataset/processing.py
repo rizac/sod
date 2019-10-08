@@ -176,14 +176,15 @@ def _main(segment, config, trace, inventory, gain_factor=None):
 
     # calculate cumulative
 
-    cum_labels = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
-    cum_trace = cumsumsq(trace, normalize=True, copy=True)  # prevent original trace from being modified
+    cum_labels = [0.05, 0.95]
+    # copy=True: prevent original trace from being modified:
+    cum_trace = cumsumsq(trace, normalize=True, copy=True)
     cum_times = timeswhere(cum_trace, *cum_labels)
 
     # calculate PGA and times of occurrence (t_PGA):
-    t_PGA, PGA = maxabs(trace, cum_times[1], cum_times[-2])  # note: you can also provide tstart tend for slicing
+    t_PGA, PGA = maxabs(trace, cum_times[0], cum_times[-1])
     trace_int = trace.copy().integrate()
-    t_PGV, PGV = maxabs(trace_int, cum_times[1], cum_times[-2])
+    t_PGV, PGV = maxabs(trace_int, cum_times[0], cum_times[-1])
 #     meanoff = meanslice(trace_int, 100, cum_times[-1], trace_int.stats.endtime)
 
     # calculates amplitudes at the frequency bins given in the config file:
