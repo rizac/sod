@@ -285,7 +285,7 @@ inventories_dir: 'inventories/s2s_2017_10'
 stage_gain_factors:
   - 0.01
   - 0.1
-  - 0.2
+  - 0.5
   - 2.0
   - 10.0
   - 100.0
