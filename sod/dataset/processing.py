@@ -147,10 +147,10 @@ def _main(segment, config, trace, inventory, gain_factor=None):
     called by main with supplied inventory
     """
     # discard saturated signals (according to the threshold set in the config file):
-    saturated = False
+    saturated = False  # @UnusedVariable
     amp_ratio = ampratio(trace)
     if amp_ratio >= config['amp_ratio_threshold']:
-        saturated = True
+        saturated = True  # @UnusedVariable
 
     # bandpass the trace, according to the event magnitude.
     # WARNING: this modifies the segment.stream() permanently!
@@ -162,7 +162,7 @@ def _main(segment, config, trace, inventory, gain_factor=None):
 
     spectra = _sn_spectra(segment, config, trace)
     normal_f0, normal_df, normal_spe = spectra['Signal']
-    noise_f0, noise_df, noise_spe = spectra['Noise']
+    noise_f0, noise_df, noise_spe = spectra['Noise']  # @UnusedVariable
     magnitude = segment.event.magnitude
     fcmin = mag2freq(magnitude)
     fcmax = config['preprocess']['bandpass_freq_max']  # used in bandpass_remresp
@@ -170,9 +170,9 @@ def _main(segment, config, trace, inventory, gain_factor=None):
     snr_ = snr(normal_spe, noise_spe, signals_form=spectrum_type,
                fmin=fcmin, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
 
-    low_snr = False
+    low_snr = False  # @UnusedVariable
     if snr_ < config['snr_threshold']:
-        low_snr = True
+        low_snr = True  # @UnusedVariable
 
     # calculate cumulative
 
@@ -199,13 +199,14 @@ def _main(segment, config, trace, inventory, gain_factor=None):
 
     distance = segment.event_distance_km
 
+    ret['station_id'] = segment.station.id
+    ret['event_time'] = segment.event.time
     ret['amplitude_ratio'] = amp_ratio
-    ret['saturated'] = saturated
+    # ret['saturated'] = saturated
     ret['snr'] = snr_
-    ret['low_snr'] = low_snr
+    # ret['low_snr'] = low_snr
     ret['magnitude'] = magnitude
     ret['distance_km'] = distance
-    ret['event_time'] = segment.event.time
     ret['pga_observed'] = PGA
     ret['pga_predicted'] = gmpe_reso_14(magnitude, distance, mode='pga')
     ret['pgv_observed'] = PGV
