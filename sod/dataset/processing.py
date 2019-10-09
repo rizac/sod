@@ -10,6 +10,7 @@ from __future__ import division
 #                       int, map, next, oct, open, pow, range, round,
 #                       str, super, zip)
 import os
+import sys
 import math
 
 import pandas as pd
@@ -64,46 +65,64 @@ def main(segment, config):
 def main2(segment, config):
     '''calls _main with the normal inventory and all possible
     wrong inventories'''
-    stream = segment.stream()
-    assert1trace(stream)  # raise and return if stream has more than one trace
-    trace = stream[0]  # work with the (surely) one trace now
+    
+    # annoying print statementin obspy 1.1.1  when calling the function 'psd'
+    # (see below) and when adding a trace shorter than
+    # the ppsd_length: workaround? redirect to stderr (which is captured by the caller):
+    temp = sys.stdout
+    try:
+        sys.stdout = sys.stderr
 
-    data = []
-    data.append(_main(segment, config, trace.copy(), segment.inventory()))
+        stream = segment.stream()
+        assert1trace(stream)  # raise and return if stream has more than one trace
+        trace = stream[0]  # work with the (surely) one trace now
 
-    # add gain (1)
-    for gain_factor in config['stage_gain_factors']:
-        data.append(_main(segment, config, trace.copy(), segment.inventory(), gain_factor))
-        data[-1]['outlier'] = 1
-        data[-1]['modified'] = "STAGEGAIN:X%s" % str(gain_factor)
+        data = []
+        data.append(_main(segment, config, trace.copy(), segment.inventory()))
 
-    # acceleromters/velocimeters:
-    if segment.station.id in config['station_ids_both_accel_veloc']:
-        # reload inventory (takes more time, but we won't modify cached version):
-        inventory = get_inventory(segment.station)
-        cha_obj = get_cha_obj(segment, inventory)
-        resp_tmp = cha_obj.response
-        for other_cha in get_other_chan_objs(segment, inventory):
-            cha_obj.response = other_cha.response
-            data.append(_main(segment, config, trace.copy(), inventory))
+        # add gain (1). Decide whether to compute gain x2,10,100 or x1/2.1/10,1/100
+        # (not both, try to speed up a bit the computations)
+        # "randomly" according to the segment id (even or odd)
+        gain_factors = config['stage_gain_factors']
+        if segment.id % 2 == 0:
+            gain_factors = gain_factors[:3]
+        else:
+            gain_factors = gain_factors[3:]
+        for gain_factor in gain_factors:
+            data.append(_main(segment, config, trace.copy(), segment.inventory(), gain_factor))
             data[-1]['outlier'] = 1
-            data[-1]['modified'] = "CHARESP:%s" % other_cha.code
-        cha_obj.response = resp_tmp
+            data[-1]['modified'] = "STAGEGAIN:X%s" % str(gain_factor)
 
-    if segment.station.id in config['station_ids_with_wrong_local_inventory']:
-        channels_ = config['station_ids_with_wrong_local_inventory'][segment.station.id]
-        filename = channels_.get(segment.data_seed_id, None)
-        if filename is None:
-            raise ValueError('%s not found in wrong inventories dict' % segment.data_seed_id)
-        if filename is not None:
-            inventories_dir = config['inventories_dir']
-            wrong_inventory = read_inventory(os.path.join(os.getcwd(), inventories_dir,
-                                                          filename))
-            data.append(_main(segment, config, trace.copy(), wrong_inventory))
-            data[-1]['outlier'] = 1
-            data[-1]['modified'] = "INVFILE:%s" % filename
+        # acceleromters/velocimeters:
+        if segment.station.id in config['station_ids_both_accel_veloc']:
+            # reload inventory (takes more time, but we won't modify cached version):
+            inventory = get_inventory(segment.station)
+            cha_obj = get_cha_obj(segment, inventory)
+            resp_tmp = cha_obj.response
+            for other_cha in get_other_chan_objs(segment, inventory):
+                cha_obj.response = other_cha.response
+                data.append(_main(segment, config, trace.copy(), inventory))
+                data[-1]['outlier'] = 1
+                data[-1]['modified'] = "CHARESP:%s" % other_cha.code
+            cha_obj.response = resp_tmp
 
-    return pd.DataFrame(data)
+        if segment.station.id in config['station_ids_with_wrong_local_inventory']:
+            channels_ = config['station_ids_with_wrong_local_inventory'][segment.station.id]
+            filename = channels_.get(segment.data_seed_id, None)
+            if filename is None:
+                raise ValueError('%s not found in wrong inventories dict' % segment.data_seed_id)
+            if filename is not None:
+                inventories_dir = config['inventories_dir']
+                wrong_inventory = read_inventory(os.path.join(os.getcwd(), inventories_dir,
+                                                              filename))
+                data.append(_main(segment, config, trace.copy(), wrong_inventory))
+                data[-1]['outlier'] = 1
+                data[-1]['modified'] = "INVFILE:%s" % filename
+
+        return pd.DataFrame(data)
+
+    finally:
+        sys.stdout = temp
 
 
 def get_cha_obj(segment, inventory=None):
@@ -431,11 +450,15 @@ def gmpe_reso_14(mag, dist, mode='pga', vs30=800, sof='sofN'):
 def psd_values(segment, periods, inventory=None):
     periods = np.asarray(periods)
     ppsd_ = psd(segment, inventory)
+    # check first if we can interpolate ESPECIALLY TO SUPPRESS A WEIRD
+    # PRINTOUT (numpy?): something like '5064 5062' which happens
+    # on IndexError (len(ppsd_.psd_values)=0)
+    if not len(ppsd_.psd_values):
+        raise ValueError('Expected 1 psd array, no psd computed')
     val = np.interp(np.log10(periods), np.log10(ppsd_.period_bin_centers), ppsd_.psd_values[0])
     val[periods < ppsd_.period_bin_centers[0]] = np.nan
     val[periods > ppsd_.period_bin_centers[-1]] = np.nan
     return val
-
 
 def psd(segment, inventory=None):
     if inventory is None:
