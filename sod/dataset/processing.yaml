@@ -364,12 +364,12 @@ advanced_settings:
   # Increasing this number might speed up execution but increases the memory usage.
   # When null, the chunk size defaults to 1200 if the number N of
   # segments to be processed is > 1200, otherwise N/10.
-  segments_chunksize: 300
+  segments_chunksize: 1200
   # Optional arguments for the output writer. Ignored for CSV output, for HDF output see:
   # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
   # (the parameters 'append' and 'value' will be ignored, if given here)
   writer_options:
-    chunksize: 10000
+    chunksize: 1200
     # hdf needs a fixed length for all columns: for variable-length string columns,
     # you need to tell in advance how many bytes to allocate with 'min_itemsize'.
     # E.g., if you have two string columns 'col1' and 'col2' and you assume to store
