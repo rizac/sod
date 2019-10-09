@@ -362,7 +362,7 @@ advanced_settings:
   # Increasing this number might speed up execution but increases the memory usage.
   # When null, the chunk size defaults to 1200 if the number N of
   # segments to be processed is > 1200, otherwise N/10.
-  segments_chunksize: null
+  segments_chunksize: 900
   # Optional arguments for the output writer. Ignored for CSV output, for HDF output see:
   # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
   # (the parameters 'append' and 'value' will be ignored, if given here)
