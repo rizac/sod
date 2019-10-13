@@ -179,7 +179,11 @@ def _main(segment, config, trace, inventory, gain_factor=None):
     if gain_factor is not None:
         trace.data = trace.data * float(gain_factor)  # might be int, let's be sure...
 
+    tmp_stream = segment._stream
+    segment._stream = Stream(trace)
     spectra = _sn_spectra(segment, config, trace)
+    segment._stream = tmp_stream
+
     normal_f0, normal_df, normal_spe = spectra['Signal']
     noise_f0, noise_df, noise_spe = spectra['Noise']  # @UnusedVariable
     magnitude = segment.event.magnitude
