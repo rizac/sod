@@ -8,25 +8,30 @@ import pytest
 from os.path import join, abspath, dirname
 import pandas as pd
 from itertools import repeat
-from sod.evaluation import to_matrix, pdconcat  #, train_test_split
+from sod.evaluation import pdconcat  #, train_test_split
 from collections import defaultdict
 from sklearn.model_selection._split import KFold
-from sod.evaluation import split
+from sod.evaluation import split, cmatrix, classifier, predict, _predict
+from sklearn.metrics.classification import confusion_matrix
+import mock
+from sklearn.svm.classes import OneClassSVM
 
 
 class Tester:
-    
+
     dfr = pd.read_hdf(join(dirname(__file__), '..', 'sod', 'dataset',
                            'dataset.secondtry.hdf'))
+
+    clf = classifier(OneClassSVM, dfr.iloc[:5,:][['delta_pga', 'delta_pgv']])
 
     def test_to_matrix(self):
         val0 = self.dfr.loc[0, 'magnitude']
         val1 = self.dfr.loc[0, 'distance_km']
-        data = to_matrix(self.dfr, 'magnitude', 'distance_km')
+        data = self.dfr[['magnitude', 'distance_km']].values
         assert data[0].tolist() == [val0, val1]
-        data = to_matrix(self.dfr, 'distance_km', 'magnitude')
+        data = self.dfr[['distance_km', 'magnitude']].values
         assert data[0].tolist() == [val1, val0]
-    
+
     def tst_traintest(self):
         test_indices = []
         for train, test in train_test_split(self.dfr):
@@ -54,11 +59,71 @@ class Tester:
             assert elm[0] == a[i-1][1]
             assert np.abs(np.abs(elm[1] - elm[0]) -
                           np.abs(a[i-1][1] - a[i-1][0])) <= 1
+
+    @mock.patch('sod.evaluation._predict')
+    def test_get_scores(self, mock_predict):
+        dfr = pd.DataFrame([{'outlier': 0, 'weight': 1, 'Segment.db.id': 1},
+                            {'outlier': 1, 'weight': 1, 'Segment.db.id': 2}])
+        mock_predict.side_effect = lambda *a, **kw: np.array([1, -1])
+        pred_df = predict(None, dfr)
+        assert pred_df['predicted'].sum() == 0
+        cm_ = cmatrix(pred_df)
+        cm_ok_row = cm_.loc['ok', :]
+        cm_outlier_row = cm_.loc['outlier', :]
+        assert (cm_ok_row == [1, 0]).all()
+        assert (cm_outlier_row == [0, 1]).all()
+
+        dfr = pd.DataFrame([{'outlier': 0, 'weight': 1, 'Segment.db.id': 1},
+                            {'outlier': 0, 'weight': 1, 'Segment.db.id': 1},
+                            {'outlier': 1, 'weight': 1, 'Segment.db.id': 1}])
+        mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
+        pred_df = predict(None, dfr)
+        assert pred_df['predicted'].sum() == -1
+        cm_ = cmatrix(pred_df)
+        cm_ok_row = cm_.loc['ok',:]
+        cm_outlier_row = cm_.loc['outlier',:]
+        assert (cm_ok_row == [1, 1]).all()
+        assert (cm_outlier_row == [0, 1]).all()
+
+        dfr = pd.DataFrame([{'outlier': 0, 'weight': 1, 'Segment.db.id': 1},
+                            {'outlier': 0, 'weight': 3, 'Segment.db.id': 1},
+                            {'outlier': 1, 'weight': 1, 'Segment.db.id': 3}])
+        mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
+        pred_df = predict(None, dfr)
+        assert pred_df['predicted'].sum() == -1
+        cm_ = cmatrix(pred_df)
+        cm_ok_row = cm_.loc['ok',:]
+        cm_outlier_row = cm_.loc['outlier',:]
+        assert (cm_ok_row == [1, 1]).all()
+        assert (cm_outlier_row == [0, 1]).all()
+
+    def test_get_scores_order(self):
+        '''test that scikit predcit preserves oreder, i.e.:
+        predict(x1, x2 ...]) == [predict(x1), predict(x2), ...]
+        '''
+        res = _predict(self.clf,
+                         self.dfr.iloc[10:12, :][['delta_pga', 'delta_pgv']])
+        for _ in [10, 12]:
+            res2 = _predict(self.clf,
+                           self.dfr.iloc[_:_+1, :][['delta_pga', 'delta_pgv']])
+            asd = 9
+
+    def test_cmatrix(self):
+        dfr = pd.DataFrame({
+            'label': [1, -1],
+            'predicted': [1, -1]
+        })
         
+        cm1 = cmatrix(dfr)
+        cm2 = cmatrix(dfr, [1, 100])
+        asd = 9
         
 #     def test_make_bins(self):
 #         make_bins(self.dfr, 'distance_km')
-        
+
+
+# def get_confusion_matrix():
+#     confusion_matrix(ground_truths, predicted, labels)
         
 def train_test_split(dataframe, n_splits=10, column='magnitude', bins=None):
     '''Yields the tuple (train, test) `n_splits` times. Similar to scikit's
@@ -86,7 +151,7 @@ def train_test_split(dataframe, n_splits=10, column='magnitude', bins=None):
     iterators = list(zip(*[_iter(sub_dfr, n_splits)
                      for _, sub_dfr in dataframe.groupby(dfr_series)]))
     for dframes in iterators:
-        test = pdconcat(dframes, sort=False, axis=0)
+        test = pdconcat(dframes)
         yield dataframe[~dataframe.index.isin(test.index)], test
 
 
