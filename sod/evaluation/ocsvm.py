@@ -8,39 +8,19 @@ from os.path import join, dirname, abspath
 import pandas as pd
 import numpy as np
 from sklearn import svm
-from sod.evaluation import classifier, predict, kfold, pdconcat,\
-    cross_val_score, get_scores
+from joblib import dump, load
+from sod.evaluation import classifier, pdconcat,\
+    open_dataset, dropna, is_outlier, info, drop_duplicates, is_out_wrong_inv,\
+    is_out_swap_acc_vel, is_out_gain_x100, is_out_gain_x10, is_out_gain_x2, predict,\
+    cmatrix, df2str
 from datetime import datetime, timedelta
-from itertools import count
+from itertools import count, product
 from sklearn.svm.classes import OneClassSVM
-
-dataset_filename = join(dirname(__file__), '..', 'dataset', 'dataset.hdf')
+import os
+import pickle
 
 # dforig = pd.read_hdf(dataset_filename, columns=[])
 
-def open_dataset(filename):
-    dfr = pd.read_hdf(filename)
-    dfr['delta_pga'] = np.log10(dfr['pga_observed'].abs()) - \
-        np.log10(dfr['pga_predicted'].abs())  # / dforig['pga_predicted']#.abs()
-    dfr['delta_pgv'] = np.log10(dfr['pgv_observed'].abs()) - \
-        np.log10(dfr['pgv_predicted'].abs())  # / dforig['pgv_predicted']#.abs()
-    dfr['weight'] = 1
-    dfr['modified'] = dfr['modified'].astype('category')
-    dfr.loc[dfr['modified'].str.contains('INVFILE:'), 'weight'] = 1000
-    dfr.loc[dfr['modified'].str.contains('CHARESP:'), 'weight'] = 100
-    dfr.loc[dfr['modified'].str.contains('STAGEGAIN:X10.0') |
-            dfr['modified'].str.contains('STAGEGAIN:X0.1'), 'weight'] = 10
-    dfr.loc[dfr['modified'].str.contains('STAGEGAIN:X100.0') |
-            dfr['modified'].str.contains('STAGEGAIN:X0.01'), 'weight'] = 100
-
-    dfr = dfr[~(dfr['modified'].str.contains('STAGEGAIN:X2.0') | 
-                dfr['modified'].str.contains('STAGEGAIN:X0.5'))]
-#     dfr = dfr.drop(dfr['modified'].str.contains('STAGEGAIN:X2.0') | 
-#              dfr['modified'].str.contains('STAGEGAIN:X0.5'))
-
-#     dfr['mag_group'] = np.round(dfr['magnitude'], 0).astype(int)
-#     dfr['dist_group'] = np.log10(dfr['distance_km']).astype(int)
-    return dfr.copy()
 
 # def test_open_dataset(filename):
 #     # TO BE REMOVED WHEN WE HAVE THE NEW DATASET!
@@ -69,41 +49,103 @@ iterations_parameters = {
 
 
 def split_train_test(dfr, verbose=True):
-
+    '''
+    '''
     if verbose:
-        outliers = dfr['outlier'].sum()
-        print("%d segments, %d good, %d outliers" %
-              (len(dfr), len(dfr)-outliers, outliers))
+        print('\nSplitting train test')
 
-    test_bad = dfr[dfr['modified'].str.contains('INV')]
-    test_ok = dfr[dfr['outlier'] == 0].sample(n=len(test_bad))
-    test_df = pdconcat([test_bad, test_ok])
+    dfr.reset_index(inplace=True, drop=True)
+    wronginvs = dfr[is_out_wrong_inv(dfr)]
+    # test_bad = dfr[is_out_wrong_inv(dfr)]
+    # test_ok = dfr[~is_outlier(dfr)].sample(n=len(test_bad))
 
+    _1, _2, _3, _4, _5 = (~is_outlier(dfr),
+                          is_out_swap_acc_vel(dfr),
+                          is_out_gain_x100(dfr),
+                          is_out_gain_x10(dfr),
+                          is_out_gain_x2(dfr))
+
+    test_df = pdconcat([
+        wronginvs,
+        dfr[_1].sample(n=_1.sum() // 3),
+        dfr[_2].sample(n=_2.sum() // 3),
+        dfr[_3].sample(n=_3.sum() // 3),
+        dfr[_4].sample(n=_4.sum() // 3),
+        dfr[_5].sample(n=_5.sum() // 3)
+    ])
+    test_df = test_df.sort_index()
+    assert len(pd.unique(test_df.index)) == len(test_df)
     train_df = dfr[~dfr.index.isin(test_df.index)]
+    train_df = train_df[~is_outlier(train_df)]
+
+    # FIXME: REMOVE, IT IS JUST FOR PERF REASONS!
+    train_df = train_df.sample(n=int(3 * len(train_df) / 6))
 
     if verbose:
-        print('train: %d elements, test: %d elements' %
-              (len(train_df), len(test_df)))
+        print('train: %s elements, test: %s elements' %
+              ("{:,d}".format(len(train_df)), "{:,d}".format(len(test_df))))
 
     return train_df, test_df
 
     # make something simple:
     # take data distributed accoridng to magnitude
 
+
 def run():
-    dfr = open_dataset(dataset_filename)
-    dfr = dfr[dfr['snr'] >= 3]
-    train_df, test_df = split_train_test(dfr)
-    params = {'kernel': 'rbf', 'gamma': 'auto', 'nu': 0.9}
-    columns = ['delta_pga', 'delta_pgv']
+    dfr_base = open_dataset()
+
+    # NOTES: nu=0.9 (also from 0.5) basically shrinks too much and classifies
+    # all as outlier
+
+    params = {
+        'kernel': ['rbf'],
+        'gamma': ['auto', 10, 100],
+        'nu': [0.1],  # , 0.9],
+        'columns': [['delta_pga'],
+                    ['delta_pga', 'delta_pgv'],
+                    ['psd@10sec'],
+                    ['delta_pga', 'psd@10sec'],
+                    ['delta_pga', 'delta_pgv', 'psd@10sec']]
+    }
+
+    for kernel, gamma, nu, columns in product(*list(params.values())):
+        dfr = dropna(dfr_base, columns, verbose=True)
+        dfr = drop_duplicates(dfr, columns, verbose=True)
+        train_df, test_df = split_train_test(dfr)
+        print('')
+        clz = ','.join(_ for _ in columns)
+        fle = join(os.getcwd(),
+                   "ocsvm_features=%s_kernel=%s_gamma=%s_nu=%s" % (str(clz),
+                                                                   str(kernel),
+                                                                   str(gamma),
+                                                                   str(nu)))
+        print('')
+        print(os.path.basename(fle))
+        if os.path.isfile(fle):
+            clf = load(fle)
+        else:
+            clf = classifier(OneClassSVM, train_df[columns],
+                             cache_size=1000, kernel=kernel,
+                             gamma=gamma, nu=nu)
+            # dump(clf, fle)
+
+        types = {'oks': ~is_outlier(test_df),
+                 'wrong inv': is_out_wrong_inv(test_df),
+                 'swap acc / vel': is_out_swap_acc_vel(test_df),
+                 'gainx100':             is_out_gain_x100(test_df),
+                 'gainx10':             is_out_gain_x10(test_df),
+                 'gainx2':             is_out_gain_x2(test_df)}
+
+        for typ, selector in types.items():
+            print('\nTesting for %s\n' % typ)
+            pred_df = predict(clf, test_df[selector], *columns)
+            print(df2str(cmatrix(pred_df)))
+        print('')
 #     scr = cross_val_score(OneClassSVM, 10, train_df, *columns, **params)
 #     print(scr)
-    scores = get_scores(classifier(OneClassSVM,
-                                   train_df[train_df['outlier'] == 0],
-                                   *columns,
-                                   cache_size=1000, **params),
-                        test_df, *columns)
-    print("%f %d %d" % (scores.sum(), (scores > 0).sum(), (scores < 0).sum()))
+
+    print('')
+
 #     _ds  = pd.cut(dfr['distance_km'], np.array([0, 10000]), right=False)
 #     assert not pd.isna(_mg).any()
 #     assert not pd.isna(_ds).any()
@@ -129,6 +171,7 @@ def run():
 
 
 if __name__ == '__main__':
+#    print('hello')
     run()
     
     # split_train_dev_test(dfr)

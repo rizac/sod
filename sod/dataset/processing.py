@@ -34,7 +34,7 @@ from stream2segment.process import gui
 # strem2segment functions for processing obspy Traces. This is just a list of possible functions
 # to show how to import them:
 from stream2segment.process.math.traces import ampratio, bandpass, cumsumsq,\
-    timeswhere, fft, maxabs, utcdatetime, ampspec, powspec, timeof
+    timeswhere, fft, maxabs, utcdatetime, ampspec, powspec, timeof, sn_split
 # stream2segment function for processing numpy arrays:
 from stream2segment.process.math.ndarrays import triangsmooth, snr
 from stream2segment.process.db import get_inventory
@@ -73,12 +73,21 @@ def main2(segment, config):
     try:
         sys.stdout = sys.stderr
 
-        stream = segment.stream()
+        stream = segment.stream(True)
         assert1trace(stream)  # raise and return if stream has more than one trace
         trace = stream[0]  # work with the (surely) one trace now
 
+        # compute amplitude ratio only once on the raw trace:
+        amp_ratio = ampratio(trace)
+#         if amp_ratio >= config['amp_ratio_threshold']:
+#             saturated = True  # @UnusedVariable
+
         data = []
-        data.append(_main(segment, config, trace.copy(), segment.inventory()))
+        # bandpass the trace, according to the event magnitude.
+        # This modifies the segment.stream() permanently:
+        trace = _bandpass_remresp(segment, config, trace, segment.inventory())
+        data.append(_main(segment, config, segment.inventory()))
+        data[-1]['amplitude_ratio'] = amp_ratio
 
         # add gain (1). Decide whether to compute gain x2,10,100 or x1/2.1/10,1/100
         # (not both, try to speed up a bit the computations)
@@ -89,9 +98,14 @@ def main2(segment, config):
         else:
             gain_factors = gain_factors[3:]
         for gain_factor in gain_factors:
-            data.append(_main(segment, config, trace.copy(), segment.inventory(), gain_factor))
+            newtrace = trace.copy()
+            newtrace.data *= float(gain_factor)
+            stream[0] = newtrace
+            assert segment.stream()[0] is newtrace
+            data.append(_main(segment, config, segment.inventory()))
             data[-1]['outlier'] = 1
             data[-1]['modified'] = "STAGEGAIN:X%s" % str(gain_factor)
+            data[-1]['amplitude_ratio'] = amp_ratio
 
         # acceleromters/velocimeters:
         if segment.station.id in config['station_ids_both_accel_veloc']:
@@ -101,9 +115,15 @@ def main2(segment, config):
             resp_tmp = cha_obj.response
             for other_cha in get_other_chan_objs(segment, inventory):
                 cha_obj.response = other_cha.response
-                data.append(_main(segment, config, trace.copy(), inventory))
+                # force reloading the segment stream:
+                stream = segment.stream(True)
+                # re-apply bandpass with the "wrong" inventory
+                # (modifying segment.stream() inplace):
+                _bandpass_remresp(segment, config, stream[0], inventory)
+                data.append(_main(segment, config, inventory))
                 data[-1]['outlier'] = 1
                 data[-1]['modified'] = "CHARESP:%s" % other_cha.code
+                data[-1]['amplitude_ratio'] = amp_ratio
             cha_obj.response = resp_tmp
 
         if segment.station.id in config['station_ids_with_wrong_local_inventory']:
@@ -115,9 +135,15 @@ def main2(segment, config):
                 inventories_dir = config['inventories_dir']
                 wrong_inventory = read_inventory(os.path.join(os.getcwd(), inventories_dir,
                                                               filename))
-                data.append(_main(segment, config, trace.copy(), wrong_inventory))
+                # force reloading the segment stream:
+                stream = segment.stream(True)
+                # re-apply bandpass with the "wrong" inventory
+                # (modifying segment.stream() inplace):
+                _bandpass_remresp(segment, config, stream[0], wrong_inventory)
+                data.append(_main(segment, config, wrong_inventory))
                 data[-1]['outlier'] = 1
                 data[-1]['modified'] = "INVFILE:%s" % filename
+                data[-1]['amplitude_ratio'] = amp_ratio
 
         return pd.DataFrame(data)
 
@@ -161,31 +187,38 @@ def get_other_chan_objs(segment, inventory=None):
                     yield cha
 
 
-def _main(segment, config, trace, inventory, gain_factor=None):
+def _main(segment, config, inventory_used):
     """
-    called by main with supplied inventory
+    called by main with supplied inventory_used, which MUST be the inventory used
+    on the raw trace to obtain `segment.stream()[0]`
     """
-    # discard saturated signals (according to the threshold set in the config file):
-    saturated = False  # @UnusedVariable
-    amp_ratio = ampratio(trace)
-    if amp_ratio >= config['amp_ratio_threshold']:
-        saturated = True  # @UnusedVariable
+    trace = segment.stream()[0]
 
-    # bandpass the trace, according to the event magnitude.
-    # WARNING: this modifies the segment.stream() permanently!
-    # If you want to preserve the original stream, store trace.copy()
-    trace = _bandpass_remresp(segment, config, trace, inventory)
+    # cumulative of squares:
+    cum_labels = [0.05, 0.95]
+    cum_trace = cumsumsq(trace, normalize=True, copy=True)
+    cum_times = timeswhere(cum_trace, *cum_labels)
 
-    if gain_factor is not None:
-        trace.data = trace.data * float(gain_factor)  # might be int, let's be sure...
+    # Caluclate PGA and PGV
+    # FIXME! THERE IS AN ERROR HERE WE SHOULD ITNEGRATE ONLY IF WE HAVE AN
+    # ACCELEROMETER! ISN't IT?
+    t_PGA, PGA = maxabs(trace, cum_times[0], cum_times[-1])
+    trace_int = trace.copy().integrate()
+    t_PGV, PGV = maxabs(trace_int, cum_times[0], cum_times[-1])
 
-    tmp_stream = segment._stream
-    segment._stream = Stream(trace)
-    spectra = _sn_spectra(segment, config, trace)
-    segment._stream = tmp_stream
-
+    # CALCULATE SPECTRA (SIGNAL and NOISE)
+    spectra = _sn_spectra(segment, config)
     normal_f0, normal_df, normal_spe = spectra['Signal']
     noise_f0, noise_df, noise_spe = spectra['Noise']  # @UnusedVariable
+
+    # AMPLITUDE (or POWER) SPECTRA VALUES and FREQUENCIES:
+    required_freqs = config['freqs_interp']
+    ampspec_freqs = normal_f0 + normal_df * np.arange(len(normal_spe))
+    required_amplitudes = np.interp(np.log10(required_freqs),
+                                    np.log10(ampspec_freqs),
+                                    normal_spe) / segment.sample_rate
+
+    # SNR:
     magnitude = segment.event.magnitude
     fcmin = mag2freq(magnitude)
     fcmax = config['preprocess']['bandpass_freq_max']  # used in bandpass_remresp
@@ -193,29 +226,13 @@ def _main(segment, config, trace, inventory, gain_factor=None):
     snr_ = snr(normal_spe, noise_spe, signals_form=spectrum_type,
                fmin=fcmin, fmax=fcmax, delta_signal=normal_df, delta_noise=noise_df)
 
-    low_snr = False  # @UnusedVariable
-    if snr_ < config['snr_threshold']:
-        low_snr = True  # @UnusedVariable
-
-    # calculate cumulative
-
-    cum_labels = [0.05, 0.95]
-    # copy=True: prevent original trace from being modified:
-    cum_trace = cumsumsq(trace, normalize=True, copy=True)
-    cum_times = timeswhere(cum_trace, *cum_labels)
-
-    # calculate PGA and times of occurrence (t_PGA):
-    t_PGA, PGA = maxabs(trace, cum_times[0], cum_times[-1])
-    trace_int = trace.copy().integrate()
-    t_PGV, PGV = maxabs(trace_int, cum_times[0], cum_times[-1])
-#     meanoff = meanslice(trace_int, 100, cum_times[-1], trace_int.stats.endtime)
+    # PSD NOISE VALUES:
+    # FIXME! DO I HAVE TO PASS THE PROCESSED TRACE (AS IT IS) or THE RAW ONE
+    # (segment.stream(True)[0])?
+    required_psd_periods = config['psd_periods']
+    required_psd_values = psd_values(segment, required_psd_periods, inventory_used)
 
     # calculates amplitudes at the frequency bins given in the config file:
-    required_freqs = config['freqs_interp']
-    ampspec_freqs = normal_f0 + normal_df * np.arange(len(normal_spe))
-    required_amplitudes = np.interp(np.log10(required_freqs),
-                                    np.log10(ampspec_freqs),
-                                    normal_spe) / segment.sample_rate
 
     # write stuff to csv:
     ret = OrderedDict()
@@ -224,10 +241,7 @@ def _main(segment, config, trace, inventory, gain_factor=None):
 
     ret['station_id'] = segment.station.id
     ret['event_time'] = segment.event.time
-    ret['amplitude_ratio'] = amp_ratio
-    # ret['saturated'] = saturated
     ret['snr'] = snr_
-    # ret['low_snr'] = low_snr
     ret['magnitude'] = magnitude
     ret['distance_km'] = distance
     ret['pga_observed'] = PGA
@@ -235,13 +249,11 @@ def _main(segment, config, trace, inventory, gain_factor=None):
     ret['pgv_observed'] = PGV
     ret['pgv_predicted'] = gmpe_reso_14(magnitude, distance, mode='pgv')
 
-    periods = config['psd_periods']
-    psdvalues = psd_values(segment, periods, inventory)
-    for f, a in zip(periods, psdvalues):
-        ret['psd@%ssec' % str(f)] = float(a)
-
     for f, a in zip(required_freqs, required_amplitudes):
         ret['%s@%shz' % (spectrum_type, str(f))] = float(a)
+
+    for f, a in zip(required_psd_periods, required_psd_values):
+        ret['noise_psd@%ssec' % str(f)] = float(a)
 
     ret['outlier'] = 0
     ret['modified'] = ''
@@ -311,7 +323,7 @@ def mag2freq(magnitude):
     return freq_min
 
 
-def _sn_spectra(segment, config, trace):
+def _sn_spectra(segment, config):
     """
     Computes the signal and noise spectra, as dict of strings mapped to tuples (x0, dx, y).
     Does not modify the segment's stream or traces in-place
@@ -337,14 +349,15 @@ def _sn_spectra(segment, config, trace):
     :raise: an Exception if `segment.stream()` is empty or has more than one trace (possible
     gaps/overlaps)
     """
-    signal_wdw, noise_wdw = segment.sn_windows(config['sn_windows']['signal_window'],
-                                               config['sn_windows']['arrival_time_shift'])
-    x0_sig, df_sig, sig = _spectrum(trace, config, *signal_wdw)
-    x0_noi, df_noi, noi = _spectrum(trace, config, *noise_wdw)
+    arrival_time = UTCDateTime(segment.arrival_time) + config['sn_windows']['arrival_time_shift']
+    strace, ntrace = sn_split(segment.stream()[0],  # assumes stream has only one trace
+                              arrival_time, config['sn_windows']['signal_window'])
+    x0_sig, df_sig, sig = _spectrum(strace, config)
+    x0_noi, df_noi, noi = _spectrum(ntrace, config)
     return {'Signal': (x0_sig, df_sig, sig), 'Noise': (x0_noi, df_noi, noi)}
 
 
-def _spectrum(trace, config, starttime=None, endtime=None):
+def _spectrum(trace, config):
     '''Calculate the spectrum of a trace. Returns the tuple (0, df, values), where
     values depends on the config dict parameters.
     Does not modify the trace in-place
@@ -359,7 +372,7 @@ def _spectrum(trace, config, starttime=None, endtime=None):
         # raise TypeError so that if called from within main, the iteration stops
         raise TypeError("config['sn_spectra']['type'] expects either 'pow' or 'amp'")
 
-    df_, spec_ = func(trace, starttime, endtime,
+    df_, spec_ = func(trace,
                       taper_max_percentage=taper_max_percentage, taper_type=taper_type)
 
     # if you want to implement your own smoothing, change the lines below before 'return'
@@ -545,4 +558,4 @@ def sn_spectra(segment, config):
     """
     stream = segment.stream()
     assert1trace(stream)  # raise and return if stream has more than one trace
-    return _sn_spectra(segment, config, stream[0])
+    return _sn_spectra(segment, config)

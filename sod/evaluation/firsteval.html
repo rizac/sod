@@ -1,0 +1,944 @@
+
+<html>
+	
+<body style='padding:.5rem;font-family:arial; font-size:120%;display:flex;flex-direction:row;height:100vh'>
+	<select id='select' multiple size='5' style='font-size:inherit; font-family:inherit;margin-right:.5rem;'>
+	</select>
+	<div id='div' style='flex-basis:1 1 auto'>
+	</div>
+</body>
+<script>
+
+var text = `
+pydev debugger: starting (pid: 42145)
+Opening /Users/riccardo/work/gfz/projects/sources/python/sod/sod/dataset/dataset.hdf
+1,731,185 segments, 333,989 good, 1,397,196 outliers
+
+Fixing values
+
+Class (all non 'ok' are outliers) Segments
+ok:                                 333989
+wrong inventory with file:          1452
+channel response acc <-> vel:       393777
+gain x 100:                         333989
+gain x 10:                          333989
+gain x 2:                           333989
+
+Normalizing
+                   min median                       max       NANs
+psd@0.1sec        0.00   0.97                      1.11          0
+psd@1sec          0.00   0.96                      1.08         40
+psd@10sec         0.00   0.96                      1.02    118,800
+psd@20sec         0.00   0.97                      1.01  1,721,454
+psd@50sec          nan    nan                       nan  1,731,185
+psd@100sec         nan    nan                       nan  1,731,185
+amp@0.5hz         0.00   0.00     79,759,330,558,739.45      2,853
+amp@1hz           0.00   0.00    480,673,006,682,917.69      1,861
+amp@2hz           0.00   0.00    877,763,193,974,686.38      1,254
+amp@5hz           0.00   0.00  1,820,890,849,168,273.25        748
+amp@10hz          0.00   0.00  4,054,256,176,471,038.50        438
+magnitude         0.00   0.40                      1.00          0
+distance_km       0.00   0.35                      1.00          0
+delta_pga        -0.19   0.43                      2.49     22,810
+delta_pgv        -0.20   0.45                      2.50     22,810
+amplitude_ratio   0.00   0.00                      1.00          0
+snr              -0.00   0.00                      1.00     23,078
+Backend MacOSX is interactive backend. Turning interactive mode on.
+
+Removing NA
+Removing 22810 NA under column "delta_pga"
+1,708,375 segments, 328,300 good, 1,380,075 outliers
+
+Duplicated per class removed
+1,370,011 segments, 312,056 good, 1,057,955 outliers
+
+Splitting train test
+train: 104,019 elements, test: 457,635 elements
+
+
+ocsvm_features=delta_pga_kernel=rbf_gamma=auto_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       93,664  10,354
+outlier       0       0
+
+Testing for wrong inv
+
+        ok outlier
+Label:            
+ok       0       0
+outlier  5   1,444
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  7,982  24,374
+
+Testing for gainx100
+
+            ok  outlier
+Label:                 
+ok           0        0
+outlier  5,309  101,295
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  53,221  53,383
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  91,060  15,544
+
+
+Removing NA
+Removing 22810 NA under column "delta_pga"
+Removing 22810 NA under column "delta_pgv"
+1,708,375 segments, 328,300 good, 1,380,075 outliers
+
+Duplicated per class removed
+1,370,011 segments, 312,056 good, 1,057,955 outliers
+
+Splitting train test
+train: 104,019 elements, test: 457,635 elements
+
+
+ocsvm_features=delta_pga,delta_pgv_kernel=rbf_gamma=auto_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       93,534  10,484
+outlier       0       0
+
+Testing for wrong inv
+
+        ok outlier
+Label:            
+ok       0       0
+outlier  2   1,447
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  5,366  26,990
+
+Testing for gainx100
+
+            ok  outlier
+Label:                 
+ok           0        0
+outlier  3,422  103,182
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  49,717  56,887
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  90,797  15,807
+
+
+Removing NA
+Removing 118800 NA under column "psd@10sec"
+1,612,385 segments, 324,690 good, 1,287,695 outliers
+
+Duplicated per class removed
+1,242,611 segments, 288,538 good, 954,073 outliers
+
+Splitting train test
+train: 96,179 elements, test: 415,057 elements
+
+
+ocsvm_features=psd@10sec_kernel=rbf_gamma=auto_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       86,434   9,745
+outlier       0       0
+
+Testing for wrong inv
+
+         ok outlier
+Label:             
+ok        0       0
+outlier  11   1,272
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  2,513  26,545
+
+Testing for gainx100
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  86,637   9,542
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  86,482   9,697
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  86,553   9,626
+
+
+Removing NA
+Removing 22810 NA under column "delta_pga"
+Removing 118800 NA under column "psd@10sec"
+1,589,575 segments, 319,001 good, 1,270,574 outliers
+
+Duplicated per class removed
+1,324,007 segments, 302,826 good, 1,021,181 outliers
+
+Splitting train test
+train: 100,942 elements, test: 442,191 elements
+
+
+ocsvm_features=delta_pga,psd@10sec_kernel=rbf_gamma=auto_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       90,694  10,248
+outlier       0       0
+
+Testing for wrong inv
+
+        ok outlier
+Label:            
+ok       0       0
+outlier  5   1,278
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  6,489  22,932
+
+Testing for gainx100
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  5,417  98,098
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  52,090  51,425
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  88,584  14,931
+
+
+Removing NA
+Removing 22810 NA under column "delta_pga"
+Removing 22810 NA under column "delta_pgv"
+Removing 118800 NA under column "psd@10sec"
+1,589,575 segments, 319,001 good, 1,270,574 outliers
+
+Duplicated per class removed
+1,324,007 segments, 302,826 good, 1,021,181 outliers
+
+Splitting train test
+train: 100,942 elements, test: 442,191 elements
+
+
+ocsvm_features=delta_pga,delta_pgv,psd@10sec_kernel=rbf_gamma=auto_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       90,915  10,027
+outlier       0       0
+
+Testing for wrong inv
+
+        ok outlier
+Label:            
+ok       0       0
+outlier  2   1,281
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  4,027  25,394
+
+Testing for gainx100
+
+            ok  outlier
+Label:                 
+ok           0        0
+outlier  3,485  100,030
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  48,686  54,829
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  88,434  15,081
+
+
+Removing NA
+Removing 22810 NA under column "delta_pga"
+1,708,375 segments, 328,300 good, 1,380,075 outliers
+
+Duplicated per class removed
+1,370,011 segments, 312,056 good, 1,057,955 outliers
+
+Splitting train test
+train: 104,019 elements, test: 457,635 elements
+
+
+ocsvm_features=delta_pga_kernel=rbf_gamma=10_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       93,778  10,240
+outlier       0       0
+
+Testing for wrong inv
+
+        ok outlier
+Label:            
+ok       0       0
+outlier  6   1,443
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  7,926  24,430
+
+Testing for gainx100
+
+            ok  outlier
+Label:                 
+ok           0        0
+outlier  5,397  101,207
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  53,343  53,261
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  91,308  15,296
+
+
+Removing NA
+Removing 22810 NA under column "delta_pga"
+Removing 22810 NA under column "delta_pgv"
+1,708,375 segments, 328,300 good, 1,380,075 outliers
+
+Duplicated per class removed
+1,370,011 segments, 312,056 good, 1,057,955 outliers
+
+Splitting train test
+train: 104,019 elements, test: 457,635 elements
+
+
+ocsvm_features=delta_pga,delta_pgv_kernel=rbf_gamma=10_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       93,772  10,246
+outlier       0       0
+
+Testing for wrong inv
+
+        ok outlier
+Label:            
+ok       0       0
+outlier  2   1,447
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  5,145  27,211
+
+Testing for gainx100
+
+            ok  outlier
+Label:                 
+ok           0        0
+outlier  3,745  102,859
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  51,051  55,553
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  91,161  15,443
+
+
+Removing NA
+Removing 118800 NA under column "psd@10sec"
+1,612,385 segments, 324,690 good, 1,287,695 outliers
+
+Duplicated per class removed
+1,242,611 segments, 288,538 good, 954,073 outliers
+
+Splitting train test
+train: 96,179 elements, test: 415,057 elements
+
+
+ocsvm_features=psd@10sec_kernel=rbf_gamma=10_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       86,498   9,681
+outlier       0       0
+
+Testing for wrong inv
+
+         ok outlier
+Label:             
+ok        0       0
+outlier  11   1,272
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  2,438  26,620
+
+Testing for gainx100
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  86,625   9,554
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  86,535   9,644
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  86,631   9,548
+
+
+Removing NA
+Removing 22810 NA under column "delta_pga"
+Removing 118800 NA under column "psd@10sec"
+1,589,575 segments, 319,001 good, 1,270,574 outliers
+
+Duplicated per class removed
+1,324,007 segments, 302,826 good, 1,021,181 outliers
+
+Splitting train test
+train: 100,942 elements, test: 442,191 elements
+
+
+ocsvm_features=delta_pga,psd@10sec_kernel=rbf_gamma=10_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       90,913  10,029
+outlier       0       0
+
+Testing for wrong inv
+
+        ok outlier
+Label:            
+ok       0       0
+outlier  6   1,277
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  6,498  22,923
+
+Testing for gainx100
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  5,303  98,212
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  52,060  51,455
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  88,695  14,820
+
+
+Removing NA
+Removing 22810 NA under column "delta_pga"
+Removing 22810 NA under column "delta_pgv"
+Removing 118800 NA under column "psd@10sec"
+1,589,575 segments, 319,001 good, 1,270,574 outliers
+
+Duplicated per class removed
+1,324,007 segments, 302,826 good, 1,021,181 outliers
+
+Splitting train test
+train: 100,942 elements, test: 442,191 elements
+
+
+ocsvm_features=delta_pga,delta_pgv,psd@10sec_kernel=rbf_gamma=10_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       90,588  10,354
+outlier       0       0
+
+Testing for wrong inv
+
+        ok outlier
+Label:            
+ok       0       0
+outlier  2   1,281
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  3,875  25,546
+
+Testing for gainx100
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  3,636  99,879
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  49,159  54,356
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  88,413  15,102
+
+
+Removing NA
+Removing 22810 NA under column "delta_pga"
+1,708,375 segments, 328,300 good, 1,380,075 outliers
+
+Duplicated per class removed
+1,370,011 segments, 312,056 good, 1,057,955 outliers
+
+Splitting train test
+train: 104,019 elements, test: 457,635 elements
+
+
+ocsvm_features=delta_pga_kernel=rbf_gamma=100_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       93,476  10,542
+outlier       0       0
+
+Testing for wrong inv
+
+        ok outlier
+Label:            
+ok       0       0
+outlier  9   1,440
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  8,609  23,747
+
+Testing for gainx100
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  7,396  99,208
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  58,279  48,325
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  91,935  14,669
+
+
+Removing NA
+Removing 22810 NA under column "delta_pga"
+Removing 22810 NA under column "delta_pgv"
+1,708,375 segments, 328,300 good, 1,380,075 outliers
+
+Duplicated per class removed
+1,370,011 segments, 312,056 good, 1,057,955 outliers
+
+Splitting train test
+train: 104,019 elements, test: 457,635 elements
+
+
+ocsvm_features=delta_pga,delta_pgv_kernel=rbf_gamma=100_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       93,394  10,624
+outlier       0       0
+
+Testing for wrong inv
+
+         ok outlier
+Label:             
+ok        0       0
+outlier  12   1,437
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  5,394  26,962
+
+Testing for gainx100
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  8,404  98,200
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  61,274  45,330
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  92,649  13,955
+
+
+Removing NA
+Removing 118800 NA under column "psd@10sec"
+1,612,385 segments, 324,690 good, 1,287,695 outliers
+
+Duplicated per class removed
+1,242,611 segments, 288,538 good, 954,073 outliers
+
+Splitting train test
+train: 96,179 elements, test: 415,057 elements
+
+
+ocsvm_features=psd@10sec_kernel=rbf_gamma=100_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       86,743   9,436
+outlier       0       0
+
+Testing for wrong inv
+
+         ok outlier
+Label:             
+ok        0       0
+outlier  11   1,272
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  2,531  26,527
+
+Testing for gainx100
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  86,649   9,530
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  86,635   9,544
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  86,656   9,523
+
+
+Removing NA
+Removing 22810 NA under column "delta_pga"
+Removing 118800 NA under column "psd@10sec"
+1,589,575 segments, 319,001 good, 1,270,574 outliers
+
+Duplicated per class removed
+1,324,007 segments, 302,826 good, 1,021,181 outliers
+
+Splitting train test
+train: 100,942 elements, test: 442,191 elements
+
+
+ocsvm_features=delta_pga,psd@10sec_kernel=rbf_gamma=100_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       90,790  10,152
+outlier       0       0
+
+Testing for wrong inv
+
+        ok outlier
+Label:            
+ok       0       0
+outlier  9   1,274
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  2,645  26,776
+
+Testing for gainx100
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  7,578  95,937
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  56,992  46,523
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  89,526  13,989
+
+
+Removing NA
+Removing 22810 NA under column "delta_pga"
+Removing 22810 NA under column "delta_pgv"
+Removing 118800 NA under column "psd@10sec"
+1,589,575 segments, 319,001 good, 1,270,574 outliers
+
+Duplicated per class removed
+1,324,007 segments, 302,826 good, 1,021,181 outliers
+
+Splitting train test
+train: 100,942 elements, test: 442,191 elements
+
+
+ocsvm_features=delta_pga,delta_pgv,psd@10sec_kernel=rbf_gamma=100_nu=0.1
+
+Testing for oks
+
+             ok outlier
+Label:                 
+ok       90,701  10,241
+outlier       0       0
+
+Testing for wrong inv
+
+         ok outlier
+Label:             
+ok        0       0
+outlier  11   1,272
+
+Testing for swap acc / vel
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  3,333  26,088
+
+Testing for gainx100
+
+            ok outlier
+Label:                
+ok           0       0
+outlier  8,343  95,172
+
+Testing for gainx10
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  59,939  43,576
+
+Testing for gainx2
+
+             ok outlier
+Label:                 
+ok            0       0
+outlier  90,063  13,452
+`;
+
+var reg = /Removing NA\n/;
+idx = text.substring(0).search(/Removing NA\n/g);
+var header = text.substring(0, idx);
+var objs = text.substring(idx, text.length).split(/Removing NA\n/);
+
+var data = {};
+
+for (var obj of objs){
+	if (!obj.length){
+		continue;
+	}
+	var matcher = /ocsvm_.*\n/.exec(obj);
+	var key = matcher[0].replace(/_/g, " ").replace("delta pga", "delta_pga").replace("delta pgv", "delta_pgv");
+	data[key.trim()] = obj;
+}
+
+function update(){
+	document.getElementById('div').innerHTML = '';
+	for (var title of Object.keys(data)){
+		if (!document.getElementById(title).selected){
+			continue;
+		}
+		var pre = document.createElement('pre');
+		pre.innerHTML = data[title];
+		document.getElementById('div').appendChild(pre);
+	}
+}
+
+document.getElementById('select').onchange = update;
+for (var title of Object.keys(data)){
+	var pre = document.createElement('pre');
+	pre.innerHTML = data[title];
+	var h3 = document.createElement('option');
+	h3.value = title;
+	h3.innerHTML = title;
+	h3.setAttribute('id', title);
+	// h3.onclick = update;
+	// h3.click = update;
+	document.getElementById('select').appendChild(h3);
+	// document.getElementById('div').appendChild(pre);
+}
+
+</script>
+
+</html>
