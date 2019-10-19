@@ -96,16 +96,31 @@ def run():
 
     # NOTES: nu=0.9 (also from 0.5) basically shrinks too much and classifies
     # all as outlier
+    # All classifiers with delta_pga have lower scores than delta_pga, delta_pgv,
+    # thus let's ignore delta_pga
+    # All classifiers with delta_pga, psd@10sec have lower scores than
+    # delta_pga, delta_pgv, psd@10sec
+    # thus let's ignore delta_pga, psd@10sec
+
+    kols = [
+        ['delta_pga', 'delta_pgv'],
+        ['delta_pga', 'delta_pgv', 'psd@2sec', 'psd@10sec'],
+        ['magnitude', 'distance_km', 'amp@0.5hz', 'amp@1hz',
+         'amp@2hz', 'amp@5hz', 'amp@10hz'],
+        ['magnitude', 'distance_km', 'amp@0.5hz', 'amp@1hz',
+         'amp@2hz', 'amp@5hz', 'amp@10hz', 'psd@2sec', 'psd@10sec']
+    ]
 
     params = {
         'kernel': ['rbf'],
-        'gamma': ['auto', 10, 100],
-        'nu': [0.1],  # , 0.9],
-        'columns': [['delta_pga'],
-                    ['delta_pga', 'delta_pgv'],
-                    ['psd@10sec'],
-                    ['delta_pga', 'psd@10sec'],
-                    ['delta_pga', 'delta_pgv', 'psd@10sec']]
+        'gamma': ['auto', 1, 3, 13, 50],  # np.logspace(np.log10(1), np.log10(50), 4)
+        'nu': [0.1, 0.2, 0.5],  # np.logspace(np.log10(.1), np.log10(.5), 3)
+        'columns': [#['delta_pga'],
+                    #['delta_pga', 'delta_pgv'],
+                    # ['psd@10sec'],
+                    # ['delta_pga', 'psd@10sec'],
+                    # ['delta_pga', 'delta_pgv', 'psd@10sec'],
+                    ['delta_pga', 'delta_pgv', 'psd@1sec', 'psd@10sec']]
     }
 
     for kernel, gamma, nu, columns in product(*list(params.values())):
@@ -115,7 +130,7 @@ def run():
         print('')
         clz = ','.join(_ for _ in columns)
         fle = join(os.getcwd(),
-                   "ocsvm_features=%s_kernel=%s_gamma=%s_nu=%s" % (str(clz),
+                   "ocsvm_features=%s&kernel=%s&gamma=%s&nu=%s" % (str(clz),
                                                                    str(kernel),
                                                                    str(gamma),
                                                                    str(nu)))

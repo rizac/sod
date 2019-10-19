@@ -135,10 +135,14 @@ def open_dataset(filename=None, verbose=True):
     dfr.loc[gainx10, 'weight'] = 10
 
     sum_df = {}
+    suspicious_psd = set()
+    suspicious_psd_sta = set()
     if verbose:
         print('\nNormalizing')
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
+        columns = ['min', 'median', 'max', 'NANs', 'segs1-99',
+                   'stas1-99']
         oks_ = ~is_outlier(dfr)
         for col in [
             'psd@0.1sec',
@@ -159,21 +163,38 @@ def open_dataset(filename=None, verbose=True):
             'amplitude_ratio',
             'snr'
         ]:
-            _dfr = dfr.loc[oks_, col]
-            min_, max_ = np.nanmin(_dfr), np.nanmax(_dfr)
+            _dfr = dfr.loc[oks_, :]
+            q01 = np.nanquantile(_dfr[col], 0.01)
+            q99 = np.nanquantile(_dfr[col], 0.99)
+            df1, df99 = _dfr[(_dfr[col] <= q01)], _dfr[(_dfr[col] >= q99)]
+            segs1 = len(pd.unique(df1['Segment.db.id']))
+            segs99 = len(pd.unique(df99['Segment.db.id']))
+            stas1 = len(pd.unique(df1['station_id']))
+            stas99 = len(pd.unique(df99['station_id']))
+
+            min_, max_ = np.nanmin(_dfr[col]), np.nanmax(_dfr[col])
             dfr[col] = (dfr[col] - min_) / (max_ - min_)
             if verbose:
                 sum_df[col] = {
-                    'min': dfr[col].min(),
-                    'median':  dfr[col].quantile(0.5),
-                    'max': dfr[col].max(),
-                    'NANs': pd.isna(dfr[col]).sum()
+                    columns[0]: dfr[col].min(),
+                    columns[1]:  dfr[col].quantile(0.5),
+                    columns[2]: dfr[col].max(),
+                    columns[3]: pd.isna(dfr[col]).sum(),
+                    columns[4]: segs1 + segs99,
+                    columns[5]: stas1 + stas99,
                 }
         if verbose:
             print(df2str(pd.DataFrame(data=list(sum_df.values()),
-                                      columns=['min', 'median', 'max', 'NANs'],
+                                      columns=columns,
                                       index=list(sum_df.keys()))))
 
+    if verbose:
+        print("-------")
+        print("LEGEND:")
+        print("%s: unique segments ids (not outliers) "
+              "are outside 1 percentile" % columns[4])
+        print("%s: unique stations of the segments in %s"
+              % (columns[5], columns[4]))
     return dfr
 
 
