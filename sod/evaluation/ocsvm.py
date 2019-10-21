@@ -111,6 +111,9 @@ def run():
          'amp@2hz', 'amp@5hz', 'amp@10hz', 'psd@2sec', 'psd@10sec']
     ]
 
+    all_columns = set(_ for lst in kols for _ in lst)
+    dfr = dropna(dfr_base, all_columns, verbose=True)
+
     params = {
         'kernel': ['rbf'],
         'gamma': ['auto', 1, 3, 13, 50],  # np.logspace(np.log10(1), np.log10(50), 4)
@@ -124,7 +127,7 @@ def run():
     }
 
     for kernel, gamma, nu, columns in product(*list(params.values())):
-        dfr = dropna(dfr_base, columns, verbose=True)
+        
         dfr = drop_duplicates(dfr, columns, verbose=True)
         train_df, test_df = split_train_test(dfr)
         print('')
@@ -160,6 +163,11 @@ def run():
 #     print(scr)
 
     print('')
+
+
+class Evaluator:
+    
+    def __init__(self):
 
 #     _ds  = pd.cut(dfr['distance_km'], np.array([0, 10000]), right=False)
 #     assert not pd.isna(_mg).any()

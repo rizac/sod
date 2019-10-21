@@ -298,13 +298,13 @@ freqs_interp:
  - 10
 
 # psd interpolation values (in seconds):
-psd_periods:
- - 0.1
- - 1 
- - 10 
- - 20 
- - 50
- - 100
+noise_psd_periods:
+ - 1
+ - 2 
+ - 3 
+ - 5 
+ - 9
+# - 100
 
 # Settings for computing the 'signal' and 'noise' time windows on a segment waveform.
 # From within the GUI, signal and noise windows will be visualized as shaded areas on the plot
