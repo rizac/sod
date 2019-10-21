@@ -296,6 +296,7 @@ freqs_interp:
  - 2
  - 5
  - 10
+ - 20
 
 # psd interpolation values (in seconds):
 noise_psd_periods:
