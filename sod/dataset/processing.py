@@ -244,6 +244,7 @@ def _main(segment, config, raw_trace_for_noisepsd, inventory_used):
 
     distance = segment.event_distance_km
 
+    ret['event_id'] = segment.event.id
     ret['station_id'] = segment.station.id
     ret['event_time'] = segment.event.time
     ret['snr'] = snr_
