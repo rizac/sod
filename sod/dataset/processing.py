@@ -75,6 +75,7 @@ def main2(segment, config):
 
         stream = segment.stream(True)
         assert1trace(stream)  # raise and return if stream has more than one trace
+        raw_trace = stream[0].copy()
         trace = stream[0]  # work with the (surely) one trace now
 
         # compute amplitude ratio only once on the raw trace:
@@ -86,7 +87,7 @@ def main2(segment, config):
         # bandpass the trace, according to the event magnitude.
         # This modifies the segment.stream() permanently:
         trace = _bandpass_remresp(segment, config, trace, segment.inventory())
-        data.append(_main(segment, config, segment.inventory()))
+        data.append(_main(segment, config, raw_trace.copy(), segment.inventory()))
         data[-1]['amplitude_ratio'] = amp_ratio
 
         # add gain (1). Decide whether to compute gain x2,10,100 or x1/2.1/10,1/100
@@ -102,7 +103,7 @@ def main2(segment, config):
             newtrace.data *= float(gain_factor)
             stream[0] = newtrace
             assert segment.stream()[0] is newtrace
-            data.append(_main(segment, config, segment.inventory()))
+            data.append(_main(segment, config, raw_trace.copy(), segment.inventory()))
             data[-1]['outlier'] = 1
             data[-1]['modified'] = "STAGEGAIN:X%s" % str(gain_factor)
             data[-1]['amplitude_ratio'] = amp_ratio
@@ -119,8 +120,9 @@ def main2(segment, config):
                 stream = segment.stream(True)
                 # re-apply bandpass with the "wrong" inventory
                 # (modifying segment.stream() inplace):
-                _bandpass_remresp(segment, config, stream[0], inventory)
-                data.append(_main(segment, config, inventory))
+                _test_trace = _bandpass_remresp(segment, config, stream[0], inventory)
+                assert _test_trace is segment.stream()[0]
+                data.append(_main(segment, config, raw_trace.copy(), inventory))
                 data[-1]['outlier'] = 1
                 data[-1]['modified'] = "CHARESP:%s" % other_cha.code
                 data[-1]['amplitude_ratio'] = amp_ratio
@@ -139,8 +141,9 @@ def main2(segment, config):
                 stream = segment.stream(True)
                 # re-apply bandpass with the "wrong" inventory
                 # (modifying segment.stream() inplace):
-                _bandpass_remresp(segment, config, stream[0], wrong_inventory)
-                data.append(_main(segment, config, wrong_inventory))
+                _test_trace = _bandpass_remresp(segment, config, stream[0], wrong_inventory)
+                assert _test_trace is segment.stream()[0]
+                data.append(_main(segment, config, raw_trace.copy(), wrong_inventory))
                 data[-1]['outlier'] = 1
                 data[-1]['modified'] = "INVFILE:%s" % filename
                 data[-1]['amplitude_ratio'] = amp_ratio
@@ -187,7 +190,7 @@ def get_other_chan_objs(segment, inventory=None):
                     yield cha
 
 
-def _main(segment, config, inventory_used):
+def _main(segment, config, raw_trace_for_noisepsd, inventory_used):
     """
     called by main with supplied inventory_used, which MUST be the inventory used
     on the raw trace to obtain `segment.stream()[0]`
@@ -229,8 +232,10 @@ def _main(segment, config, inventory_used):
     # PSD NOISE VALUES:
     # FIXME! DO I HAVE TO PASS THE PROCESSED TRACE (AS IT IS) or THE RAW ONE
     # (segment.stream(True)[0])?
-    required_psd_periods = config['psd_periods']
-    required_psd_values = psd_values(segment, required_psd_periods, inventory_used)
+    required_psd_periods = config['noise_psd_periods']
+    required_psd_values = psd_values(segment, required_psd_periods,
+                                     raw_trace_for_noisepsd,
+                                     inventory_used)
 
     # calculates amplitudes at the frequency bins given in the config file:
 
@@ -464,9 +469,9 @@ def gmpe_reso_14(mag, dist, mode='pga', vs30=800, sof='sofN'):
     return 10 ** (e1 + valueFD + valueFM + valueFS + sof_val) / 100.0  # returns m/sec or m/sec2
 
 
-def psd_values(segment, periods, inventory=None):
+def psd_values(segment, periods, raw_trace, inventory=None):
     periods = np.asarray(periods)
-    ppsd_ = psd(segment, inventory)
+    ppsd_ = psd(segment, raw_trace, inventory)
     # check first if we can interpolate ESPECIALLY TO SUPPRESS A WEIRD
     # PRINTOUT (numpy?): something like '5064 5062' which happens
     # on IndexError (len(ppsd_.psd_values)=0)
@@ -477,14 +482,16 @@ def psd_values(segment, periods, inventory=None):
     val[periods > ppsd_.period_bin_centers[-1]] = np.nan
     return val
 
-def psd(segment, inventory=None):
+
+def psd(segment, raw_trace, inventory=None):
     if inventory is None:
         inventory = segment.inventory()
-    tr = segment.stream()[0]
-    dt = (segment.arrival_time - tr.stats.starttime.datetime).total_seconds()
-    tr = tr.slice(tr.stats.starttime, UTCDateTime(segment.arrival_time))
-    ppsd = PPSD(tr.stats, metadata=inventory, ppsd_length=int(dt))
-    ppsd.add(tr)
+    # tr = segment.stream(True)[0]
+    dt = (segment.arrival_time - raw_trace.stats.starttime.datetime).total_seconds()
+    raw_trace = raw_trace.slice(raw_trace.stats.starttime,
+                                UTCDateTime(segment.arrival_time))
+    ppsd = PPSD(raw_trace.stats, metadata=inventory, ppsd_length=int(dt))
+    ppsd.add(raw_trace)
     return ppsd
 
 
