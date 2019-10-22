@@ -112,7 +112,7 @@ def main2(segment, config):
                 # int, cast:
                 raw_trace_.data = (0.5 + (raw_trace_.data *
                                           float(gain_factor))).\
-                                          astype(raw_trace.dtype)
+                                          astype(raw_trace.data.dtype)
             data.append(_main(segment, config, raw_trace_, segment.inventory()))
             data[-1]['outlier'] = 1
             data[-1]['modified'] = "STAGEGAIN:X%s" % str(gain_factor)
