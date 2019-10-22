@@ -11,7 +11,8 @@ from itertools import repeat
 from sod.evaluation import pdconcat  #, train_test_split
 from collections import defaultdict
 from sklearn.model_selection._split import KFold
-from sod.evaluation import split, cmatrix, classifier, predict, _predict
+from sod.evaluation import split, cmatrix, classifier, predict, _predict, open_dataset,\
+    Evaluator
 from sklearn.metrics.classification import confusion_matrix
 import mock
 from sklearn.svm.classes import OneClassSVM
@@ -19,8 +20,8 @@ from sklearn.svm.classes import OneClassSVM
 
 class Tester:
 
-    dfr = pd.read_hdf(join(dirname(__file__), '..', 'sod', 'dataset',
-                           'dataset.secondtry.hdf'))
+    dfr = open_dataset(join(dirname(__file__), '..', 'sod', 'dataset',
+                           'dataset.secondtry.hdf'), False)
 
     clf = classifier(OneClassSVM, dfr.iloc[:5,:][['delta_pga', 'delta_pgv']])
 
@@ -62,35 +63,35 @@ class Tester:
 
     @mock.patch('sod.evaluation._predict')
     def test_get_scores(self, mock_predict):
-        dfr = pd.DataFrame([{'outlier': 0, 'weight': 1, 'Segment.db.id': 1},
-                            {'outlier': 1, 'weight': 1, 'Segment.db.id': 2}])
+        dfr = pd.DataFrame([{'outlier': 0, 'modified': '', 'Segment.db.id': 1},
+                            {'outlier': 1, 'modified': 'invchanged', 'Segment.db.id': 2}])
         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1])
         pred_df = predict(None, dfr)
-        assert pred_df['predicted'].sum() == 0
+        assert pred_df['correctly_predicted'].sum() == 2
         cm_ = cmatrix(pred_df)
         cm_ok_row = cm_.loc['ok', :]
         cm_outlier_row = cm_.loc['outlier', :]
         assert (cm_ok_row == [1, 0]).all()
         assert (cm_outlier_row == [0, 1]).all()
 
-        dfr = pd.DataFrame([{'outlier': 0, 'weight': 1, 'Segment.db.id': 1},
-                            {'outlier': 0, 'weight': 1, 'Segment.db.id': 1},
-                            {'outlier': 1, 'weight': 1, 'Segment.db.id': 1}])
+        dfr = pd.DataFrame([{'outlier': 0, 'modified': '', 'Segment.db.id': 1},
+                            {'outlier': 0, 'modified': '', 'Segment.db.id': 1},
+                            {'outlier': 1, 'modified': 'invchanged', 'Segment.db.id': 1}])
         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
         pred_df = predict(None, dfr)
-        assert pred_df['predicted'].sum() == -1
+        assert pred_df['correctly_predicted'].sum() == 2
         cm_ = cmatrix(pred_df)
         cm_ok_row = cm_.loc['ok',:]
         cm_outlier_row = cm_.loc['outlier',:]
         assert (cm_ok_row == [1, 1]).all()
         assert (cm_outlier_row == [0, 1]).all()
 
-        dfr = pd.DataFrame([{'outlier': 0, 'weight': 1, 'Segment.db.id': 1},
-                            {'outlier': 0, 'weight': 3, 'Segment.db.id': 1},
-                            {'outlier': 1, 'weight': 1, 'Segment.db.id': 3}])
+        dfr = pd.DataFrame([{'outlier': 0, 'modified': '', 'Segment.db.id': 1},
+                            {'outlier': 0, 'modified': '', 'Segment.db.id': 1},
+                            {'outlier': 1, 'modified': 'invchanged', 'Segment.db.id': 3}])
         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
         pred_df = predict(None, dfr)
-        assert pred_df['predicted'].sum() == -1
+        assert pred_df['correctly_predicted'].sum() == 2
         cm_ = cmatrix(pred_df)
         cm_ok_row = cm_.loc['ok',:]
         cm_outlier_row = cm_.loc['outlier',:]
@@ -108,15 +109,30 @@ class Tester:
                            self.dfr.iloc[_:_+1, :][['delta_pga', 'delta_pgv']])
             asd = 9
 
-    def test_cmatrix(self):
-        dfr = pd.DataFrame({
-            'label': [1, -1],
-            'predicted': [1, -1]
-        })
-        
-        cm1 = cmatrix(dfr)
-        cm2 = cmatrix(dfr, [1, 100])
+    def test_evaluator(self,
+                       # pytest fixutres:
+                       tmpdir
+                       ):
+        root = tmpdir.mkdir("testdir")
+        eval = Evaluator(OneClassSVM,
+                         parameters=[{'kernel': 'rbf', 'gamma': 'auto'},
+                                     {'kernel': 'rbf', 'gamma': 1.1}],
+                         n_folds=5,
+                         rootoutdir=root)
+        eval.run(self.dfr.iloc[:5, :], columns=[['delta_pgv'],
+                                                ['delta_pga', 'delta_pgv']])
         asd = 9
+        
+        
+#     def test_cmatrix(self):
+#         dfr = pd.DataFrame({
+#             'label': [1, -1],
+#             'predicted': [1, -1]
+#         })
+#         
+#         cm1 = cmatrix(dfr)
+#         cm2 = cmatrix(dfr, [1, 100])
+#         asd = 9
         
 #     def test_make_bins(self):
 #         make_bins(self.dfr, 'distance_km')
