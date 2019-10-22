@@ -1,7 +1,8 @@
 '''
     Evaluation commmon utilities
 '''
-from os.path import abspath, join, dirname, isfile
+from os import makedirs
+from os.path import abspath, join, dirname, isfile, isdir, basename
 from itertools import repeat
 import warnings
 from collections import defaultdict
@@ -273,6 +274,23 @@ def predict(clf, dataframe, *columns):
     }, index=dataframe.index)
 
 
+def _predict(clf, dataframe):
+    '''Returns a numpy array of len(dataframe) integers in [-1, 1],
+    where:
+    -1: item is classified as OUTLIER
+     1: item is classified as OK (no outlier)
+    Each number at index I is the prediction (classification) of
+    the I-th element of `dataframe`.
+
+    :param clf: the given (trained) classifier
+    :param dataframe: pandas DataFrame
+    :param columns: list of string denoting the columns of `dataframe` that
+        represents the feature space to fit the classifier with
+    '''
+    # this method is very trivial it is used mainly for test purposes (mock)
+    return clf.predict(dataframe.values)
+
+
 def cmatrix(dataframe, sample_weights=None):
     '''
         :param dataframe: the output of predict(dataframe, *columns)
@@ -298,23 +316,6 @@ def cmatrix(dataframe, sample_weights=None):
     confm.columns.name = 'Classified as:'
     confm.index.name = 'Label:'
     return confm
-
-
-def _predict(clf, dataframe):
-    '''Returns a numpy array of len(dataframe) integers in [-1, 1],
-    where:
-    -1: item is classified as OUTLIER
-     1: item is classified as OK (no outlier)
-    Each number at index I is the prediction (classification) of
-    the I-th element of `dataframe`.
-
-    :param clf: the given (trained) classifier
-    :param dataframe: pandas DataFrame
-    :param columns: list of string denoting the columns of `dataframe` that
-        represents the feature space to fit the classifier with
-    '''
-    # this method is very trivial it is used mainly for test purposes (mock)
-    return clf.predict(dataframe.values)
 
 
 def is_outlier(dataframe):
@@ -449,9 +450,34 @@ class EvalResult:
         self.predictions = predict(self.clf, dataframe, *self.features)
 
 
+def fit_and_predict(clf_class, train_df, columns, params, test_df=None,
+                    filepath=None):
+    '''Fits a model with `train_df[columns]` and returns an
+    `EvalResult` with predictions derived from `test_df[columns]`
+    '''
+    if filepath is not None and isfile(filepath):
+        clf = load(filepath)
+    else:
+        clf = classifier(clf_class, train_df[list(columns)],
+                         **{'cache_size': 2000, **params})
+    evres = EvalResult(clf, params, columns)
+    if test_df is not None:
+        evres.predict(test_df)
+    if filepath is not None and not isfile(filepath):
+        dump(clf, filepath)
+    return evres
+
+
 class Evaluator:
 
-    def __init__(self, clf_class, parameters, n_folds=5):
+    def __init__(self, clf_class, parameters, rootoutdir=None, n_folds=5):
+        self.rootoutdir = rootoutdir
+        if self.rootoutdir is None:
+            self.rootoutdir = abspath(join(dirname(__file__), 'evalresults'))
+        if not isdir(self.rootoutdir):
+            makedirs(self.rootoutdir)
+        if not isdir(self.rootoutdir):
+            raise ValueError('Could not create %s' % self.rootoutdir)
         self.clf_class = clf_class
         self.n_folds = n_folds
         self.parameters = parameters
@@ -460,122 +486,206 @@ class Evaluator:
         self.weights = np.array([WEIGHTS[_] for _ in self._classes])
 
     def basefilepath(self, features, **params):
-        output_dir = join(__file__, 'results', self.basename)
-        fileend = '&'.join('%s=%s' % (str(k), str(params[k]))
-                           for k in sorted(params))
+        basepath = join(self.rootoutdir, self.clf_class.__name__)
+        fileend = '&'.join('%s=%s' % (str(k), str(v))
+                           for k, v in self.hashable(params))
         if fileend:
             fileend = '&' + fileend
-        feats = ",".join(str(_) for _ in features)
-        return abspath(join(output_dir, '?features=',
-                            feats, fileend))
+        feats = ",".join(str(_) for _ in self.hashable(features))
+        return abspath(basepath + '?features=%s%s' % (feats, fileend))
 
-    @property
-    def basename(self):
-        return self.clf_class.__name__.lower()
+    @staticmethod
+    def hashable(obj):
+        '''converts `obj` to a hashable representation (e.g., to be used in
+        dict keys). E.g., converts list to tuple (after sorting the list),
+        ditc to tuple of tuples (after sorting the dict keys) or `obj` if the
+        latter is neither dict nor list. Checks that the
+        returnsd value is hshable, raised TypeError if `obj` can not be hashed
+        '''
+        try:
+            hash(obj)
+            return obj
+        except TypeError:
+            if isinstance(obj, dict):
+                obj = obj.items()
+            if hasattr(obj, '__iter__'):
+                return tuple(sorted(Evaluator.hashable(_) for _ in obj))
+            raise
 
     def run(self, dataframe, columns):
         self._results = {}
         pool = Pool(processes=cpu_count())
-        with click.progressbar(length=(1 + self.n_folds) *
-                               len(self.parameters)) as pbar:
+        total = len(columns) * (1 + self.n_folds) * len(self.parameters)
+
+        with click.progressbar(length=total) as pbar:
 
             def aasync_callback(result):
                 self._applyasync_callback(pbar, result)
 
-            for params in self.parameters:
-                pool.apply_async(self.fit_global_model,
-                                 (self, dataframe, columns),
-                                 **params,
-                                 callback=aasync_callback)
-                for train_df, test_df in self.train_test_split(dataframe):
-                    pool.apply_async(self.fit_and_predict,
-                                     (self, train_df, test_df, columns),
-                                     **params,
-                                     callback=aasync_callback)
+            aasync = pool.apply_async
+            for cols in columns:
+                for params in self.parameters:
+                    _traindf, _testdf = self.train_test_split(dataframe)
+                    fname = self.basefilepath(cols, **params) + '.model'
+                    aasync(fit_and_predict,
+                           (self.clf_class, _traindf, cols, params, _testdf, fname),
+                           callback=aasync_callback)
+                    for train_df, test_df in self.train_test_split_cv(dataframe):
+                        aasync(fit_and_predict,
+                               (self.clf_class, train_df, cols, params, test_df, None),
+                               callback=aasync_callback)
 
             pool.close()
             pool.join()
 
-        print('Saving evaluation results to file')
-        self.close(columns)
-        print('Done\n')
+#         print('Saving evaluation results to file')
+#         self.close(columns)
+#         print('Done\n')
 
-    def train_test_split(self, dataframe):
+    def train_test_split_cv(self, dataframe):
+        '''Returns an iterable yielding (train_df, test_df) elements
+        for cross-validation. Both DataFrames in each yielded elements are subset
+        of `dataframe`
+        '''
         return train_test_split(dataframe, self.n_folds)
 
-    def _fit(self, dataframe, columns, **params):
-        params.setdefault('cache_size', 1000)
-        return classifier(self.clf_class,
-                          dataframe[list(columns)],
-                          **params), params
-
-    def fit_global_model(self, dataframe, columns, **params):
-        '''Fits a global model with `dataframe[columns]`, saves it to file
-        and returns an `EvalResult` with no predictions
+    def train_test_split(self, dataframe):
+        '''Returns two dataframe representing the train and test dataframe for
+        training the global model. Unless subclassed this method returns the tuple:
+        ```
+        dataframe, None
+        ```
         '''
-        filename = self.basefilepath(columns, **params) + '.model'
-        if isfile(filename):
-            return EvalResult(load(filename), params, columns)
-        clf, params = self._fit(dataframe, columns, **params)
-        dump(clf, filename)
-        return EvalResult(clf, params, columns)
+        return dataframe, None
 
-    def fit_and_predict(self, train_df, test_df, columns, **params):
-        '''Fits a model with `train_df[columns]` and returns an
-        `EvalResult` with predictions derived from `test_df[columns]`
-        '''
-        clf = self._fit(train_df, columns, **params)
-        evres = EvalResult(clf, params, columns)
-        evres.predict(test_df)
-        return evres
+#     def _fit(self, dataframe, columns, **params):
+#         return classifier(self.clf_class,
+#                           dataframe[list(columns)],
+#                           **{'cache_size': 2000, **params}), params
+# 
+#     def fit_global_model(self, dataframe, columns, params):
+#         '''Fits a global model with `dataframe[columns]`, saves it to file
+#         and returns an `EvalResult` with no predictions
+#         '''
+#         filename = self.basefilepath(columns, **params) + '.model'
+#         if isfile(filename):
+#             return EvalResult(load(filename), params, columns)
+#         clf, params = self._fit(dataframe, columns, **params)
+#         dump(clf, filename)
+#         return EvalResult(clf, params, columns)
+# 
+#     def fit_and_predict(self, train_df, test_df, columns, params):
+#         '''Fits a model with `train_df[columns]` and returns an
+#         `EvalResult` with predictions derived from `test_df[columns]`
+#         '''
+#         clf = self._fit(train_df, columns, **params)
+#         evres = EvalResult(clf, params, columns)
+#         evres.predict(test_df)
+#         return evres
 
-    def _applyasync_callback(self, pbar, async_result):
+    def _applyasync_callback(self, pbar, eval_result):
         pbar.update(1)
-        eval_result = async_result.get()
-        if eval_result.predictions is not None:
-            self.append(eval_result.predictions, eval_result.features,
-                        **eval_result.params)
 
-    def append(self, predicted_df, features, **params):
-        key = self.basefilepath(features, **params)
-        if key not in self._results:
-            self._results[key] = []
-        self._results[key].append(predicted_df)
+        features_key = basename(self.basefilepath(eval_result.features))
+        featuresparams_key = basename(self.basefilepath(eval_result.features,
+                                                        **eval_result.params))
 
-    def close(self, columns):
+        if featuresparams_key not in self._results:
+            self._results[featuresparams_key] = []
+        self._results[featuresparams_key].append(eval_result.predictions)
+
+        if len(self._results[featuresparams_key]) == self.n_folds + 1:
+            # finished with current key, Note that some element might be None,
+            # thus pdconcat only non empty dataframes and not Nones:
+            predicted_df = pdconcat(list(_ for _ in self._results[featuresparams_key]
+                                         if not getattr(_, 'empty', True)))
+            predicted_df.to_hdf(featuresparams_key + '.eval.hdf', 'cv',
+                                format='table', mode='w',
+                                min_itemsize={'modified': 45})
+            sum_df = self.get_summary_df(predicted_df)
+            if features_key not in self._results:
+                self._results[features_key] = {}
+            self._results[features_key][self.hashable(eval_result.params)] = sum_df
+            del self._results[featuresparams_key]
+
+        sum_dfs = self._results.get(features_key, [])
+        if 0 < len(sum_dfs) == len(self.parameters):  # pylint: disable=len-as-condition
+            _feats = ';'.join(_ for _ in self.hashable(eval_result.features))
+            eval_rep = 'Features:' + _feats + '\n\n'
+            eval_rep += self.get_eval_report(sum_dfs)
+            with open(features_key + 'eval.allparams.csv') as opn_:
+                opn_.write(eval_rep)
+            del self._results[features_key]
+
+    def get_summary_df(self, predicted_df):
         sum_col = '% rec.'
         sum_df_cols = ['ok', 'outlier']
+        sum_df = pd.DataFrame(index=self._classes,
+                              data=[[0, 0]] * len(self._classes),
+                              columns=sum_df_cols,
+                              dtype=int)
+
+        for typ, selectorfunc in CLASSES.items():
+            _df = predicted_df[selectorfunc(predicted_df)]
+            if _df.empty:
+                continue
+            correctly_pred = _df['correctly_predicted'].sum()
+            sum_df.loc[typ, sum_df_cols[0]] += correctly_pred
+            sum_df.loc[typ, sum_df_cols[1]] += len(_df) - correctly_pred
+        oks = sum_df[sum_df_cols[0]]
+        tots = sum_df[sum_df_cols[0]] + sum_df[sum_df_cols[1]]
+        sum_df[sum_col] = np.around(100 * np.true_divide(oks, tots), 2)
+        return sum_df
+
+    def get_eval_report(self, sum_dfs_dict):
+        sum_col = '% rec.'
         stringio = StringIO()
-        stringio.write(";".join(str(_) for _ in columns) + '\n\n')
-        for key, dataframes in self._results.items():
-            predicted_df = pdconcat(dataframes)
-            predicted_df.sort_index(inplace=True)
-            predicted_df.to_hdf(key + '.eval.hdf', 'cv')
-
-            sum_df = pd.DataFrame(index=self._classes,
-                                  data=[[0, 0]] * len(self._classes),
-                                  columns=sum_df_cols,
-                                  dtype=int)
-
-            for typ, selectorfunc in CLASSES.items():
-                _df = predicted_df[selectorfunc(predicted_df)]
-                if _df.empty:
-                    continue
-                correctly_pred = _df['correctly_predicted'].sum()
-                sum_df.loc[typ, sum_df_cols[0]] += correctly_pred
-                sum_df.loc[typ, sum_df_cols[1]] += len(_df) - correctly_pred
-            oks = sum_df[sum_df_cols[0]]
-            tots = sum_df[sum_df_cols[0]] + sum_df[sum_df_cols[1]]
-            sum_df[sum_col] = np.around(100 * np.true_divide(oks, tots), 2)
+        for params in sorted(sum_dfs_dict):
+            sum_df = sum_dfs_dict[params]
+            stringio.write('Params:' + ';'.join(_ for tup in params for _ in tup))
             stringio.write(';Classified as:\n')
             dfformat(sum_df).to_csv(stringio, sep=';', quoting=csv.QUOTE_NONE)
             stringio.write("\n;;Score:;%f\n" %
                            self.get_score(sum_df[sum_col], self.weights))
-            stringio.write('\n')
+            stringio.write('\n\n')
+        ret = stringio.getvalue()
+        stringio.close()
+        return ret
 
-        final_rep = self.basefilepath(columns) + ".eval.summary.csv"
-        with open(final_rep) as opn_:
-            opn_.write(stringio.getvalue())
+#     def close(self, columns):
+#         sum_col = '% rec.'
+#         sum_df_cols = ['ok', 'outlier']
+#         stringio = StringIO()
+#         stringio.write(";".join(str(_) for _ in columns) + '\n\n')
+#         for key, dataframes in self._results.items():
+#             predicted_df = pdconcat(dataframes)
+#             predicted_df.sort_index(inplace=True)
+#             predicted_df.to_hdf(key + '.eval.hdf', 'cv')
+# 
+#             sum_df = pd.DataFrame(index=self._classes,
+#                                   data=[[0, 0]] * len(self._classes),
+#                                   columns=sum_df_cols,
+#                                   dtype=int)
+# 
+#             for typ, selectorfunc in CLASSES.items():
+#                 _df = predicted_df[selectorfunc(predicted_df)]
+#                 if _df.empty:
+#                     continue
+#                 correctly_pred = _df['correctly_predicted'].sum()
+#                 sum_df.loc[typ, sum_df_cols[0]] += correctly_pred
+#                 sum_df.loc[typ, sum_df_cols[1]] += len(_df) - correctly_pred
+#             oks = sum_df[sum_df_cols[0]]
+#             tots = sum_df[sum_df_cols[0]] + sum_df[sum_df_cols[1]]
+#             sum_df[sum_col] = np.around(100 * np.true_divide(oks, tots), 2)
+#             stringio.write(';Classified as:\n')
+#             dfformat(sum_df).to_csv(stringio, sep=';', quoting=csv.QUOTE_NONE)
+#             stringio.write("\n;;Score:;%f\n" %
+#                            self.get_score(sum_df[sum_col], self.weights))
+#             stringio.write('\n')
+# 
+#         final_rep = self.basefilepath(columns) + ".eval.summary.csv"
+#         with open(final_rep) as opn_:
+#             opn_.write(stringio.getvalue())
 
     def get_score(self, values, weights):
         res = np.true_divide(values * weights, np.sum(weights))

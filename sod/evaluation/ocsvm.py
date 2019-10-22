@@ -69,18 +69,22 @@ class OcsvmEvaluator(Evaluator):
     def __init__(self, parameters, n_folds=5):
         Evaluator.__init__(self, OneClassSVM, parameters, n_folds)
 
-    def train_test_split(self, dataframe):
+    def train_test_split_cv(self, dataframe):
         return Evaluator.train_test_split(self,
                                           dataframe[~is_outlier(dataframe)])
-    
-    def fit_global_model(self, dataframe, columns, **params):
+
+    def train_test_split(self, dataframe):
         is_outl = is_outlier(dataframe)
-        eval_result = Evaluator.fit_global_model(self,
-                                                 dataframe[~is_outl],
-                                                 columns,
-                                                 **params)
-        eval_result.predict(dataframe[is_outl])
-        return eval_result
+        return dataframe[~is_outl], dataframe[is_outl]
+
+#     def fit_global_model(self, dataframe, columns, **params):
+#         is_outl = is_outlier(dataframe)
+#         eval_result = Evaluator.fit_global_model(self,
+#                                                  dataframe[~is_outl],
+#                                                  columns,
+#                                                  **params)
+#         eval_result.predict(dataframe[is_outl])
+#         return eval_result
 
 
 if __name__ == '__main__':
