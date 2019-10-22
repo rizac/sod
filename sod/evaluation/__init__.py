@@ -1,15 +1,22 @@
 '''
     Evaluation commmon utilities
 '''
-from os.path import abspath, join, dirname
+from os.path import abspath, join, dirname, isfile
 from itertools import repeat
 import warnings
+from collections import defaultdict
 
+from joblib import dump, load
 import numpy as np
 import pandas as pd
 import time
 from datetime import timedelta
 from sklearn.metrics.classification import confusion_matrix
+import click
+from multiprocessing import Pool, cpu_count
+from _io import StringIO
+import csv
+
 
 DATASET_COLUMNS = [
     "station_id",
@@ -22,17 +29,17 @@ DATASET_COLUMNS = [
     "pga_predicted",
     "pgv_observed",
     "pgv_predicted",
-    "psd@0.1sec",
-    "psd@1sec",
-    "psd@10sec",
-    "psd@20sec",
-    "psd@50sec",
-    "psd@100sec",
+    "noise_psd@1sec",
+    "noise_psd@2sec",
+    "noise_psd@3sec",
+    "noise_psd@5sec",
+    "noise_psd@9sec",
     "amp@0.5hz",
     "amp@1hz",
     "amp@2hz",
     "amp@5hz",
     "amp@10hz",
+    "amp@20hz",
     "outlier",
     "modified",
     "Segment.db.id",
@@ -93,7 +100,7 @@ DATASET_MODIFICATION_TYPES: [
 
 
 DATASET_FILENAME = abspath(join(dirname(__file__), '..',
-                                'dataset', 'dataset.hdf'))
+                                'dataset', 'dataset.secondtry.hdf'))
 
 
 def open_dataset(filename=None, verbose=True):
@@ -124,17 +131,17 @@ def open_dataset(filename=None, verbose=True):
                    'stas1-99']
         oks_ = ~is_outlier(dfr)
         for col in [
-            'psd@0.1sec',
-            'psd@1sec',
-            'psd@10sec',
-            'psd@20sec',
-            'psd@50sec',
-            'psd@100sec',
+            'noise_psd@1sec',
+            'noise_psd@2sec',
+            'noise_psd@3sec',
+            'noise_psd@5sec',
+            'noise_psd@9sec',
             'amp@0.5hz',
             'amp@1hz',
             'amp@2hz',
             'amp@5hz',
             'amp@10hz',
+            'amp@20hz',
             'magnitude',
             'distance_km',
             'delta_pga',
@@ -142,6 +149,10 @@ def open_dataset(filename=None, verbose=True):
             'amplitude_ratio',
             'snr'
         ]:
+            if col.startswith('amp@'):
+                # go to db. We should multuply log * 20 (amp spec) or * 10 (pow spec)
+                # but it's unnecessary as we will normalize few lines below
+                dfr[col] = np.log10(dfr[col])
             _dfr = dfr.loc[oks_, :]
             q01 = np.nanquantile(_dfr[col], 0.01)
             q99 = np.nanquantile(_dfr[col], 0.99)
@@ -252,31 +263,38 @@ def predict(clf, dataframe, *columns):
     predicted = _predict(clf, dataframe if not len(columns)
                          else dataframe[list(columns)])
     label = np.ones(len(predicted))
-    is_outl = is_outlier(dataframe)
-    label[is_outl] = - 1
+    label[is_outlier(dataframe)] = - 1
+    correctly_predicted = label == predicted
     return pd.DataFrame({
-        'label': label,
-        'predicted': predicted
+        'correctly_predicted': correctly_predicted,
+        'outlier': dataframe['outlier'],
+        'modified': dataframe['modified'],
+        'Segment.db.id': dataframe['Segment.db.id']
     }, index=dataframe.index)
 
 
 def cmatrix(dataframe, sample_weights=None):
     '''
-        :param dataframe: the output of predict above
+        :param dataframe: the output of predict(dataframe, *columns)
         :param sample_weights: a numpy array the same length of dataframe
             with the sameple weights. Default: None (no weights)
 
         :return: a pandas 2x2 DataFrame with labels 'ok', 'outlier'
     '''
-    labels = ['ok', 'outlier']
-    confm = pd.DataFrame(confusion_matrix(dataframe['label'],
-                                          dataframe['predicted'],
+    labelnames = ['ok', 'outlier']
+    labels = np.ones(len(dataframe))
+    labels[is_outlier(dataframe)] = -1
+    predicted = -labels
+    predicted[dataframe['correctly_predicted']] = \
+        labels[dataframe['correctly_predicted']]
+    confm = pd.DataFrame(confusion_matrix(labels,
+                                          predicted,
                                           # labels here just assures that
                                           # 1 (ok) is first and
                                           # -1 (outlier) is second:
                                           labels=[1, -1],
                                           sample_weight=sample_weights),
-                         index=labels, columns=labels)
+                         index=labelnames, columns=labelnames)
     confm.columns.name = 'Classified as:'
     confm.index.name = 'Label:'
     return confm
@@ -367,12 +385,34 @@ def train_test_split(dataframe, n_folds=5):
 
 
 def df2str(dataframe):
+    return dfformat(dataframe).to_string()
+
+
+def dfformat(dataframe):
     strformat = {c: "{:,d}" if str(dataframe[c].dtype).startswith('int')
                  else '{:,.2f}' for c in dataframe.columns}
-    newdf = pd.DataFrame({c: dataframe[c].map(strformat[c].format)
-                          for c in dataframe.columns},
-                         index=dataframe.index)
-    return newdf.to_string()
+    return pd.DataFrame({c: dataframe[c].map(strformat[c].format)
+                         for c in dataframe.columns},
+                        index=dataframe.index)
+
+
+CLASSES = {
+    'ok': lambda dfr: ~is_outlier(dfr),
+    'outl. (wrong inv. file)': is_out_wrong_inv,
+    'outl. (cha. resp. acc <-> vel)': is_out_swap_acc_vel,
+    'outl. (gain X100 or X0.01)': is_out_gain_x100,
+    'outl. (gain X10 or X0.1)': is_out_gain_x10,
+    'outl. (gain X2 or X0.5)': is_out_gain_x2
+}
+
+WEIGHTS = {
+    'ok': 100,
+    'outl. (wrong inv. file)': 100,
+    'outl. (cha. resp. acc <-> vel)': 10,
+    'outl. (gain X100 or X0.01)': 50,
+    'outl. (gain X10 or X0.1)': 5,
+    'outl. (gain X2 or X0.5)': 1
+}
 
 
 def info(dataframe, perclass=True):
@@ -390,23 +430,153 @@ def info(dataframe, perclass=True):
         gainx2 = is_out_gain_x2(dataframe).sum()
         data = [oks_count, invfiles, charesp, gainx100, gainx10, gainx2,
                 len(dataframe)]
-        index = [
-            'oks',
-            'outl. (wrong inv. file)',
-            'outl. (cha. resp. acc <-> vel)',
-            'outl. (gain X100 or X0.01)',
-            'outl. (gain X10 or X0.1)',
-            'outl. (gain X2 or X0.5)',
-            'total'
-        ]
+        index = list(CLASSES.keys()) + ['total']
 
     return df2str(pd.DataFrame(data, columns=columns, index=index))
 
 
-def info_(dataframe):
-    outliers = is_outlier(dataframe).sum()
-    oks = len(dataframe) - outliers
-    _str = "%s segments, %s good, %s outliers"
-    return (_str % ("{:,d}".format(len(dataframe)),
-                    "{:,d}".format(oks),
-                    "{:,d}".format(outliers)))
+class EvalResult:
+
+    __slots__ = ['clf', 'predictions', 'params', 'features']
+
+    def __init__(self, clf, params, features):
+        self.clf = clf
+        self.params = params
+        self.predictions = None
+        self.features = features
+
+    def predict(self, dataframe):
+        self.predictions = predict(self.clf, dataframe, *self.features)
+
+
+class Evaluator:
+
+    def __init__(self, clf_class, parameters, n_folds=5):
+        self.clf_class = clf_class
+        self.n_folds = n_folds
+        self.parameters = parameters
+        self._results = {}
+        self._classes = list(CLASSES.keys())
+        self.weights = np.array([WEIGHTS[_] for _ in self._classes])
+
+    def basefilepath(self, features, **params):
+        output_dir = join(__file__, 'results', self.basename)
+        fileend = '&'.join('%s=%s' % (str(k), str(params[k]))
+                           for k in sorted(params))
+        if fileend:
+            fileend = '&' + fileend
+        feats = ",".join(str(_) for _ in features)
+        return abspath(join(output_dir, '?features=',
+                            feats, fileend))
+
+    @property
+    def basename(self):
+        return self.clf_class.__name__.lower()
+
+    def run(self, dataframe, columns):
+        self._results = {}
+        pool = Pool(processes=cpu_count())
+        with click.progressbar(length=(1 + self.n_folds) *
+                               len(self.parameters)) as pbar:
+
+            def aasync_callback(result):
+                self._applyasync_callback(pbar, result)
+
+            for params in self.parameters:
+                pool.apply_async(self.fit_global_model,
+                                 (self, dataframe, columns),
+                                 **params,
+                                 callback=aasync_callback)
+                for train_df, test_df in self.train_test_split(dataframe):
+                    pool.apply_async(self.fit_and_predict,
+                                     (self, train_df, test_df, columns),
+                                     **params,
+                                     callback=aasync_callback)
+
+            pool.close()
+            pool.join()
+
+        print('Saving evaluation results to file')
+        self.close(columns)
+        print('Done\n')
+
+    def train_test_split(self, dataframe):
+        return train_test_split(dataframe, self.n_folds)
+
+    def _fit(self, dataframe, columns, **params):
+        params.setdefault('cache_size', 1000)
+        return classifier(self.clf_class,
+                          dataframe[list(columns)],
+                          **params), params
+
+    def fit_global_model(self, dataframe, columns, **params):
+        '''Fits a global model with `dataframe[columns]`, saves it to file
+        and returns an `EvalResult` with no predictions
+        '''
+        filename = self.basefilepath(columns, **params) + '.model'
+        if isfile(filename):
+            return EvalResult(load(filename), params, columns)
+        clf, params = self._fit(dataframe, columns, **params)
+        dump(clf, filename)
+        return EvalResult(clf, params, columns)
+
+    def fit_and_predict(self, train_df, test_df, columns, **params):
+        '''Fits a model with `train_df[columns]` and returns an
+        `EvalResult` with predictions derived from `test_df[columns]`
+        '''
+        clf = self._fit(train_df, columns, **params)
+        evres = EvalResult(clf, params, columns)
+        evres.predict(test_df)
+        return evres
+
+    def _applyasync_callback(self, pbar, async_result):
+        pbar.update(1)
+        eval_result = async_result.get()
+        if eval_result.predictions is not None:
+            self.append(eval_result.predictions, eval_result.features,
+                        **eval_result.params)
+
+    def append(self, predicted_df, features, **params):
+        key = self.basefilepath(features, **params)
+        if key not in self._results:
+            self._results[key] = []
+        self._results[key].append(predicted_df)
+
+    def close(self, columns):
+        sum_col = '% rec.'
+        sum_df_cols = ['ok', 'outlier']
+        stringio = StringIO()
+        stringio.write(";".join(str(_) for _ in columns) + '\n\n')
+        for key, dataframes in self._results.items():
+            predicted_df = pdconcat(dataframes)
+            predicted_df.sort_index(inplace=True)
+            predicted_df.to_hdf(key + '.eval.hdf', 'cv')
+
+            sum_df = pd.DataFrame(index=self._classes,
+                                  data=[[0, 0]] * len(self._classes),
+                                  columns=sum_df_cols,
+                                  dtype=int)
+
+            for typ, selectorfunc in CLASSES.items():
+                _df = predicted_df[selectorfunc(predicted_df)]
+                if _df.empty:
+                    continue
+                correctly_pred = _df['correctly_predicted'].sum()
+                sum_df.loc[typ, sum_df_cols[0]] += correctly_pred
+                sum_df.loc[typ, sum_df_cols[1]] += len(_df) - correctly_pred
+            oks = sum_df[sum_df_cols[0]]
+            tots = sum_df[sum_df_cols[0]] + sum_df[sum_df_cols[1]]
+            sum_df[sum_col] = np.around(100 * np.true_divide(oks, tots), 2)
+            stringio.write(';Classified as:\n')
+            dfformat(sum_df).to_csv(stringio, sep=';', quoting=csv.QUOTE_NONE)
+            stringio.write("\n;;Score:;%f\n" %
+                           self.get_score(sum_df[sum_col], self.weights))
+            stringio.write('\n')
+
+        final_rep = self.basefilepath(columns) + ".eval.summary.csv"
+        with open(final_rep) as opn_:
+            opn_.write(stringio.getvalue())
+
+    def get_score(self, values, weights):
+        res = np.true_divide(values * weights, np.sum(weights))
+        return np.around(res, 2)
