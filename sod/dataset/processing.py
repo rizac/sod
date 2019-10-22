@@ -106,7 +106,13 @@ def main2(segment, config):
             # need to change alkso the raw trace for the noisepsd, otherwise
             # we calculate the same psd as if we did not change the gain:
             raw_trace_ = raw_trace.copy()
-            raw_trace_.data *= float(gain_factor)
+            try:
+                raw_trace_.data *= float(gain_factor)
+            except TypeError:
+                # int, cast:
+                raw_trace_.data = (0.5 + (raw_trace_.data *
+                                          float(gain_factor))).\
+                                          astype(raw_trace.dtype)
             data.append(_main(segment, config, raw_trace_, segment.inventory()))
             data[-1]['outlier'] = 1
             data[-1]['modified'] = "STAGEGAIN:X%s" % str(gain_factor)
