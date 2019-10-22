@@ -115,8 +115,7 @@ class Tester:
                        ):
         root = tmpdir.mkdir("testdir")
         eval = Evaluator(OneClassSVM,
-                         parameters=[{'kernel': 'rbf', 'gamma': 'auto'},
-                                     {'kernel': 'rbf', 'gamma': 1.1}],
+                         parameters={'kernel': ['rbf'], 'gamma': ['auto', 1.11]},
                          n_folds=5,
                          rootoutdir=root)
         eval.run(self.dfr.iloc[:5, :], columns=[['delta_pgv'],

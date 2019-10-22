@@ -3,7 +3,7 @@
 '''
 from os import makedirs
 from os.path import abspath, join, dirname, isfile, isdir, basename
-from itertools import repeat
+from itertools import repeat, product
 import warnings
 from collections import defaultdict
 
@@ -444,7 +444,7 @@ class EvalResult:
         self.clf = clf
         self.params = params
         self.predictions = None
-        self.features = features
+        self.features = tuple(sorted(features))
 
     def predict(self, dataframe):
         self.predictions = predict(self.clf, dataframe, *self.features)
@@ -454,6 +454,8 @@ def fit_and_predict(clf_class, train_df, columns, params, test_df=None,
                     filepath=None):
     '''Fits a model with `train_df[columns]` and returns an
     `EvalResult` with predictions derived from `test_df[columns]`
+
+    :param params: dict of the classifier parameters
     '''
     if filepath is not None and isfile(filepath):
         clf = load(filepath)
@@ -471,6 +473,12 @@ def fit_and_predict(clf_class, train_df, columns, params, test_df=None,
 class Evaluator:
 
     def __init__(self, clf_class, parameters, rootoutdir=None, n_folds=5):
+        '''
+        
+        :param parameters: a dict mapping each parameter name (strings) to its list
+            of possible values. The total number of cv iterations will be done for all
+            possible combinations of all parameters values
+        '''
         self.rootoutdir = rootoutdir
         if self.rootoutdir is None:
             self.rootoutdir = abspath(join(dirname(__file__), 'evalresults'))
@@ -480,37 +488,38 @@ class Evaluator:
             raise ValueError('Could not create %s' % self.rootoutdir)
         self.clf_class = clf_class
         self.n_folds = n_folds
-        self.parameters = parameters
+        # setup self.parameters:
+        __p = []
+        for p, vals in parameters.items():
+            if not isinstance(vals, (list, tuple)):
+                raise TypeError("'%s' must be mapped to a list or tuple of values, "
+                                "even when there is only one value to iterate over" %
+                                str(p))
+            __p.append(tuple((p, v) for v in vals))
+        self.parameters = tuple(dict(_) for _ in product(*__p))
         self._results = {}
         self._classes = list(CLASSES.keys())
         self.weights = np.array([WEIGHTS[_] for _ in self._classes])
 
     def basefilepath(self, features, **params):
-        basepath = join(self.rootoutdir, self.clf_class.__name__)
-        fileend = '&'.join('%s=%s' % (str(k), str(v))
-                           for k, v in self.hashable(params))
-        if fileend:
-            fileend = '&' + fileend
-        feats = ",".join(str(_) for _ in self.hashable(features))
-        return abspath(basepath + '?features=%s%s' % (feats, fileend))
+        basepath = abspath(join(self.rootoutdir, self.clf_class.__name__))
+        qry = self.pack2str(features, **params)
+        if not qry:
+            return basepath
+        return basepath + '?' + qry
 
-    @staticmethod
-    def hashable(obj):
-        '''converts `obj` to a hashable representation (e.g., to be used in
-        dict keys). E.g., converts list to tuple (after sorting the list),
-        ditc to tuple of tuples (after sorting the dict keys) or `obj` if the
-        latter is neither dict nor list. Checks that the
-        returnsd value is hshable, raised TypeError if `obj` can not be hashed
-        '''
-        try:
-            hash(obj)
-            return obj
-        except TypeError:
-            if isinstance(obj, dict):
-                obj = obj.items()
-            if hasattr(obj, '__iter__'):
-                return tuple(sorted(Evaluator.hashable(_) for _ in obj))
-            raise
+    def pack2str(self, features=None, **params):
+        pars = list((str(k), str(params[k])) for k in sorted(params))
+        if features is not None:
+            pars.insert(0, ('features', ",".join(str(_) for _ in sorted(features))))
+        return '&'.join('%s=%s' % (k, v) for (k, v) in pars)
+    
+    def unpack(self, query_str):
+        ret = {}
+        for chunk in query_str.split('&'):
+            k, v = chunk.split('=')
+            ret[k] = v
+        return ret
 
     def run(self, dataframe, columns):
         self._results = {}
@@ -558,64 +567,44 @@ class Evaluator:
         '''
         return dataframe, None
 
-#     def _fit(self, dataframe, columns, **params):
-#         return classifier(self.clf_class,
-#                           dataframe[list(columns)],
-#                           **{'cache_size': 2000, **params}), params
-# 
-#     def fit_global_model(self, dataframe, columns, params):
-#         '''Fits a global model with `dataframe[columns]`, saves it to file
-#         and returns an `EvalResult` with no predictions
-#         '''
-#         filename = self.basefilepath(columns, **params) + '.model'
-#         if isfile(filename):
-#             return EvalResult(load(filename), params, columns)
-#         clf, params = self._fit(dataframe, columns, **params)
-#         dump(clf, filename)
-#         return EvalResult(clf, params, columns)
-# 
-#     def fit_and_predict(self, train_df, test_df, columns, params):
-#         '''Fits a model with `train_df[columns]` and returns an
-#         `EvalResult` with predictions derived from `test_df[columns]`
-#         '''
-#         clf = self._fit(train_df, columns, **params)
-#         evres = EvalResult(clf, params, columns)
-#         evres.predict(test_df)
-#         return evres
-
     def _applyasync_callback(self, pbar, eval_result):
         pbar.update(1)
 
-        features_key = basename(self.basefilepath(eval_result.features))
-        featuresparams_key = basename(self.basefilepath(eval_result.features,
-                                                        **eval_result.params))
+        evalreport_key = self.pack2str(eval_result.features)
+        predictions_key = self.pack2str(eval_result.features, **eval_result.params)
 
-        if featuresparams_key not in self._results:
-            self._results[featuresparams_key] = []
-        self._results[featuresparams_key].append(eval_result.predictions)
+        if predictions_key not in self._results:
+            self._results[predictions_key] = []
+        self._results[predictions_key].append(eval_result.predictions)
 
-        if len(self._results[featuresparams_key]) == self.n_folds + 1:
-            # finished with current key, Note that some element might be None,
-            # thus pdconcat only non empty dataframes and not Nones:
-            predicted_df = pdconcat(list(_ for _ in self._results[featuresparams_key]
+        if len(self._results[predictions_key]) == self.n_folds + 1:
+            # finished with predictions of current parameters for the current features,
+            # safe as hdf5:
+            predicted_df = pdconcat(list(_ for _ in self._results[predictions_key]
                                          if not getattr(_, 'empty', True)))
-            predicted_df.to_hdf(featuresparams_key + '.eval.hdf', 'cv',
+            fpath = self.basefilepath(eval_result.features, **eval_result.params)
+            predicted_df.to_hdf(fpath + '.eval.hdf', 'cv',
                                 format='table', mode='w',
                                 min_itemsize={'modified': 45})
+            # now save the summary dataframe of the predicted segments just saved:
             sum_df = self.get_summary_df(predicted_df)
-            if features_key not in self._results:
-                self._results[features_key] = {}
-            self._results[features_key][self.hashable(eval_result.params)] = sum_df
-            del self._results[featuresparams_key]
+            if evalreport_key not in self._results:
+                self._results[evalreport_key] = {}
+            self._results[evalreport_key][self.pack2str(**eval_result.params)] = sum_df
+            # delete unused data (help gc?):
+            del self._results[predictions_key]
 
-        sum_dfs = self._results.get(features_key, [])
+        sum_dfs = self._results.get(evalreport_key, {})
         if 0 < len(sum_dfs) == len(self.parameters):  # pylint: disable=len-as-condition
-            _feats = ';'.join(_ for _ in self.hashable(eval_result.features))
-            eval_rep = 'Features:' + _feats + '\n\n'
+            # finished with the current eval report for the current features,
+            # save as csv:
+            _feats = self.unpack(evalreport_key)['features'].replace(',', ';')
+            eval_rep = 'Features:;' + _feats + '\n\n'
             eval_rep += self.get_eval_report(sum_dfs)
-            with open(features_key + 'eval.allparams.csv') as opn_:
+            fpath = self.basefilepath(eval_result.features)
+            with open(fpath + 'eval.allparams.csv', 'w') as opn_:
                 opn_.write(eval_rep)
-            del self._results[features_key]
+            del self._results[evalreport_key]
 
     def get_summary_df(self, predicted_df):
         sum_col = '% rec.'
@@ -642,51 +631,20 @@ class Evaluator:
         stringio = StringIO()
         for params in sorted(sum_dfs_dict):
             sum_df = sum_dfs_dict[params]
-            stringio.write('Params:' + ';'.join(_ for tup in params for _ in tup))
+            stringio.write('Params:')
+            for key, val in self.unpack(params).items():
+                stringio.write(';' + str(key))
+                stringio.write(';' + str(val))
+            stringio.write('\n\n')
             stringio.write(';Classified as:\n')
             dfformat(sum_df).to_csv(stringio, sep=';', quoting=csv.QUOTE_NONE)
-            stringio.write("\n;;Score:;%f\n" %
+            stringio.write(";;Score:;%f\n" %
                            self.get_score(sum_df[sum_col], self.weights))
             stringio.write('\n\n')
         ret = stringio.getvalue()
         stringio.close()
         return ret
 
-#     def close(self, columns):
-#         sum_col = '% rec.'
-#         sum_df_cols = ['ok', 'outlier']
-#         stringio = StringIO()
-#         stringio.write(";".join(str(_) for _ in columns) + '\n\n')
-#         for key, dataframes in self._results.items():
-#             predicted_df = pdconcat(dataframes)
-#             predicted_df.sort_index(inplace=True)
-#             predicted_df.to_hdf(key + '.eval.hdf', 'cv')
-# 
-#             sum_df = pd.DataFrame(index=self._classes,
-#                                   data=[[0, 0]] * len(self._classes),
-#                                   columns=sum_df_cols,
-#                                   dtype=int)
-# 
-#             for typ, selectorfunc in CLASSES.items():
-#                 _df = predicted_df[selectorfunc(predicted_df)]
-#                 if _df.empty:
-#                     continue
-#                 correctly_pred = _df['correctly_predicted'].sum()
-#                 sum_df.loc[typ, sum_df_cols[0]] += correctly_pred
-#                 sum_df.loc[typ, sum_df_cols[1]] += len(_df) - correctly_pred
-#             oks = sum_df[sum_df_cols[0]]
-#             tots = sum_df[sum_df_cols[0]] + sum_df[sum_df_cols[1]]
-#             sum_df[sum_col] = np.around(100 * np.true_divide(oks, tots), 2)
-#             stringio.write(';Classified as:\n')
-#             dfformat(sum_df).to_csv(stringio, sep=';', quoting=csv.QUOTE_NONE)
-#             stringio.write("\n;;Score:;%f\n" %
-#                            self.get_score(sum_df[sum_col], self.weights))
-#             stringio.write('\n')
-# 
-#         final_rep = self.basefilepath(columns) + ".eval.summary.csv"
-#         with open(final_rep) as opn_:
-#             opn_.write(stringio.getvalue())
-
     def get_score(self, values, weights):
-        res = np.true_divide(values * weights, np.sum(weights))
+        res = np.true_divide(np.nansum(values * weights), np.sum(weights))
         return np.around(res, 2)
