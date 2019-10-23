@@ -354,17 +354,6 @@ def split(size, n_folds):
         yield int(np.ceil(i*step)), int(np.ceil((i+1)*step))
 
 
-def kfold(dataframe, n_folds, random=True):
-    for start, end in split(len(dataframe), n_folds):
-        if not random:
-            yield dataframe.iloc[start:end]
-        else:
-            _ = dataframe.copy()
-            dfr = _.sample(n=end-start)
-            yield dfr
-            _ = _[~_.index.isin(dfr.index)]
-
-
 def train_test_split(dataframe, n_folds=5):
     dataframe.reset_index(inplace=True, drop=True)
     indices = np.copy(dataframe.index.values)
@@ -501,7 +490,9 @@ class Evaluator:
         self.parameters = tuple(dict(_) for _ in product(*__p))
         self._predictions, self._eval_reports = defaultdict(list), defaultdict(dict)
         self._classes = list(CLASSES.keys())
-        # self.weights = np.array([WEIGHTS[_] for _ in self._classes])
+        # open template file
+        with open(join(dirname(__file__), 'eval_report_template.html'), 'r') as _:
+            self.eval_report_html_template = _.read()
 
     def basefilepath(self, *features, **params):
         basepath = abspath(join(self.rootoutdir, self.clf_class.__name__))
@@ -519,38 +510,47 @@ class Evaluator:
 
     @staticmethod
     def tonormtuple(*features, **params):
+        '''Normalizes features and params into a tuple that is sorted and hashable, so
+        that it can be used to uniquely identify the same features and params couple
+        '''
         lst = sorted(features)
         lst.extend((str(k), str(params[k])) for k in sorted(params))
         return tuple(lst)
 
     def run(self, dataframe, columns, remove_na=True):
-
+        '''Runs the model evaluation using the data in `dataframe` under the specified
+        columns and for all provided parameters
+        '''
         if remove_na:
-            all_columns = set(_ for lst in columns for _ in lst)
-            dataframe = dropna(dataframe, all_columns, verbose=True)
+            dataframe = dropna(dataframe,
+                               set(_ for lst in columns for _ in lst),
+                               verbose=True)
 
         self._predictions.clear()
         self._eval_reports.clear()
         pool = Pool(processes=cpu_count())
-        total = len(columns) * (1 + self.n_folds) * len(self.parameters)
 
-        with click.progressbar(length=total) as pbar:
+        with click.progressbar(length=len(columns) *
+                               (1 + self.n_folds) * len(self.parameters)) as pbar:
 
             def aasync_callback(result):
                 self._applyasync_callback(pbar, result)
 
-            aasync = pool.apply_async
             for cols in columns:
                 for params in self.parameters:
                     _traindf, _testdf = self.train_test_split_model(dataframe)
                     fname = self.basefilepath(*cols, **params) + '.model'
-                    aasync(fit_and_predict,
-                           (self.clf_class, _traindf, cols, params, _testdf, fname),
-                           callback=aasync_callback)
+                    pool.apply_async(
+                        fit_and_predict,
+                        (self.clf_class, _traindf, cols, params, _testdf, fname),
+                        callback=aasync_callback
+                    )
                     for train_df, test_df in self.train_test_split_cv(dataframe):
-                        aasync(fit_and_predict,
-                               (self.clf_class, train_df, cols, params, test_df, None),
-                               callback=aasync_callback)
+                        pool.apply_async(
+                            fit_and_predict,
+                            (self.clf_class, train_df, cols, params, test_df, None),
+                            callback=aasync_callback
+                        )
 
             pool.close()
             pool.join()
@@ -583,40 +583,49 @@ class Evaluator:
 
         if len(self._predictions[fpkey]) == self.n_folds + 1:
             # finished with predictions of current parameters for the current features,
-            # safe as hdf5:
-            predicted_df = pdconcat(list(_ for _ in self._predictions[fpkey]
-                                         if not getattr(_, 'empty', True)))
-            fpath = self.basefilepath(*eval_result.features, **eval_result.params)
-            predicted_df.to_hdf(fpath + '.evalpredictions.hdf', 'cv',
-                                format='table', mode='w',
-                                min_itemsize={'modified': 45})
-            # now save the summary dataframe of the predicted segments just saved:
-            self._eval_reports[fkey][pkey] = self.get_summary_df(predicted_df)
-            # delete unused data (help gc?):
-            del self._predictions[fpkey]
+            # safe as hdf5 and store the summary dataframe of the predicted segments
+            # just saved:
+            self._eval_reports[fkey][pkey] = \
+                self.save_predictions(eval_result.features, eval_result.params)
 
         sum_dfs = self._eval_reports.get(fkey, {})
         if 0 < len(sum_dfs) == len(self.parameters):  # pylint: disable=len-as-condition
             # finished with the current eval report for the current features,
             # save as csv:
+            self.save_evel_report(eval_result.features)
 
-            # open template file
-            with open(join(dirname(__file__), 'eval_result_template.html'), 'r') as _:
-                template = _.read()
+    def save_predictions(self, features, params, freemem=True):
+        fpkey = self.tonormtuple(*features, **params)
+        predicted_df = pdconcat(list(_ for _ in self._predictions[fpkey]
+                                     if not getattr(_, 'empty', True)))
+        fpath = self.basefilepath(*features, **params)
+        predicted_df.to_hdf(fpath + '.evalpredictions.hdf', 'cv',
+                            format='table', mode='w',
+                            min_itemsize={'modified': 45})
+        if freemem:
+            # delete unused data (help gc?):
+            del self._predictions[fpkey]
+        # now save the summary dataframe of the predicted segments just saved:
+        return self.get_summary_df(predicted_df)
 
-            content = template % {
-                'title': self.clf_class.__name__ + " (features: " + ", ".join(fkey) + ")",
-                'evaluations': json.dumps([{'key': params,
-                                            'data': sumdf.values.tolist()}
-                                           for (params, sumdf) in sum_dfs.items()]),
-                'columns': json.dumps(next(iter(sum_dfs.values())).columns.tolist()),
-                'weights': json.dumps([WEIGHTS[_] for _ in self._classes]),
-                'classes': json.dumps(self._classes)
-            }
+    def save_evel_report(self, features, freemem=True):
+        fkey = self.tonormtuple(*features)
+        sum_dfs = self._eval_reports[fkey]
 
-            fpath = self.basefilepath(*eval_result.features)
-            with open(fpath + '.evalreport.html', 'w') as opn_:
-                opn_.write(content)
+        content = self.eval_report_html_template % {
+            'title': self.clf_class.__name__ + " (features: " + ", ".join(fkey) + ")",
+            'evaluations': json.dumps([{'key': params,
+                                        'data': sumdf.values.tolist()}
+                                       for (params, sumdf) in sum_dfs.items()]),
+            'columns': json.dumps(next(iter(sum_dfs.values())).columns.tolist()),
+            'weights': json.dumps([WEIGHTS[_] for _ in self._classes]),
+            'classes': json.dumps(self._classes)
+        }
+
+        fpath = self.basefilepath(*features)
+        with open(fpath + '.evalreport.html', 'w') as opn_:
+            opn_.write(content)
+        if freemem:
             del self._eval_reports[fkey]
 
     def get_summary_df(self, predicted_df):
