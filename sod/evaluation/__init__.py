@@ -472,7 +472,7 @@ class Evaluator:
         '''
         self.rootoutdir = rootoutdir
         if self.rootoutdir is None:
-            self.rootoutdir = abspath(join(dirname(__file__), 'evalresults'))
+            self.rootoutdir = abspath(join(dirname(__file__), 'results'))
         if not isdir(self.rootoutdir):
             makedirs(self.rootoutdir)
         if not isdir(self.rootoutdir):
