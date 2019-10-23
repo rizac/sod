@@ -5,8 +5,10 @@ Created on 11 Oct 2019
 '''
 import numpy as np
 import pytest
-from os.path import join, abspath, dirname
+from os import makedirs
+from os.path import join, abspath, dirname, isdir, isfile
 import pandas as pd
+import shutil
 from itertools import repeat
 from sod.evaluation import pdconcat  #, train_test_split
 from collections import defaultdict
@@ -21,9 +23,11 @@ from sklearn.svm.classes import OneClassSVM
 class Tester:
 
     dfr = open_dataset(join(dirname(__file__), '..', 'sod', 'dataset',
-                           'dataset.secondtry.hdf'), False)
+                       'dataset.secondtry.hdf'), False)
 
     clf = classifier(OneClassSVM, dfr.iloc[:5,:][['delta_pga', 'delta_pgv']])
+
+    tmpdir = join(dirname(__file__), 'tmp')
 
     def test_to_matrix(self):
         val0 = self.dfr.loc[0, 'magnitude']
@@ -111,15 +115,19 @@ class Tester:
 
     def test_evaluator(self,
                        # pytest fixutres:
-                       tmpdir
+                       #tmpdir
                        ):
-        root = tmpdir.mkdir("testdir")
+        if isdir(self.tmpdir):
+            shutil.rmtree(self.tmpdir)
+        makedirs(self.tmpdir)
+        root = self.tmpdir
         eval = Evaluator(OneClassSVM,
                          parameters={'kernel': ['rbf'], 'gamma': ['auto', 1.11]},
                          n_folds=5,
                          rootoutdir=root)
         eval.run(self.dfr.iloc[:5, :], columns=[['delta_pgv'],
                                                 ['delta_pga', 'delta_pgv']])
+        awdas = 19
         asd = 9
         
         
