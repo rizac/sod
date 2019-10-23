@@ -212,7 +212,7 @@ def dropna(dataframe, columns, verbose=True):
     '''
         Drops rows of dataframe where any column value (at least 1) is NA / NaN
 
-        :return: the new dataframe
+        :return: a COPY of dataframe with only rows available
     '''
     if verbose:
         print('\nRemoving NA')
@@ -223,10 +223,7 @@ def dropna(dataframe, columns, verbose=True):
         nan_count = expr.sum()
         if nan_count == len(dataframe):
             raise ValueError('All values of "%s" NA' % col)
-#             if verbose:
-#                 print('Removing column "%s" (all NA)' % col)
-#             cols2remove.append(col)
-        elif nan_count:
+        if nan_count:
             if verbose:
                 print('Removing %d NA under column "%s"' % (nan_count, col))
             if nan_expr is None:
@@ -522,7 +519,12 @@ class Evaluator:
         lst.extend((str(k), str(params[k])) for k in sorted(params))
         return tuple(lst)
 
-    def run(self, dataframe, columns):
+    def run(self, dataframe, columns, remove_na=True):
+
+        if remove_na:
+            all_columns = set(_ for lst in columns for _ in lst)
+            dataframe = dropna(dataframe, all_columns, verbose=True)
+
         self._predictions.clear()
         self._eval_reports.clear()
         pool = Pool(processes=cpu_count())
@@ -536,7 +538,7 @@ class Evaluator:
             aasync = pool.apply_async
             for cols in columns:
                 for params in self.parameters:
-                    _traindf, _testdf = self.train_test_split(dataframe)
+                    _traindf, _testdf = self.train_test_split_model(dataframe)
                     fname = self.basefilepath(*cols, **params) + '.model'
                     aasync(fit_and_predict,
                            (self.clf_class, _traindf, cols, params, _testdf, fname),
@@ -556,7 +558,7 @@ class Evaluator:
         '''
         return train_test_split(dataframe, self.n_folds)
 
-    def train_test_split(self, dataframe):
+    def train_test_split_model(self, dataframe):  # pylint: disable=no-self-use
         '''Returns two dataframe representing the train and test dataframe for
         training the global model. Unless subclassed this method returns the tuple:
         ```
@@ -632,27 +634,3 @@ class Evaluator:
         tots = sum_df[sum_df_cols[0]] + sum_df[sum_df_cols[1]]
         sum_df[sum_col] = np.around(100 * np.true_divide(oks, tots), 2)
         return sum_df
-
-#     def summary_df_to_csvstr(self, sum_dfs_dict):
-#         sum_col = '% rec.'
-#         stringio = StringIO()
-#         for params in sorted(sum_dfs_dict):
-#             # params is a tuple of (paramname, paramvalue) sub-tuples (all strings)
-#             sum_df = sum_dfs_dict[params]
-#             stringio.write('Params:')
-#             for key, val in params:
-#                 stringio.write(';' + str(key))
-#                 stringio.write(';' + str(val))
-#             stringio.write('\n\n')
-#             stringio.write(';Classified as:\n')
-#             dfformat(sum_df).to_csv(stringio, sep=';', quoting=csv.QUOTE_NONE)
-#             stringio.write(";;Score:;%f\n" %
-#                            self.get_score(sum_df[sum_col], self.weights))
-#             stringio.write('\n\n')
-#         ret = stringio.getvalue()
-#         stringio.close()
-#         return ret
-# 
-#     def get_score(self, values, weights):
-#         res = np.true_divide(np.nansum(values * weights), np.sum(weights))
-#         return np.around(res, 2)
