@@ -10,8 +10,8 @@
 
   <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
 
-  <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
-<!--   <script src="https://cdn.jsdelivr.net/npm/vue@2.6.0"></script>-->
+  <!-- <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>-->
+  <script src="https://cdn.jsdelivr.net/npm/vue@2.6.0"></script>
   <style>
   	td{padding:0.25rem;}
   	.bg-info{background-color: #17a2b82e !important;}
@@ -85,7 +85,7 @@ let app = new Vue({
   el: '#app',
   data: {
   	panelVisible: true,
-    // Confusion matrices, list of objects. Each object has property
+    // Evaluation data, list of objects. Each object has property
     // key -> list of [paramname, paramvalue] elements,
     // data -> numeric (confusion) matrix
     evaluations: %(evaluations)s,
@@ -96,13 +96,10 @@ let app = new Vue({
     columns: %(columns)s,
  	// list of weights, one for each class in classes
     weights: %(weights)s,
-    // the Confusion matrices used for display 
+    // the Confusion matrices used for display. It is a subset of evaluations above 
     // (a propery score will be added to each Object element when creating this Vue, see below)
     cms: [],
   },
-//   created: function(){
-//     this.sort();  
-//   },
   watch: {
   	weights: {
   		immediate: true,
