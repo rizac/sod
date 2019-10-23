@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8">
 
-  <title>The HTML5 Herald</title>
+  <title>%(title)s</title>
   <meta name="description" content="sod evaluation report">
   <meta name="author" content="rizac">
 
@@ -14,105 +14,106 @@
 <!--   <script src="https://cdn.jsdelivr.net/npm/vue@2.6.0"></script>-->
   <style>
   	td{padding:0.25rem;}
+  	.bg-info{background-color: #17a2b82e !important;}
   </style>
 </head>
 
 <body style='width:100vw;height:100vh;'>
 <div id='app' class='d-flex flex-column p-2' style='width:100vw;height:100vh;'> <!-- https://stackoverflow.com/a/39166186 -->
-  <h3 class='text-warning font-weight-bold'>%(title)s</h3>
+  <h3 class='text-warning font-weight-bold text-center'>%(title)s</h3>
   <div class='d-flex flex-row' style='flex: 1 1 auto'>
   	 <div class='position-relative' style='flex: 1 1 auto'>
-  	 	<div class='position-absolute' style='top:0px;right:0px;bottom:0px;left:0px;overflow:auto'>
-	  	 <div v-for="cm in cms" class='mb-3 d-flex flex-row'>
-	     	<div class='mr-3 text-info font-weight-bold border rounded'>
-	     		<table>
-	     			<tr><td colspan="2">Parameters:</td></tr>
-	     			<tr v-for='key in cm.key'>
-	     				<td>{{key[0]}}</td><td>:</td><td>{{key[1]}}</td>
-	     			</tr>
-	     		</table>
-	     	</div>
-	     	<div>
+  	 	<div class='position-absolute d-flex flex-row flex-wrap justify-content-start align-items-start' style='top:0px;right:0px;bottom:0px;left:0px;overflow:auto'>
+	  		<div v-for="(cm, index0) in cms" class='m-2 p-1 pr-2 d-flex flex-row border rounded'>
 	     		<table>
 	     			<tr>
-	     				<td></td>
-	     				<td :colspan='cm.data[0].length-1'>Classified as:</td>
+	     				<td rowspan="2" class='pb-3 pr-3'>
+	     					<div class="bg-info p-2 rounded">
+	     						<b>[{{ index0 + 1 }}]</b>
+	     						<span v-for='key in cm.key' class='text-nowrap'>
+	     							{{key[0]}}: {{key[1]}}
+	     						</span>
+	     					</div>
+	     				</td>
+	     				<td :colspan='cm.data[0].length-2'>Classified as:</td>
 	     				<td></td>
 	     			</tr>
 	     			<tr>
-	     				<td></td>
+	     				<!-- <td></td> -->
 	     				<td v-for='col in columns' v-html='col'></td>
 	     			</tr>
-	     			<tr v-for="(row, index1) in cm.data"
-	     				v-show="!isNaN(parseFloat(weights[index1]))">
-	     				<td>{{ classes[index1] }}</td>
+	     			<tr v-for="(row, index1) in cm.data">
 	     				<td v-for="(cell, index2) in row" v-html="cell"
-	     					class='border'
+	     					class='text-right'
 	     					:class="{
-	     						'text-danger': index2 == row.length-1
+	     						'text-danger': index2 == row.length-1,
+	     						'border': index2 > 0
 	     					}"
 		 				>
 	     				</td>
 	     			</tr>
 	     			<tr>
-	     				<td :colspan='cm.data[0].length-1'></td>
+	     				<td :colspan='cm.data[0].length-2'></td>
 	     				<td>Score:</td>
 	     				<td v-html='cm.score' class='text-danger font-weight-bold'></td>
 	     			</tr>
 	     		</table>
 	     	</div>
 	  	</div>
-	  	</div>
   	</div> 
-    <div class='ml-3 bg-light'>
+    <div class='ml-3 bg-info border'>
 		<table>
     		<tr><td>Class</td><td>Weight</td></tr>
     		<tr v-for='(weight, index) in weights'>
     			<td>{{ classes[index] }}</td>
-    			<td><input type="number" v-model.number="weights[index]"></td>
+    			<td><input type="number" v-model.number="weights[index]" style="width:5rem"></td>
     		</tr>
-    	</table>
-    	<button type='button' class='btn btn-primary' @click='sort'>Sort</button>    
+    	</table>    
     </div>
   </div>
 </div>
-<!--
-%(title)s
-%(cms)s
-%(weights)s
--->
-
-<!-- cm is a list of objects Each object is:
-weights: a dict
-title
-{
-	key: unique key
-	data: a matrix of elements,
-	the last column of data must be numeric and denotes the per-row scores
-	the first column the score labels
-}
--->
 
 <script type="text/javascript">
 
 let app = new Vue({
   el: '#app',
   data: {
-    cms: %(cms)s,
+    // Confusion matrices, list of objects. Each object has property
+    // key -> list of [paramname, paramvalue] elements,
+    // data -> numeric (confusion) matrix
+    evaluations: %(evaluations)s,
+    // list of classes (rows of the confusion matrix)
     classes: %(classes)s,
+    // list of columns of each confusion matrix. This is not the same as
+    // classes as the latter has a finer subdivision 
     columns: %(columns)s,
-    weights: %(weights)s,  // list of weights associated to classes
+ 	// list of weights, one for each class in classes
+    weights: %(weights)s,
+    // the Confusion matrices used for display 
+    // (a propery score will be added to each Object element when creating this Vue, see below)
+    cms: [],
   },
-  created: function(){
-    this.sort();  
+//   created: function(){
+//     this.sort();  
+//   },
+  watch: {
+  	weights: {
+  		immediate: true,
+  		deep: true,
+  		handler: function(newVal, oldVal){
+  			this.createCms();
+  		}
+  	}
   },
   methods: {
-  	sort: function(event){
+  	createCms: function(event){
   		// set the new values (scores):
   		var newcms = [];
   		var weights = this.weights;
   		var classes = this.classes;
   		var denom = 0;
+  		// calculate denominator. There is surely a shorter way but
+  		// JavaScript reduce is cumbersome na dI prefer like this:
   		for(var w of weights){
   		    var wfloat = parseFloat(w);
 	  		if (isNaN(wfloat)){
@@ -121,22 +122,24 @@ let app = new Vue({
   		    denom += w;
   		}
   		var i = 0;
-  		for (var cm of this.cms){
+  		for (var cm of this.evaluations){
 	  		var score = 0;
+	  		newcm = {key: cm.key, data:[]};
 	  		for (var i=0; i<classes.length ; i++){
-	  		    var row = cm.data[i];
+	  		    var weight = parseFloat(this.weights[i]);
+				if (isNaN(weight)){
+					continue;
+				}
+  				var row = cm.data[i];
+	  		    newcm.data.push([classes[i]].concat(row));
 	  		    var value = parseFloat(row[row.length-1]);
 				if (isNaN(value)){
 					continue;
 				}
-				var weight = parseFloat(this.weights[i]);
-				if (isNaN(weight)){
-					continue;
-				}
-  				score += weight * value;
+				score += weight * value;
   			}
-  			cm.score = parseFloat(score / denom).toFixed(2);
-  			newcms.push(cm);
+  			newcm.score = parseFloat(score / denom).toFixed(2);
+  			newcms.push(newcm);
   		}
   		// sort:
   		newcms.sort(function(cm1, cm2) {
