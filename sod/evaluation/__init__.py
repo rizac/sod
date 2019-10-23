@@ -599,9 +599,10 @@ class Evaluator:
                 template = _.read()
 
             content = template % {
-                'title': 'Features: ' + ",".join(fkey),
-                'cms': json.dumps([{'key': params, 'data': sumdf.values.tolist()}
-                                   for (params, sumdf) in sum_dfs.items()]),
+                'title': self.clf_class.__name__ + " (features: " + ", ".join(fkey) + ")",
+                'evaluations': json.dumps([{'key': params,
+                                            'data': sumdf.values.tolist()}
+                                           for (params, sumdf) in sum_dfs.items()]),
                 'columns': json.dumps(next(iter(sum_dfs.values())).columns.tolist()),
                 'weights': json.dumps([WEIGHTS[_] for _ in self._classes]),
                 'classes': json.dumps(self._classes)
