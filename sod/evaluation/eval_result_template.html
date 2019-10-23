@@ -1,0 +1,159 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <title>The HTML5 Herald</title>
+  <meta name="description" content="sod evaluation report">
+  <meta name="author" content="rizac">
+
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+  <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+<!--   <script src="https://cdn.jsdelivr.net/npm/vue@2.6.0"></script>-->
+  <style>
+  	td{padding:0.25rem;}
+  </style>
+</head>
+
+<body style='width:100vw;height:100vh;'>
+<div id='app' class='d-flex flex-column p-2' style='width:100vw;height:100vh;'> <!-- https://stackoverflow.com/a/39166186 -->
+  <h3 class='text-warning font-weight-bold'>%(title)s</h3>
+  <div class='d-flex flex-row' style='flex: 1 1 auto'>
+  	 <div class='position-relative' style='flex: 1 1 auto'>
+  	 	<div class='position-absolute' style='top:0px;right:0px;bottom:0px;left:0px;overflow:auto'>
+	  	 <div v-for="cm in cms" class='mb-3 d-flex flex-row'>
+	     	<div class='mr-3 text-info font-weight-bold border rounded'>
+	     		<table>
+	     			<tr><td colspan="2">Parameters:</td></tr>
+	     			<tr v-for='key in cm.key'>
+	     				<td>{{key[0]}}</td><td>:</td><td>{{key[1]}}</td>
+	     			</tr>
+	     		</table>
+	     	</div>
+	     	<div>
+	     		<table>
+	     			<tr>
+	     				<td></td>
+	     				<td :colspan='cm.data[0].length-1'>Classified as:</td>
+	     				<td></td>
+	     			</tr>
+	     			<tr>
+	     				<td></td>
+	     				<td v-for='col in columns' v-html='col'></td>
+	     			</tr>
+	     			<tr v-for="(row, index1) in cm.data"
+	     				v-show="!isNaN(parseFloat(weights[index1]))">
+	     				<td>{{ classes[index1] }}</td>
+	     				<td v-for="(cell, index2) in row" v-html="cell"
+	     					class='border'
+	     					:class="{
+	     						'text-danger': index2 == row.length-1
+	     					}"
+		 				>
+	     				</td>
+	     			</tr>
+	     			<tr>
+	     				<td :colspan='cm.data[0].length-1'></td>
+	     				<td>Score:</td>
+	     				<td v-html='cm.score' class='text-danger font-weight-bold'></td>
+	     			</tr>
+	     		</table>
+	     	</div>
+	  	</div>
+	  	</div>
+  	</div> 
+    <div class='ml-3 bg-light'>
+		<table>
+    		<tr><td>Class</td><td>Weight</td></tr>
+    		<tr v-for='(weight, index) in weights'>
+    			<td>{{ classes[index] }}</td>
+    			<td><input type="number" v-model.number="weights[index]"></td>
+    		</tr>
+    	</table>
+    	<button type='button' class='btn btn-primary' @click='sort'>Sort</button>    
+    </div>
+  </div>
+</div>
+<!--
+%(title)s
+%(cms)s
+%(weights)s
+-->
+
+<!-- cm is a list of objects Each object is:
+weights: a dict
+title
+{
+	key: unique key
+	data: a matrix of elements,
+	the last column of data must be numeric and denotes the per-row scores
+	the first column the score labels
+}
+-->
+
+<script type="text/javascript">
+
+let app = new Vue({
+  el: '#app',
+  data: {
+    cms: %(cms)s,
+    classes: %(classes)s,
+    columns: %(columns)s,
+    weights: %(weights)s,  // list of weights associated to classes
+  },
+  created: function(){
+    this.sort();  
+  },
+  methods: {
+  	sort: function(event){
+  		// set the new values (scores):
+  		var newcms = [];
+  		var weights = this.weights;
+  		var classes = this.classes;
+  		var denom = 0;
+  		for(var w of weights){
+  		    var wfloat = parseFloat(w);
+	  		if (isNaN(wfloat)){
+	  		    continue;
+	  		}
+  		    denom += w;
+  		}
+  		var i = 0;
+  		for (var cm of this.cms){
+	  		var score = 0;
+	  		for (var i=0; i<classes.length ; i++){
+	  		    var row = cm.data[i];
+	  		    var value = parseFloat(row[row.length-1]);
+				if (isNaN(value)){
+					continue;
+				}
+				var weight = parseFloat(this.weights[i]);
+				if (isNaN(weight)){
+					continue;
+				}
+  				score += weight * value;
+  			}
+  			cm.score = parseFloat(score / denom).toFixed(2);
+  			newcms.push(cm);
+  		}
+  		// sort:
+  		newcms.sort(function(cm1, cm2) {
+  		    var [val1, val2] = [cm1.score, cm2.score];
+  		    if (isNaN(val1) || val1 < val2) {
+    			return 1;  // not -1 because we want sorted it is descending
+  			}
+			if (isNaN(val2) || val1 > val2) {
+    			return -1;  // not 1 because we want sorted it is descending
+ 			}
+  			return 0;
+		});
+		this.cms = newcms;
+  	}
+  }
+});
+</script>
+
+</body>
+</html>

@@ -1,22 +1,22 @@
 '''
     Evaluation commmon utilities
 '''
+import json
+from multiprocessing import Pool, cpu_count
+from io import StringIO
 from os import makedirs
 from os.path import abspath, join, dirname, isfile, isdir, basename
 from itertools import repeat, product
 import warnings
 from collections import defaultdict
+from datetime import timedelta
 
 from joblib import dump, load
 import numpy as np
 import pandas as pd
 import time
-from datetime import timedelta
 from sklearn.metrics.classification import confusion_matrix
 import click
-from multiprocessing import Pool, cpu_count
-from _io import StringIO
-import csv
 
 
 DATASET_COLUMNS = [
@@ -444,7 +444,7 @@ class EvalResult:
         self.clf = clf
         self.params = params
         self.predictions = None
-        self.features = tuple(sorted(features))
+        self.features = features
 
     def predict(self, dataframe):
         self.predictions = predict(self.clf, dataframe, *self.features)
@@ -455,13 +455,15 @@ def fit_and_predict(clf_class, train_df, columns, params, test_df=None,
     '''Fits a model with `train_df[columns]` and returns an
     `EvalResult` with predictions derived from `test_df[columns]`
 
-    :param params: dict of the classifier parameters
+    :param params: dict of the classifier parameters. It can also be an iterable of
+        (key, value) tuples or lists (which will be converted to the {key:value ... }
+        corresponding dict)
     '''
     if filepath is not None and isfile(filepath):
         clf = load(filepath)
     else:
         clf = classifier(clf_class, train_df[list(columns)],
-                         **{'cache_size': 2000, **params})
+                         **{'cache_size': 2000, **dict(params)})
     evres = EvalResult(clf, params, columns)
     if test_df is not None:
         evres.predict(test_df)
@@ -497,32 +499,32 @@ class Evaluator:
                                 str(p))
             __p.append(tuple((p, v) for v in vals))
         self.parameters = tuple(dict(_) for _ in product(*__p))
-        self._results = {}
+        self._predictions, self._eval_reports = defaultdict(list), defaultdict(dict)
         self._classes = list(CLASSES.keys())
-        self.weights = np.array([WEIGHTS[_] for _ in self._classes])
+        # self.weights = np.array([WEIGHTS[_] for _ in self._classes])
 
-    def basefilepath(self, features, **params):
+    def basefilepath(self, *features, **params):
         basepath = abspath(join(self.rootoutdir, self.clf_class.__name__))
-        qry = self.pack2str(features, **params)
-        if not qry:
-            return basepath
-        return basepath + '?' + qry
+        feats, pars = self.tonormtuple(*features), self.tonormtuple(**params)
+        suffix = '?' if feats or pars else ''
+        if feats:
+            suffix += 'features='
+            suffix += ','.join(feats)
+            if pars:
+                suffix += '&'
+        if pars:
+            suffix += '&'.join('%s=%s' % (k, v) for (k, v) in pars)
 
-    def pack2str(self, features=None, **params):
-        pars = list((str(k), str(params[k])) for k in sorted(params))
-        if features is not None:
-            pars.insert(0, ('features', ",".join(str(_) for _ in sorted(features))))
-        return '&'.join('%s=%s' % (k, v) for (k, v) in pars)
-    
-    def unpack(self, query_str):
-        ret = {}
-        for chunk in query_str.split('&'):
-            k, v = chunk.split('=')
-            ret[k] = v
-        return ret
+        return basepath + suffix
+
+    def tonormtuple(self, *features, **params):
+        lst = sorted(features)
+        lst.extend((str(k), str(params[k])) for k in sorted(params))
+        return tuple(lst)
 
     def run(self, dataframe, columns):
-        self._results = {}
+        self._predictions.clear()
+        self._eval_reports.clear()
         pool = Pool(processes=cpu_count())
         total = len(columns) * (1 + self.n_folds) * len(self.parameters)
 
@@ -535,7 +537,7 @@ class Evaluator:
             for cols in columns:
                 for params in self.parameters:
                     _traindf, _testdf = self.train_test_split(dataframe)
-                    fname = self.basefilepath(cols, **params) + '.model'
+                    fname = self.basefilepath(*cols, **params) + '.model'
                     aasync(fit_and_predict,
                            (self.clf_class, _traindf, cols, params, _testdf, fname),
                            callback=aasync_callback)
@@ -546,10 +548,6 @@ class Evaluator:
 
             pool.close()
             pool.join()
-
-#         print('Saving evaluation results to file')
-#         self.close(columns)
-#         print('Done\n')
 
     def train_test_split_cv(self, dataframe):
         '''Returns an iterable yielding (train_df, test_df) elements
@@ -570,41 +568,49 @@ class Evaluator:
     def _applyasync_callback(self, pbar, eval_result):
         pbar.update(1)
 
-        evalreport_key = self.pack2str(eval_result.features)
-        predictions_key = self.pack2str(eval_result.features, **eval_result.params)
+        # make three hashable and sortable objects:
+        pkey = self.tonormtuple(**eval_result.params)
+        fkey = self.tonormtuple(*eval_result.features)
+        fpkey = self.tonormtuple(*eval_result.features, **eval_result.params)
 
-        if predictions_key not in self._results:
-            self._results[predictions_key] = []
-        self._results[predictions_key].append(eval_result.predictions)
+        self._predictions[fpkey].append(eval_result.predictions)
 
-        if len(self._results[predictions_key]) == self.n_folds + 1:
+        if len(self._predictions[fpkey]) == self.n_folds + 1:
             # finished with predictions of current parameters for the current features,
             # safe as hdf5:
-            predicted_df = pdconcat(list(_ for _ in self._results[predictions_key]
+            predicted_df = pdconcat(list(_ for _ in self._predictions[fpkey]
                                          if not getattr(_, 'empty', True)))
-            fpath = self.basefilepath(eval_result.features, **eval_result.params)
-            predicted_df.to_hdf(fpath + '.eval.hdf', 'cv',
+            fpath = self.basefilepath(*eval_result.features, **eval_result.params)
+            predicted_df.to_hdf(fpath + '.evalpredictions.hdf', 'cv',
                                 format='table', mode='w',
                                 min_itemsize={'modified': 45})
             # now save the summary dataframe of the predicted segments just saved:
-            sum_df = self.get_summary_df(predicted_df)
-            if evalreport_key not in self._results:
-                self._results[evalreport_key] = {}
-            self._results[evalreport_key][self.pack2str(**eval_result.params)] = sum_df
+            self._eval_reports[fkey][pkey] = self.get_summary_df(predicted_df)
             # delete unused data (help gc?):
-            del self._results[predictions_key]
+            del self._predictions[fpkey]
 
-        sum_dfs = self._results.get(evalreport_key, {})
+        sum_dfs = self._eval_reports.get(fkey, {})
         if 0 < len(sum_dfs) == len(self.parameters):  # pylint: disable=len-as-condition
             # finished with the current eval report for the current features,
             # save as csv:
-            _feats = self.unpack(evalreport_key)['features'].replace(',', ';')
-            eval_rep = 'Features:;' + _feats + '\n\n'
-            eval_rep += self.get_eval_report(sum_dfs)
-            fpath = self.basefilepath(eval_result.features)
-            with open(fpath + 'eval.allparams.csv', 'w') as opn_:
-                opn_.write(eval_rep)
-            del self._results[evalreport_key]
+
+            # open template file
+            with open(join(dirname(__file__), 'eval_result_template.html'), 'r') as _:
+                template = _.read()
+
+            content = template % {
+                'title': 'Features: ' + ",".join(fkey),
+                'cms': json.dumps([{'key': params, 'data': sumdf.values.tolist()}
+                                   for (params, sumdf) in sum_dfs.items()]),
+                'columns': json.dumps(next(iter(sum_dfs.values())).columns.tolist()),
+                'weights': json.dumps([WEIGHTS[_] for _ in self._classes]),
+                'classes': json.dumps(self._classes)
+            }
+
+            fpath = self.basefilepath(*eval_result.features)
+            with open(fpath + '.evalreport.html', 'w') as opn_:
+                opn_.write(content)
+            del self._eval_reports[fkey]
 
     def get_summary_df(self, predicted_df):
         sum_col = '% rec.'
@@ -626,25 +632,26 @@ class Evaluator:
         sum_df[sum_col] = np.around(100 * np.true_divide(oks, tots), 2)
         return sum_df
 
-    def get_eval_report(self, sum_dfs_dict):
-        sum_col = '% rec.'
-        stringio = StringIO()
-        for params in sorted(sum_dfs_dict):
-            sum_df = sum_dfs_dict[params]
-            stringio.write('Params:')
-            for key, val in self.unpack(params).items():
-                stringio.write(';' + str(key))
-                stringio.write(';' + str(val))
-            stringio.write('\n\n')
-            stringio.write(';Classified as:\n')
-            dfformat(sum_df).to_csv(stringio, sep=';', quoting=csv.QUOTE_NONE)
-            stringio.write(";;Score:;%f\n" %
-                           self.get_score(sum_df[sum_col], self.weights))
-            stringio.write('\n\n')
-        ret = stringio.getvalue()
-        stringio.close()
-        return ret
-
-    def get_score(self, values, weights):
-        res = np.true_divide(np.nansum(values * weights), np.sum(weights))
-        return np.around(res, 2)
+#     def summary_df_to_csvstr(self, sum_dfs_dict):
+#         sum_col = '% rec.'
+#         stringio = StringIO()
+#         for params in sorted(sum_dfs_dict):
+#             # params is a tuple of (paramname, paramvalue) sub-tuples (all strings)
+#             sum_df = sum_dfs_dict[params]
+#             stringio.write('Params:')
+#             for key, val in params:
+#                 stringio.write(';' + str(key))
+#                 stringio.write(';' + str(val))
+#             stringio.write('\n\n')
+#             stringio.write(';Classified as:\n')
+#             dfformat(sum_df).to_csv(stringio, sep=';', quoting=csv.QUOTE_NONE)
+#             stringio.write(";;Score:;%f\n" %
+#                            self.get_score(sum_df[sum_col], self.weights))
+#             stringio.write('\n\n')
+#         ret = stringio.getvalue()
+#         stringio.close()
+#         return ret
+# 
+#     def get_score(self, values, weights):
+#         res = np.true_divide(np.nansum(values * weights), np.sum(weights))
+#         return np.around(res, 2)
