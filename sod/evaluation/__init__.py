@@ -394,40 +394,43 @@ def dfformat(dataframe):
                         index=dataframe.index)
 
 
+_CLASSNAMES = [
+    'ok',
+    'outl. (wrong inv. file)',
+    'outl. (cha. resp. acc <-> vel)',
+    'outl. (gain X100 or X0.01)',
+    'outl. (gain X10 or X0.1)',
+    'outl. (gain X2 or X0.5)'
+]
+
 CLASSES = {
-    'ok': lambda dfr: ~is_outlier(dfr),
-    'outl. (wrong inv. file)': is_out_wrong_inv,
-    'outl. (cha. resp. acc <-> vel)': is_out_swap_acc_vel,
-    'outl. (gain X100 or X0.01)': is_out_gain_x100,
-    'outl. (gain X10 or X0.1)': is_out_gain_x10,
-    'outl. (gain X2 or X0.5)': is_out_gain_x2
+    _CLASSNAMES[0]: lambda dfr: ~is_outlier(dfr),
+    _CLASSNAMES[1]: is_out_wrong_inv,
+    _CLASSNAMES[2]: is_out_swap_acc_vel,
+    _CLASSNAMES[3]: is_out_gain_x100,
+    _CLASSNAMES[4]: is_out_gain_x10,
+    _CLASSNAMES[5]: is_out_gain_x2
 }
 
 WEIGHTS = {
-    'ok': 100,
-    'outl. (wrong inv. file)': 100,
-    'outl. (cha. resp. acc <-> vel)': 10,
-    'outl. (gain X100 or X0.01)': 50,
-    'outl. (gain X10 or X0.1)': 5,
-    'outl. (gain X2 or X0.5)': 1
+    _CLASSNAMES[0]: 100,
+    _CLASSNAMES[1]: 100,
+    _CLASSNAMES[2]: 10,
+    _CLASSNAMES[3]: 50,
+    _CLASSNAMES[4]: 5,
+    _CLASSNAMES[5]: 1
 }
 
 
 def info(dataframe, perclass=True):
     columns = ['segments']
-    oks = ~is_outlier(dataframe)
-    oks_count = oks.sum()
     if not perclass:
+        oks = ~is_outlier(dataframe)
+        oks_count = oks.sum()
         data = [oks_count, len(dataframe)-oks_count, len(dataframe)]
         index = ['oks', 'outliers', 'total']
     else:
-        invfiles = is_out_wrong_inv(dataframe).sum()
-        charesp = is_out_swap_acc_vel(dataframe).sum()
-        gainx100 = is_out_gain_x100(dataframe).sum()
-        gainx10 = is_out_gain_x10(dataframe).sum()
-        gainx2 = is_out_gain_x2(dataframe).sum()
-        data = [oks_count, invfiles, charesp, gainx100, gainx10, gainx2,
-                len(dataframe)]
+        data = [_(dataframe).sum() for _ in CLASSES.values()] + [len(dataframe)]
         index = list(CLASSES.keys()) + ['total']
 
     return df2str(pd.DataFrame(data, columns=columns, index=index))
@@ -473,7 +476,7 @@ class Evaluator:
 
     def __init__(self, clf_class, parameters, rootoutdir=None, n_folds=5):
         '''
-        
+
         :param parameters: a dict mapping each parameter name (strings) to its list
             of possible values. The total number of cv iterations will be done for all
             possible combinations of all parameters values
@@ -514,7 +517,8 @@ class Evaluator:
 
         return basepath + suffix
 
-    def tonormtuple(self, *features, **params):
+    @staticmethod
+    def tonormtuple(*features, **params):
         lst = sorted(features)
         lst.extend((str(k), str(params[k])) for k in sorted(params))
         return tuple(lst)
