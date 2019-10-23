@@ -23,7 +23,7 @@
   <h3 class='text-warning font-weight-bold text-center'>%(title)s</h3>
   <div class='d-flex flex-row' style='flex: 1 1 auto'>
   	 <div class='position-relative' style='flex: 1 1 auto'>
-  	 	<div class='position-absolute d-flex flex-row flex-wrap justify-content-start align-items-start' style='top:0px;right:0px;bottom:0px;left:0px;overflow:auto'>
+  	 	<div class='position-absolute d-flex flex-row flex-wrap align-content-start justify-content-start align-items-start' style='top:0px;right:0px;bottom:0px;left:0px;overflow:auto'>
 	  		<div v-for="(cm, index0) in cms" class='m-2 p-1 pr-2 d-flex flex-row border rounded'>
 	     		<table>
 	     			<tr>
@@ -39,7 +39,6 @@
 	     				<td></td>
 	     			</tr>
 	     			<tr>
-	     				<!-- <td></td> -->
 	     				<td v-for='col in columns' v-html='col'></td>
 	     			</tr>
 	     			<tr v-for="(row, index1) in cm.data">
@@ -62,7 +61,14 @@
 	  	</div>
   	</div> 
     <div class='ml-3 bg-info border'>
-		<table>
+    	<div class='p-1 d-flex flex-row'>
+    		<span style='flex:1 1 auto' v-show='panelVisible'>Score configuration</span>
+	    	<button class='p-1 btn btn-outline-info btn-sm'
+	    		style='border-width:0px !important'
+	    		@click='panelVisible=!panelVisible'>↔
+	    	</button>
+    	</div>
+		<table v-show='panelVisible'>
     		<tr><td>Class</td><td>Weight</td></tr>
     		<tr v-for='(weight, index) in weights'>
     			<td>{{ classes[index] }}</td>
@@ -78,6 +84,7 @@
 let app = new Vue({
   el: '#app',
   data: {
+  	panelVisible: true,
     // Confusion matrices, list of objects. Each object has property
     // key -> list of [paramname, paramvalue] elements,
     // data -> numeric (confusion) matrix
