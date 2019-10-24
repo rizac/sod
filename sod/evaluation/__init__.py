@@ -195,6 +195,9 @@ def open_dataset(filename=None, verbose=True):
 
 
 def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
+    o_dataframe = dataframe
+    dataframe = purgecols(dataframe, columns).copy()
+    assert (dataframe.index == o_dataframe.index).all()
     dataframe['_t'] = 1
     dataframe.loc[is_out_wrong_inv(dataframe), '_t'] = 2
     dataframe.loc[is_out_swap_acc_vel(dataframe), '_t'] = 3
@@ -471,7 +474,7 @@ def fit_and_predict(clf_class, train_df, columns, params, test_df=None,
         clf = load(filepath)
     else:
         clf = classifier(clf_class, train_df[list(columns)],
-                         **{'cache_size': 2000, **dict(params)})
+                         **{'cache_size': 1500, **dict(params)})
     evres = EvalResult(clf, params, columns)
     if test_df is not None:
         evres.predict(test_df)

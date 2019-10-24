@@ -145,7 +145,6 @@ class Tester:
             columns=[['delta_pgv'], ['delta_pga', 'delta_pgv']]
         )
         
-        
 #     def test_cmatrix(self):
 #         dfr = pd.DataFrame({
 #             'label': [1, -1],
