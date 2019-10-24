@@ -546,7 +546,7 @@ class Evaluator:
 
         self._predictions.clear()
         self._eval_reports.clear()
-        pool = Pool(processes=cpu_count())
+        pool = Pool(processes=int(0.5 + 3*cpu_count()/4.0))
 
         with click.progressbar(length=len(columns) *
                                (1 + self.n_folds) * len(self.parameters)) as pbar:
