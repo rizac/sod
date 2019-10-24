@@ -548,7 +548,10 @@ class Evaluator:
         '''Runs the model evaluation using the data in `dataframe` under the specified
         columns and for all provided parameters
         '''
+        print('Running evaluator. Output directory:\n"%s"' % self.basefilepath())
+
         if remove_na:
+            print('Removing NA/Infinity')
             dataframe = dropna(dataframe,
                                set(_ for lst in columns for _ in lst),
                                verbose=True)
