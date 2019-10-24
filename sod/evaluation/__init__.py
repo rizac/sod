@@ -101,7 +101,7 @@ DATASET_MODIFICATION_TYPES: [
 
 
 DATASET_FILENAME = abspath(join(dirname(__file__), '..',
-                                'dataset', 'dataset.secondtry.hdf'))
+                                'dataset', 'dataset.hdf'))
 
 
 def open_dataset(filename=None, verbose=True):
