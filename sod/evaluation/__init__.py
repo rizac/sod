@@ -184,6 +184,8 @@ def open_dataset(filename=None, verbose=True):
 
     if verbose:
         print("-------")
+        print("Normalization is done on non outliers only")
+        print("(Thus it's fine to see min < 0 or max > 1)")
         print("LEGEND:")
         print("%s: unique segments ids (not outliers) "
               "are outside 1 percentile" % columns[4])
@@ -211,7 +213,7 @@ def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
     return dataframe2
 
 
-def dropna(dataframe, columns, keeponly=True, verbose=True):
+def dropna(dataframe, columns, purge=True, verbose=True):
     '''
         Drops rows of dataframe where any column value (at least 1) is NaN or Infinity
 
@@ -235,9 +237,8 @@ def dropna(dataframe, columns, keeponly=True, verbose=True):
             else:
                 nan_expr &= expr
 
-    if keeponly:
-        dataframe = dataframe[list(set(list(columns) +
-                                       ['outlier', 'modified', 'Segment.db.id']))]
+    if purge:
+        dataframe = purgecols(dataframe, columns)
 
     if nan_expr is not None:
         dataframe = dataframe[nan_expr]
@@ -246,6 +247,14 @@ def dropna(dataframe, columns, keeponly=True, verbose=True):
         print(info(dataframe))
 
     return dataframe.copy()
+
+
+def purgecols(dataframe, columns):
+    '''
+    Does NOT return a copy
+    '''
+    cols = list(columns) + ['outlier', 'modified', 'Segment.db.id']
+    return dataframe[list(set(cols))]
 
 
 def classifier(clf_class, dataframe, **clf_params):
@@ -560,15 +569,16 @@ class Evaluator:
                 self._applyasync_callback(pbar, result)
 
             for cols in columns:
+                dataframe_ = purgecols(dataframe, cols).copy()
                 for params in self.parameters:
-                    _traindf, _testdf = self.train_test_split_model(dataframe)
+                    _traindf, _testdf = self.train_test_split_model(dataframe_)
                     fname = self.basefilepath(*cols, **params) + '.model'
                     pool.apply_async(
                         fit_and_predict,
                         (self.clf_class, _traindf, cols, params, _testdf, fname),
                         callback=aasync_callback
                     )
-                    for train_df, test_df in self.train_test_split_cv(dataframe):
+                    for train_df, test_df in self.train_test_split_cv(dataframe_):
                         pool.apply_async(
                             fit_and_predict,
                             (self.clf_class, train_df, cols, params, test_df, None),
