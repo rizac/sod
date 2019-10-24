@@ -55,8 +55,9 @@ class OcsvmEvaluator(Evaluator):
         Evaluator.__init__(self, OneClassSVM, parameters, rootoutdir, n_folds)
 
     def train_test_split_cv(self, dataframe):
-        return Evaluator.train_test_split(self,
-                                          dataframe[~is_outlier(dataframe)])
+        return Evaluator.train_test_split_cv(
+            self, dataframe[~is_outlier(dataframe)]
+        )
 
     def train_test_split_model(self, dataframe):
         is_outl = is_outlier(dataframe)
