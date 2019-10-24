@@ -211,7 +211,7 @@ def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
     return dataframe2
 
 
-def dropna(dataframe, columns, verbose=True):
+def dropna(dataframe, columns, keeponly=True, verbose=True):
     '''
         Drops rows of dataframe where any column value (at least 1) is NaN or Infinity
 
@@ -235,12 +235,17 @@ def dropna(dataframe, columns, verbose=True):
             else:
                 nan_expr &= expr
 
-    if nan_expr is not None:
-        dataframe = dataframe[nan_expr].copy()  # pylint: disable=invalid-unary-operand-type
-        if verbose:
-            print(info(dataframe))
+    if keeponly:
+        dataframe = dataframe[list(set(list(columns) +
+                                       ['outlier', 'modified', 'Segment.db.id']))]
 
-    return dataframe
+    if nan_expr is not None:
+        dataframe = dataframe[nan_expr]
+
+    if verbose:
+        print(info(dataframe))
+
+    return dataframe.copy()
 
 
 def classifier(clf_class, dataframe, **clf_params):
@@ -546,7 +551,7 @@ class Evaluator:
 
         self._predictions.clear()
         self._eval_reports.clear()
-        pool = Pool(processes=int(0.5 + cpu_count()/2.0))
+        pool = Pool(processes=int(cpu_count()))
 
         with click.progressbar(length=len(columns) *
                                (1 + self.n_folds) * len(self.parameters)) as pbar:
