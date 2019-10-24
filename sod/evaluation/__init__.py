@@ -436,7 +436,8 @@ class EvalResult:
         self.features = features
 
     def predict(self, dataframe):
-        self.predictions = predict(self.clf, dataframe, *self.features)
+        self.predictions = \
+            None if dataframe.empty else predict(self.clf, dataframe, *self.features)
 
 
 def fit_and_predict(clf_class, train_df, columns, params, test_df=None,
@@ -462,6 +463,10 @@ def fit_and_predict(clf_class, train_df, columns, params, test_df=None,
 
 
 class Evaluator:
+    '''Creates (and saves) a statisical ML model for outlier detection,
+    and launches in parallel a CV
+    evaluation, saving all predictions in HDF file, and a summary report in a
+    dynamic html page'''
 
     def __init__(self, clf_class, parameters, rootoutdir=None, n_folds=5):
         '''
@@ -470,6 +475,7 @@ class Evaluator:
             of possible values. The total number of cv iterations will be done for all
             possible combinations of all parameters values
         '''
+        assert n_folds >= 1
         self.rootoutdir = rootoutdir
         if self.rootoutdir is None:
             self.rootoutdir = abspath(join(dirname(__file__), 'results'))
@@ -481,12 +487,12 @@ class Evaluator:
         self.n_folds = n_folds
         # setup self.parameters:
         __p = []
-        for p, vals in parameters.items():
+        for pname, vals in parameters.items():
             if not isinstance(vals, (list, tuple)):
                 raise TypeError("'%s' must be mapped to a list or tuple of values, "
                                 "even when there is only one value to iterate over" %
-                                str(p))
-            __p.append(tuple((p, v) for v in vals))
+                                str(pname))
+            __p.append(tuple((pname, v) for v in vals))
         self.parameters = tuple(dict(_) for _ in product(*__p))
         self._predictions, self._eval_reports = defaultdict(list), defaultdict(dict)
         self._classes = list(CLASSES.keys())
@@ -513,7 +519,7 @@ class Evaluator:
         '''Normalizes features and params into a tuple that is sorted and hashable, so
         that it can be used to uniquely identify the same features and params couple
         '''
-        lst = sorted(features)
+        lst = sorted(str(_) for _ in features)
         lst.extend((str(k), str(params[k])) for k in sorted(params))
         return tuple(lst)
 
@@ -525,6 +531,14 @@ class Evaluator:
             dataframe = dropna(dataframe,
                                set(_ for lst in columns for _ in lst),
                                verbose=True)
+
+        # first check: all dataframes are non-empty. This might be due to a set of
+        # n-folds for which ...
+        for train_df, test_df in self.train_test_split_cv(dataframe):
+            err = 'Train' if train_df.empty else 'Test' if test_df.empty else ''
+            if err:
+                raise ValueError('A %s DataFrame was empty during CV. '
+                                 'Try to change the `n_folds` parameter' % err)
 
         self._predictions.clear()
         self._eval_reports.clear()
@@ -579,7 +593,7 @@ class Evaluator:
         fkey = self.tonormtuple(*eval_result.features)
         fpkey = self.tonormtuple(*eval_result.features, **eval_result.params)
 
-        self._predictions[fpkey].append(eval_result.predictions)
+        self._predictions[fpkey].append(eval_result.predictions)  # might be None
 
         if len(self._predictions[fpkey]) == self.n_folds + 1:
             # finished with predictions of current parameters for the current features,
@@ -594,21 +608,23 @@ class Evaluator:
             # save as csv:
             self.save_evel_report(eval_result.features)
 
-    def save_predictions(self, features, params, freemem=True):
+    def save_predictions(self, features, params, delete=True):
         fpkey = self.tonormtuple(*features, **params)
         predicted_df = pdconcat(list(_ for _ in self._predictions[fpkey]
                                      if not getattr(_, 'empty', True)))
         fpath = self.basefilepath(*features, **params)
-        predicted_df.to_hdf(fpath + '.evalpredictions.hdf', 'cv',
-                            format='table', mode='w',
-                            min_itemsize={'modified': 45})
-        if freemem:
+        predicted_df.to_hdf(
+            fpath + '.evalpredictions.hdf', 'cv',
+            format='table', mode='w',
+            # min_itemsize={'modified': predicted_df.modified.str.len().max()}
+        )
+        if delete:
             # delete unused data (help gc?):
             del self._predictions[fpkey]
         # now save the summary dataframe of the predicted segments just saved:
         return self.get_summary_df(predicted_df)
 
-    def save_evel_report(self, features, freemem=True):
+    def save_evel_report(self, features, delete=True):
         fkey = self.tonormtuple(*features)
         sum_dfs = self._eval_reports[fkey]
 
@@ -625,7 +641,7 @@ class Evaluator:
         fpath = self.basefilepath(*features)
         with open(fpath + '.evalreport.html', 'w') as opn_:
             opn_.write(content)
-        if freemem:
+        if delete:
             del self._eval_reports[fkey]
 
     def get_summary_df(self, predicted_df):
@@ -643,6 +659,7 @@ class Evaluator:
             correctly_pred = _df['correctly_predicted'].sum()
             sum_df.loc[typ, sum_df_cols[0]] += correctly_pred
             sum_df.loc[typ, sum_df_cols[1]] += len(_df) - correctly_pred
+   
         oks = sum_df[sum_df_cols[0]]
         tots = sum_df[sum_df_cols[0]] + sum_df[sum_df_cols[1]]
         sum_df[sum_col] = np.around(100 * np.true_divide(oks, tots), 2)

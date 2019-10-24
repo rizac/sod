@@ -18,6 +18,7 @@ from sod.evaluation import split, cmatrix, classifier, predict, _predict, open_d
 from sklearn.metrics.classification import confusion_matrix
 import mock
 from sklearn.svm.classes import OneClassSVM
+from sod.evaluation.ocsvm import OcsvmEvaluator
 
 
 class Tester:
@@ -121,14 +122,28 @@ class Tester:
             shutil.rmtree(self.tmpdir)
         makedirs(self.tmpdir)
         root = self.tmpdir
-        eval = Evaluator(OneClassSVM,
-                         parameters={'kernel': ['rbf'], 'gamma': ['auto', 1.11]},
-                         n_folds=5,
-                         rootoutdir=root)
-        eval.run(self.dfr.iloc[:5, :], columns=[['delta_pgv'],
-                                                ['delta_pga', 'delta_pgv']])
-        awdas = 19
-        asd = 9
+        
+        eval = OcsvmEvaluator(
+            parameters={'kernel': ['rbf'], 'gamma': ['auto', 10.00]},
+            rootoutdir=root,
+            n_folds=5
+        )
+        
+#         eval = Evaluator(OneClassSVM,
+#                          parameters={'kernel': ['rbf'], 'gamma': ['auto', 1.11]},
+#                          n_folds=5,
+#                          rootoutdir=root)
+
+        with pytest.raises(ValueError) as verr:
+            # not enough test instances with current cv
+            eval.run(
+                self.dfr.iloc[:20, :],
+                columns=[['delta_pgv'], ['delta_pga', 'delta_pgv']]
+            )
+        eval.run(
+            self.dfr.iloc[:50, :],
+            columns=[['delta_pgv'], ['delta_pga', 'delta_pgv']]
+        )
         
         
 #     def test_cmatrix(self):
