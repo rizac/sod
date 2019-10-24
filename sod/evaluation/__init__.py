@@ -163,7 +163,10 @@ def open_dataset(filename=None, verbose=True):
             stas1 = len(pd.unique(df1['station_id']))
             stas99 = len(pd.unique(df99['station_id']))
 
-            min_, max_ = np.nanmin(_dfr[col]), np.nanmax(_dfr[col])
+            # for calculating min and max, we need to drop also infinity, tgus
+            # np.nanmin and np.nanmax do not work. Hence:
+            finit_values = _dfr[col][np.isfinite(_dfr[col])]
+            min_, max_ = np.min(finit_values), np.max(finit_values)
             dfr[col] = (dfr[col] - min_) / (max_ - min_)
             if verbose:
                 sum_df[col] = {
@@ -210,17 +213,18 @@ def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
 
 def dropna(dataframe, columns, verbose=True):
     '''
-        Drops rows of dataframe where any column value (at least 1) is NA / NaN
+        Drops rows of dataframe where any column value (at least 1) is NaN or Infinity
 
-        :return: a COPY of dataframe with only rows available
+        :return: a COPY of dataframe with only rows with finite values
     '''
     if verbose:
         print('\nRemoving NA')
     nan_expr = None
 
     for col in columns:
-        expr = pd.isna(dataframe[col])
-        nan_count = expr.sum()
+        # use np.isfinite because it checks also for +-inf, not only nan:
+        expr = np.isfinite(dataframe[col])
+        nan_count = len(dataframe) - expr.sum()
         if nan_count == len(dataframe):
             raise ValueError('All values of "%s" NA' % col)
         if nan_count:
@@ -229,10 +233,10 @@ def dropna(dataframe, columns, verbose=True):
             if nan_expr is None:
                 nan_expr = expr
             else:
-                nan_expr |= expr
+                nan_expr &= expr
 
     if nan_expr is not None:
-        dataframe = dataframe[~nan_expr].copy()  # pylint: disable=invalid-unary-operand-type
+        dataframe = dataframe[nan_expr].copy()  # pylint: disable=invalid-unary-operand-type
         if verbose:
             print(info(dataframe))
 
