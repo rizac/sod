@@ -495,7 +495,7 @@ class Evaluator:
             __p.append(tuple((pname, v) for v in vals))
         self.parameters = tuple(dict(_) for _ in product(*__p))
         self._predictions, self._eval_reports = defaultdict(list), defaultdict(dict)
-        self._classes = list(CLASSES.keys())
+        self._classes = tuple(_CLASSNAMES)
         # open template file
         with open(join(dirname(__file__), 'eval_report_template.html'), 'r') as _:
             self.eval_report_html_template = _.read()
@@ -645,10 +645,10 @@ class Evaluator:
             del self._eval_reports[fkey]
 
     def get_summary_df(self, predicted_df):
-        sum_col = '% rec.'
-        sum_df_cols = ['ok', 'outlier']
+        sum_df_cols = ['ok', 'outlier', '% rec.']
+
         sum_df = pd.DataFrame(index=self._classes,
-                              data=[[0, 0]] * len(self._classes),
+                              data=[[0, 0, 0]] * len(self._classes),
                               columns=sum_df_cols,
                               dtype=int)
 
@@ -657,10 +657,17 @@ class Evaluator:
             if _df.empty:
                 continue
             correctly_pred = _df['correctly_predicted'].sum()
-            sum_df.loc[typ, sum_df_cols[0]] += correctly_pred
-            sum_df.loc[typ, sum_df_cols[1]] += len(_df) - correctly_pred
-   
-        oks = sum_df[sum_df_cols[0]]
-        tots = sum_df[sum_df_cols[0]] + sum_df[sum_df_cols[1]]
-        sum_df[sum_col] = np.around(100 * np.true_divide(oks, tots), 2)
+            # map any class defined here to the index of the column above which denotes
+            # 'correctly classified'. Basically, map 'ok' to zero and any other class
+            # to 1:
+            col_idx = 0 if typ == _CLASSNAMES[0] else 1
+            # assign value and caluclate percentage recognition:
+            sum_df.loc[typ, sum_df_cols[col_idx]] += correctly_pred
+            sum_df.loc[typ, sum_df_cols[1-col_idx]] += len(_df) - correctly_pred
+            sum_df.loc[typ, sum_df_cols[2]] = \
+                np.around(100 * np.true_divide(correctly_pred, len(_df)), 2)
+
+#         oks = sum_df[sum_df_cols[0]]
+#         tots = sum_df[sum_df_cols[0]] + sum_df[sum_df_cols[1]]
+#         sum_df[sum_col] = np.around(100 * np.true_divide(oks, tots), 2)
         return sum_df
