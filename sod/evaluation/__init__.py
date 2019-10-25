@@ -109,23 +109,34 @@ def open_dataset(filename=None, verbose=True):
         filename = DATASET_FILENAME
     if verbose:
         print('Opening %s' % filename)
+
     dfr = pd.read_hdf(filename)
-    if verbose:
-        print('\nFixing values')
 
     dfr['delta_pga'] = np.log10(dfr['pga_observed'].abs()) - \
         np.log10(dfr['pga_predicted'].abs())
     dfr['delta_pgv'] = np.log10(dfr['pgv_observed'].abs()) - \
         np.log10(dfr['pgv_predicted'].abs())
+    for col in dfr.columns:
+        if col.startswith('amp@'):
+            # go to db. We should multuply log * 20 (amp spec) or * 10 (pow spec)
+            # but it's unnecessary as we will normalize few lines below
+            dfr[col] = np.log10(dfr[col])
     # save space:
     dfr['modified'] = dfr['modified'].astype('category')
+    dfr['outlier'] = dfr['outlier'].astype(bool)
+    if not (0 < dfr['outlier'].sum() < len(dfr)):
+        raise ValueError('The column "outlier" is supposed to be populated with '
+                         '0 or 1, but conversion to boolean failed. Check the column')
 
     if verbose:
-        print(info(dfr))
+        print('')
+        print(dfinfo(dfr))
 
     sum_df = {}
     if verbose:
-        print('\nNormalizing')
+        print('')
+        print('Normalizing')
+
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         columns = ['min', 'median', 'max', 'NANs', 'segs1-99',
@@ -150,10 +161,6 @@ def open_dataset(filename=None, verbose=True):
             'amplitude_ratio',
             'snr'
         ]:
-            if col.startswith('amp@'):
-                # go to db. We should multuply log * 20 (amp spec) or * 10 (pow spec)
-                # but it's unnecessary as we will normalize few lines below
-                dfr[col] = np.log10(dfr[col])
             _dfr = dfr.loc[oks_, :]
             q01 = np.nanquantile(_dfr[col], 0.01)
             q99 = np.nanquantile(_dfr[col], 0.99)
@@ -165,8 +172,8 @@ def open_dataset(filename=None, verbose=True):
 
             # for calculating min and max, we need to drop also infinity, tgus
             # np.nanmin and np.nanmax do not work. Hence:
-            finit_values = _dfr[col][np.isfinite(_dfr[col])]
-            min_, max_ = np.min(finit_values), np.max(finit_values)
+            finite_values = _dfr[col][np.isfinite(_dfr[col])]
+            min_, max_ = np.min(finite_values), np.max(finite_values)
             dfr[col] = (dfr[col] - min_) / (max_ - min_)
             if verbose:
                 sum_df[col] = {
@@ -191,39 +198,45 @@ def open_dataset(filename=None, verbose=True):
               "are outside 1 percentile" % columns[4])
         print("%s: unique stations of the segments in %s"
               % (columns[5], columns[4]))
+
+    # for safety:
+    dfr.reset_index(drop=True, inplace=True)
     return dfr
 
 
 def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
     o_dataframe = dataframe
-    dataframe = purgecols(dataframe, columns).copy()
-    assert (dataframe.index == o_dataframe.index).all()
-    dataframe['_t'] = 1
-    dataframe.loc[is_out_wrong_inv(dataframe), '_t'] = 2
-    dataframe.loc[is_out_swap_acc_vel(dataframe), '_t'] = 3
-    dataframe.loc[is_out_gain_x2(dataframe), '_t'] = 4
-    dataframe.loc[is_out_gain_x10(dataframe), '_t'] = 5
-    dataframe.loc[is_out_gain_x100(dataframe), '_t'] = 6
+    dataframe = keep_cols(o_dataframe, columns).copy()
+
+    class_index = np.zeros(len(o_dataframe))
+    for i, selector in enumerate(CLASSES.values(), 1):
+        class_index[selector(dataframe)] = i
+    dataframe['_t'] = class_index
+
     if decimals > 0:
         for col in columns:
             dataframe[col] = np.around(dataframe[col], decimals)
     cols = list(columns) + ['_t']
-    dataframe2 = dataframe.drop_duplicates(subset=cols)
-    del dataframe['_t']
+    dataframe.drop_duplicates(subset=cols, inplace=True)
+    if len(dataframe) == len(o_dataframe):
+        if verbose:
+            print('No duplicated row (per class) found')
+        return o_dataframe
+    dataframe = o_dataframe.loc[dataframe.index, :]
     if verbose:
-        print('\nDuplicated per class removed')
-        print(info(dataframe2))
-    return dataframe2
+        print('Duplicated (per class) removed: %d total rows removed' %
+              (len(o_dataframe) - len(dataframe)))
+        print(dfinfo(dataframe))
+    return dataframe
 
 
-def dropna(dataframe, columns, purge=True, verbose=True):
+def drop_na(dataframe, columns, verbose=True):
     '''
-        Drops rows of dataframe where any column value (at least 1) is NaN or Infinity
+    Drops rows of dataframe where any column value (at least 1) is NaN or Infinity
 
-        :return: a COPY of dataframe with only rows with finite values
+    :return: a VIEW of dataframe with only rows with finite values. If you want to
+        modify the returned DataFrame, call copy() on it
     '''
-    if verbose:
-        print('\nRemoving NA')
     nan_expr = None
 
     for col in columns:
@@ -240,21 +253,25 @@ def dropna(dataframe, columns, purge=True, verbose=True):
             else:
                 nan_expr &= expr
 
-    if purge:
-        dataframe = purgecols(dataframe, columns)
-
     if nan_expr is not None:
+        tot = len(dataframe)
         dataframe = dataframe[nan_expr]
+        if verbose:
+            print('%d NA rows (NaN or Infinity) removed' % (tot - len(dataframe)))
+            print(dfinfo(dataframe))
+    elif verbose:
+        print('No row removed (no NA found)')
 
-    if verbose:
-        print(info(dataframe))
-
-    return dataframe.copy()
+    return dataframe
 
 
-def purgecols(dataframe, columns):
+def keep_cols(dataframe, columns):
     '''
-    Does NOT return a copy
+    Drops all columns of dataframe not in `columns` (preserving in any case the
+    columns 'outlier', 'modified' and 'Segment.db.id')
+
+    :return: a VIEW of the original dataframe (does NOT return a copy) keeping the
+        specified columns only
     '''
     cols = list(columns) + ['outlier', 'modified', 'Segment.db.id']
     return dataframe[list(set(cols))]
@@ -279,9 +296,8 @@ def predict(clf, dataframe, *columns):
     :return: a DataFrame with columns 'label' and 'predicted', where
         both columns values can take wither -1 ('outlier') or 1 ('ok').
     '''
-    predicted = _predict(clf, dataframe if not len(columns)
-                         else dataframe[list(columns)])
-    label = np.ones(len(predicted))
+    predicted = _predict(clf, dataframe if not columns else dataframe[list(columns)])
+    label = np.ones(len(predicted), dtype=predicted.dtype)
     label[is_outlier(dataframe)] = - 1
     correctly_predicted = label == predicted
     return pd.DataFrame({
@@ -338,7 +354,7 @@ def cmatrix(dataframe, sample_weights=None):
 
 def is_outlier(dataframe):
     '''pandas series of boolean telling where dataframe tows are outliers'''
-    return dataframe['outlier'] != 0
+    return dataframe['outlier']
 
 
 def is_out_wrong_inv(dataframe):
@@ -376,7 +392,9 @@ def split(size, n_folds):
 
 
 def train_test_split(dataframe, n_folds=5):
-    dataframe.reset_index(inplace=True, drop=True)
+    if len(pd.unique(dataframe.index.values)) != len(dataframe.index.values):
+        raise ValueError("The dataframe index must be composed of unique numeric "
+                         "values (preferably ints)")
     indices = np.copy(dataframe.index.values)
     last_iter = n_folds - 1
     for _, (start, end) in enumerate(split(len(dataframe), n_folds)):
@@ -402,6 +420,20 @@ def dfformat(dataframe):
     return pd.DataFrame({c: dataframe[c].map(strformat[c].format)
                          for c in dataframe.columns},
                         index=dataframe.index)
+
+
+def dfinfo(dataframe, perclass=True):
+    columns = ['segments']
+    if not perclass:
+        oks = ~is_outlier(dataframe)
+        oks_count = oks.sum()
+        data = [oks_count, len(dataframe)-oks_count, len(dataframe)]
+        index = ['oks', 'outliers', 'total']
+    else:
+        data = [_(dataframe).sum() for _ in CLASSES.values()] + [len(dataframe)]
+        index = list(CLASSES.keys()) + ['total']
+
+    return df2str(pd.DataFrame(data, columns=columns, index=index))
 
 
 _CLASSNAMES = [
@@ -430,20 +462,6 @@ WEIGHTS = {
     _CLASSNAMES[4]: 5,
     _CLASSNAMES[5]: 1
 }
-
-
-def info(dataframe, perclass=True):
-    columns = ['segments']
-    if not perclass:
-        oks = ~is_outlier(dataframe)
-        oks_count = oks.sum()
-        data = [oks_count, len(dataframe)-oks_count, len(dataframe)]
-        index = ['oks', 'outliers', 'total']
-    else:
-        data = [_(dataframe).sum() for _ in CLASSES.values()] + [len(dataframe)]
-        index = list(CLASSES.keys()) + ['total']
-
-    return df2str(pd.DataFrame(data, columns=columns, index=index))
 
 
 class EvalResult:
@@ -548,13 +566,15 @@ class Evaluator:
         '''Runs the model evaluation using the data in `dataframe` under the specified
         columns and for all provided parameters
         '''
-        print('Running evaluator. Output directory:\n"%s"' % self.basefilepath())
+        print('Running evaluator. All files will be stored in:\n%s' %
+              dirname(self.basefilepath()))
+        print('with file names prefixed with "%s"' % basename(self.basefilepath()))
 
         if remove_na:
-            print('Removing NA/Infinity')
-            dataframe = dropna(dataframe,
-                               set(_ for lst in columns for _ in lst),
-                               verbose=True)
+            print('')
+            dataframe = drop_na(dataframe,
+                                set(_ for lst in columns for _ in lst),
+                                verbose=True).copy()
 
         # first check: all dataframes are non-empty. This might be due to a set of
         # n-folds for which ...
@@ -575,7 +595,12 @@ class Evaluator:
                 self._applyasync_callback(pbar, result)
 
             for cols in columns:
-                dataframe_ = purgecols(dataframe, cols).copy()
+                # purge the dataframe from duplicates (drop_duplicates)
+                # and unnecessary columns (keep_cols). Return a copy at the end
+                # of the process. This helps memory mamagement in
+                # sub-processes (especialy keep_cols + copy)
+                dataframe_ = drop_duplicates(dataframe, cols, 0, False)
+                dataframe_ = keep_cols(dataframe_, cols).copy()
                 for params in self.parameters:
                     _traindf, _testdf = self.train_test_split_model(dataframe_)
                     fname = self.basefilepath(*cols, **params) + '.model'

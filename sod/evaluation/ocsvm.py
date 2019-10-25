@@ -3,22 +3,10 @@ Created on 10 Oct 2019
 
 @author: riccardo
 '''
-from os.path import join, dirname, abspath
-
-import pandas as pd
-import numpy as np
-from sklearn import svm
-from joblib import dump, load
-from sod.evaluation import classifier, pdconcat,\
-    open_dataset, dropna, is_outlier, info, drop_duplicates, is_out_wrong_inv,\
-    is_out_swap_acc_vel, is_out_gain_x100, is_out_gain_x10, is_out_gain_x2, predict,\
-    cmatrix, df2str, train_test_split, Evaluator
-from datetime import datetime, timedelta
-from itertools import count, product
 from sklearn.svm.classes import OneClassSVM
-import os
-import pickle
-from multiprocessing import Pool, cpu_count
+
+from sod.evaluation import open_dataset, is_outlier, Evaluator
+
 
 
 def run():

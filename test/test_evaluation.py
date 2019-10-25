@@ -14,7 +14,7 @@ from sod.evaluation import pdconcat  #, train_test_split
 from collections import defaultdict
 from sklearn.model_selection._split import KFold
 from sod.evaluation import split, cmatrix, classifier, predict, _predict, open_dataset,\
-    Evaluator, train_test_split
+    Evaluator, train_test_split, drop_duplicates, keep_cols, drop_na
 from sklearn.metrics.classification import confusion_matrix
 import mock
 from sklearn.svm.classes import OneClassSVM
@@ -46,6 +46,33 @@ class Tester:
         expected_indices = sorted(self.dfr.index)
         assert sorted(test_indices) == expected_indices
 
+        # internal test that dataframe.values returns a COPY of the dataframe
+        # data, so that we can pass to the fit and predict method dataframe
+        # copies, because their data will not be affected
+        # are not modifying the input dataframe:
+        for train, test in train_test_split(self.dfr):
+            break
+        vals = train.values
+        value = train.iloc[0, 0]
+        vals[0][0] = -value
+        assert train.iloc[0, 0] == value
+        assert train.values[0][0] == -vals[0][0]
+        assert vals.flags['OWNDATA'] is False
+        assert vals.flags['WRITEBACKIFCOPY'] is False
+        
+        # now filter
+        train_flt = train[train.iloc[:, 0] == value]
+        vals2 = train_flt.values
+        value2 = train_flt.iloc[0, 0]
+        assert value2 == value
+        vals2[0][0] = -value2
+        assert train_flt.iloc[0, 0] == value
+        assert train_flt.values[0][0] == -vals[0][0]
+        assert train.iloc[0, 0] == value
+        assert train.values[0][0] == -vals[0][0]
+        assert vals2.flags['OWNDATA'] is False
+        assert vals2.flags['WRITEBACKIFCOPY'] is False
+
     @pytest.mark.parametrize('size, n_folds', [
         (10, 11),
         (10, 9),
@@ -68,8 +95,8 @@ class Tester:
 
     @mock.patch('sod.evaluation._predict')
     def test_get_scores(self, mock_predict):
-        dfr = pd.DataFrame([{'outlier': 0, 'modified': '', 'Segment.db.id': 1},
-                            {'outlier': 1, 'modified': 'invchanged', 'Segment.db.id': 2}])
+        dfr = pd.DataFrame([{'outlier': False, 'modified': '', 'Segment.db.id': 1},
+                            {'outlier': True, 'modified': 'invchanged', 'Segment.db.id': 2}])
         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1])
         pred_df = predict(None, dfr)
         assert pred_df['correctly_predicted'].sum() == 2
@@ -79,9 +106,9 @@ class Tester:
         assert (cm_ok_row == [1, 0]).all()
         assert (cm_outlier_row == [0, 1]).all()
 
-        dfr = pd.DataFrame([{'outlier': 0, 'modified': '', 'Segment.db.id': 1},
-                            {'outlier': 0, 'modified': '', 'Segment.db.id': 1},
-                            {'outlier': 1, 'modified': 'invchanged', 'Segment.db.id': 1}])
+        dfr = pd.DataFrame([{'outlier': False, 'modified': '', 'Segment.db.id': 1},
+                            {'outlier': False, 'modified': '', 'Segment.db.id': 1},
+                            {'outlier': True, 'modified': 'invchanged', 'Segment.db.id': 1}])
         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
         pred_df = predict(None, dfr)
         assert pred_df['correctly_predicted'].sum() == 2
@@ -91,9 +118,9 @@ class Tester:
         assert (cm_ok_row == [1, 1]).all()
         assert (cm_outlier_row == [0, 1]).all()
 
-        dfr = pd.DataFrame([{'outlier': 0, 'modified': '', 'Segment.db.id': 1},
-                            {'outlier': 0, 'modified': '', 'Segment.db.id': 1},
-                            {'outlier': 1, 'modified': 'invchanged', 'Segment.db.id': 3}])
+        dfr = pd.DataFrame([{'outlier': False, 'modified': '', 'Segment.db.id': 1},
+                            {'outlier': False, 'modified': '', 'Segment.db.id': 1},
+                            {'outlier': True, 'modified': 'invchanged', 'Segment.db.id': 3}])
         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
         pred_df = predict(None, dfr)
         assert pred_df['correctly_predicted'].sum() == 2
@@ -114,7 +141,7 @@ class Tester:
                            self.dfr.iloc[_:_+1, :][['delta_pga', 'delta_pgv']])
             asd = 9
 
-    def test_evaluator(self,
+    def tst_evaluator(self,
                        # pytest fixutres:
                        #tmpdir
                        ):
@@ -128,11 +155,6 @@ class Tester:
             rootoutdir=root,
             n_folds=5
         )
-        
-#         eval = Evaluator(OneClassSVM,
-#                          parameters={'kernel': ['rbf'], 'gamma': ['auto', 1.11]},
-#                          n_folds=5,
-#                          rootoutdir=root)
 
         with pytest.raises(ValueError) as verr:
             # not enough test instances with current cv
@@ -144,6 +166,65 @@ class Tester:
             self.dfr.iloc[:50, :],
             columns=[['delta_pgv'], ['delta_pga', 'delta_pgv']]
         )
+
+    def test_drop_cols(self):
+        d = pd.DataFrame({
+            'a': [1, 4, 5],
+            'b': [5, 7.7, 6]
+        })
+        with pytest.raises(KeyError):
+            keep_cols(d, ['a'])
+        d['outlier'] = [True, False, False]
+        d['modified'] = ['', '', 'inv changed']
+        d['Segment.db.id'] = [1, 1, 2]
+
+        assert sorted(keep_cols(d, ['modified']).columns.tolist()) == \
+            ['Segment.db.id', 'modified', 'outlier']
+        assert sorted(keep_cols(d, ['a', 'b']).columns.tolist()) == \
+            sorted(d.columns.tolist())
+        assert sorted(keep_cols(d, ['b']).columns.tolist()) == \
+            ['Segment.db.id', 'b', 'modified', 'outlier']
+
+    def test_drop_duplicates(self):
+        d = pd.DataFrame({
+            'a': [1, 4, 5, 5.6, -1],
+            'b': [5.56, 5.56, 5.56, 5.56, 5.561],
+            'c': [5, 7.7, 6, 6, 6],
+            'modified': ['', '', 'INVFILE:', '', ''],
+            'outlier': [False, True, True, False, False],
+            'Segment.db.id': [1, 2, 3, 4, 5]
+        })
+
+        pd.testing.assert_frame_equal(drop_duplicates(d, ['a']), d)
+        assert sorted(drop_duplicates(d, ['b']).index.values) == [0, 1, 2, 4]
+        assert sorted(drop_duplicates(d, ['b'], 2).index.values) == [0, 1, 2]
+
+    def test_drop_na(self):
+        d = pd.DataFrame({
+            'a': [1, np.inf, 4, 5.6, -1],
+            'b': [5.56, 5.56, np.nan, 5.56, 5.561],
+            'c': [5, 7.7, 6, 6, 6],
+            'modified': ['', '', 'INVFILE:', '', ''],
+            'outlier': [False, True, True, False, False],
+            'Segment.db.id': [1, 2, 3, 4, 5]
+        })
+
+        pd.testing.assert_frame_equal(drop_na(d, ['c']), d)
+        assert sorted(drop_na(d, ['a']).index.values) == [0, 2, 3, 4]
+        assert sorted(drop_na(d, ['b']).index.values) == [0, 1, 3, 4]
+        assert sorted(drop_na(d, ['a', 'b']).index.values) == [0, 3, 4]
+
+
+#     def test_dropduplicates(self):
+#         dfr = open_dataset(join(dirname(__file__), '..', 'sod', 'dataset',
+#                                 'dataset.hdf'), False)
+#         columns = ['magnitude', 'distance_km', 'amp@0.5hz', 'amp@1hz',
+#                    'amp@2hz', 'amp@5hz', 'amp@10hz', 'amp@20hz',
+#                    'noise_psd@5sec']
+#         df1 = drop_duplicates(dfr, columns, 5, verbose=True)
+
+#         columns = ['delta_pga', 'delta_pgv']
+#         df2 = drop_duplicates(dfr, columns, 1, verbose=True)
         
 #     def test_cmatrix(self):
 #         dfr = pd.DataFrame({
