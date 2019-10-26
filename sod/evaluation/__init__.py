@@ -18,6 +18,7 @@ import pandas as pd
 import time
 from sklearn.metrics.classification import confusion_matrix
 import click
+from contextlib import contextmanager
 
 
 DATASET_COLUMNS = [
@@ -105,6 +106,28 @@ DATASET_FILENAME = abspath(join(dirname(__file__), '..',
                                 'dataset', 'dataset.hdf'))
 
 
+@contextmanager
+def capture_stderr(verbose=False):
+    # Code to acquire resource, e.g.:
+    # capture warnings which are redirected to stderr:
+    syserr = sys.stderr
+    captured_err = StringIO()
+    sys.stderr = captured_err
+    try:
+        yield
+        if verbose:
+            errs = captured_err.getvalue()
+            if errs:
+                print('')
+                print('During the operation, '
+                      'the following warning(s) were issued:')
+                print(errs)
+        captured_err.close()
+    finally:
+        # Code to release resource, e.g.:
+        sys.stderr = syserr
+
+
 def open_dataset(filename=None, verbose=True):
     if filename is None:
         filename = DATASET_FILENAME
@@ -112,10 +135,7 @@ def open_dataset(filename=None, verbose=True):
         print('Opening %s' % abspath(filename))
 
     # capture warnings which are redirected to stderr:
-    syserr = sys.stderr
-    captured_err = StringIO()
-    sys.stderr = captured_err
-    try:
+    with capture_stderr(verbose):
         dfr = pd.read_hdf(filename)
 
         # setting up columns:
@@ -195,43 +215,50 @@ def open_dataset(filename=None, verbose=True):
                   "outside 1 percentile" % columns[4])
             print("%s: unique stations of the segments in %s"
                   % (columns[5], columns[4]))
-            if captured_err.getvalue():
-                print('')
-                print('During the operation, the following warning(s) were issued:')
-                print(captured_err.getvalue())
-                captured_err.close()
 
         # for safety:
         dfr.reset_index(drop=True, inplace=True)
         return dfr
 
-    finally:
-        sys.stderr = syserr
-
 
 def groupby_stations(dataframe, verbose=True):
-    newdf = []
-    fl_cols = list(floatingcols(dataframe))
-    for (staid, modified, outlier), _df in \
-            dataframe.groupby(['station_id', 'modified', 'outlier']):
-        _dfmedian = _df[fl_cols].median(axis=0, numeric_only=True, skipna=True)
-        _dfmedian['num_segments'] = len(_df)
-        _dfmedian['outlier'] = outlier
-        _dfmedian['modified'] = modified
-        _dfmedian['station_id'] = staid
-        newdf.append(pd.DataFrame([_dfmedian]))
-        # print(pd.DataFrame([_dfmedian]))
-
-    ret = pdconcat(newdf, ignore_index=True)
-    ret['num_segments'] = ret['num_segments'].astype(int)
-    # convert dtypes because they might not match:
-    fl_cols = set(fl_cols)
-    shared_cols = set(c for c in dataframe.columns) & set(c for c in ret.columns)
-    for col in shared_cols - fl_cols:
-        ret[col] = ret[col].astype(dataframe[col].dtype)
     if verbose:
-        print(dfinfo(ret))
-    return ret
+        print('Grouping dataset per station')
+        print('(For floating columns, the median of all segments stations '
+              'will be set)')
+        print('')
+    with capture_stderr(verbose):
+        newdf = []
+        fl_cols = list(floatingcols(dataframe))
+        for (staid, modified, outlier), _df in \
+                dataframe.groupby(['station_id', 'modified', 'outlier']):
+            _dfmedian = _df[fl_cols].median(axis=0, numeric_only=True, skipna=True)
+            _dfmedian['num_segments'] = len(_df)
+            _dfmedian['outlier'] = outlier
+            _dfmedian['modified'] = modified
+            _dfmedian['station_id'] = staid
+            newdf.append(pd.DataFrame([_dfmedian]))
+            # print(pd.DataFrame([_dfmedian]))
+
+        ret = pdconcat(newdf, ignore_index=True)
+        ret['num_segments'] = ret['num_segments'].astype(int)
+        # convert dtypes because they might not match:
+        fl_cols = set(fl_cols)
+        shared_cols = set(c for c in dataframe.columns) & set(c for c in ret.columns)
+        for col in shared_cols - fl_cols:
+            ret[col] = ret[col].astype(dataframe[col].dtype)
+        if verbose:
+            bins = [1, 5, 10, 100, 500, 1000, 5000, 10000]
+            if ret['num_segments'].max() > bins[-1]:
+                bins.append(ret['num_segments'].max() + 1)
+            groups = ret.groupby(pd.cut(ret['num_segments'], bins, precision=0,
+                                        right=False))
+            print(pd.DataFrame(groups.size(), columns=['num_stations']).
+                  reset_index().to_string(index=False))
+            print('')
+            print('Summary of the new dataset (instances are now stations')
+            print(dfinfo(ret))
+        return ret
 
 
 def floatingcols(dataframe):
