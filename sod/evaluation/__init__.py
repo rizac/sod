@@ -1,6 +1,7 @@
 '''
     Evaluation commmon utilities
 '''
+import sys
 import json
 from multiprocessing import Pool, cpu_count
 from io import StringIO
@@ -108,59 +109,55 @@ def open_dataset(filename=None, verbose=True):
     if filename is None:
         filename = DATASET_FILENAME
     if verbose:
-        print('Opening %s' % filename)
+        print('Opening %s' % abspath(filename))
 
-    dfr = pd.read_hdf(filename)
+    # capture warnings which are redirected to stderr:
+    syserr = sys.stderr
+    captured_err = StringIO()
+    sys.stderr = captured_err
+    try:
+        dfr = pd.read_hdf(filename)
 
-    dfr['delta_pga'] = np.log10(dfr['pga_observed'].abs()) - \
-        np.log10(dfr['pga_predicted'].abs())
-    dfr['delta_pgv'] = np.log10(dfr['pgv_observed'].abs()) - \
-        np.log10(dfr['pgv_predicted'].abs())
-    for col in dfr.columns:
-        if col.startswith('amp@'):
-            # go to db. We should multuply log * 20 (amp spec) or * 10 (pow spec)
-            # but it's unnecessary as we will normalize few lines below
-            dfr[col] = np.log10(dfr[col])
-    # save space:
-    dfr['modified'] = dfr['modified'].astype('category')
-    dfr['outlier'] = dfr['outlier'].astype(bool)
-    if not (0 < dfr['outlier'].sum() < len(dfr)):
-        raise ValueError('The column "outlier" is supposed to be populated with '
-                         '0 or 1, but conversion to boolean failed. Check the column')
+        # setting up columns:
+        dfr['pga'] = np.log10(dfr['pga_observed'].abs())
+        dfr['pgv'] = np.log10(dfr['pgv_observed'].abs())
+        dfr['delta_pga'] = np.log10(dfr['pga_observed'].abs()) - \
+            np.log10(dfr['pga_predicted'].abs())
+        dfr['delta_pgv'] = np.log10(dfr['pgv_observed'].abs()) - \
+            np.log10(dfr['pgv_predicted'].abs())
+        del dfr['pga_observed']
+        del dfr['pga_predicted']
+        del dfr['pgv_observed']
+        del dfr['pgv_predicted']
+        for col in dfr.columns:
+            if col.startswith('amp@'):
+                # go to db. We should multuply log * 20 (amp spec) or * 10 (pow spec)
+                # but it's unnecessary as we will normalize few lines below
+                dfr[col] = np.log10(dfr[col])
+        # save space:
+        dfr['modified'] = dfr['modified'].astype('category')
+        # numpy int64 for just zeros and ones is waste of space: use bools (int8)
+        # let's be paranoid first (check later, see below)
+        _zum = dfr['outlier'].sum()
+        # convert:
+        dfr['outlier'] = dfr['outlier'].astype(bool)
+        # check:
+        if dfr['outlier'].sum() != _zum:
+            raise ValueError('The column "outlier" is supposed to be populated with '
+                             '0 or 1, but conversion to boolean failed. Check the column')
 
-    if verbose:
-        print('')
-        print(dfinfo(dfr))
+        if verbose:
+            print('')
+            print(dfinfo(dfr))
 
-    sum_df = {}
-    if verbose:
-        print('')
-        print('Normalizing')
-
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        columns = ['min', 'median', 'max', 'NANs', 'segs1-99',
+        sum_df = {}
+        if verbose:
+            print('')
+            print('Normalizing numeric columns (floats only)')
+        columns = ['min', 'median', 'max', 'NAs', 'segs1-99',
                    'stas1-99']
         oks_ = ~is_outlier(dfr)
-        for col in [
-            'noise_psd@1sec',
-            'noise_psd@2sec',
-            'noise_psd@3sec',
-            'noise_psd@5sec',
-            'noise_psd@9sec',
-            'amp@0.5hz',
-            'amp@1hz',
-            'amp@2hz',
-            'amp@5hz',
-            'amp@10hz',
-            'amp@20hz',
-            'magnitude',
-            'distance_km',
-            'delta_pga',
-            'delta_pgv',
-            'amplitude_ratio',
-            'snr'
-        ]:
+        for col in floatingcols(dfr):
             _dfr = dfr.loc[oks_, :]
             q01 = np.nanquantile(_dfr[col], 0.01)
             q99 = np.nanquantile(_dfr[col], 0.99)
@@ -180,7 +177,7 @@ def open_dataset(filename=None, verbose=True):
                     columns[0]: dfr[col].min(),
                     columns[1]:  dfr[col].quantile(0.5),
                     columns[2]: dfr[col].max(),
-                    columns[3]: pd.isna(dfr[col]).sum(),
+                    columns[3]: (~np.isfinite(dfr[col])).sum(),
                     columns[4]: segs1 + segs99,
                     columns[5]: stas1 + stas99,
                 }
@@ -189,19 +186,63 @@ def open_dataset(filename=None, verbose=True):
                                       columns=columns,
                                       index=list(sum_df.keys()))))
 
-    if verbose:
-        print("-------")
-        print("Normalization is done on non outliers only")
-        print("(Thus it's fine to see min < 0 or max > 1)")
-        print("LEGEND:")
-        print("%s: unique segments ids (not outliers) "
-              "are outside 1 percentile" % columns[4])
-        print("%s: unique stations of the segments in %s"
-              % (columns[5], columns[4]))
+        if verbose:
+            print("-------")
+            print("Min and max might be outside [0, 1] because the normalization ")
+            print("bounds are calculated on good segments (non outlier) only")
+            print("%s: values which are NaN or Infinity" % columns[3])
+            print("%s: unique segments (not outliers) "
+                  "outside 1 percentile" % columns[4])
+            print("%s: unique stations of the segments in %s"
+                  % (columns[5], columns[4]))
+            if captured_err.getvalue():
+                print('')
+                print('During the operation, the following warning(s) were issued:')
+                print(captured_err.getvalue())
+                captured_err.close()
 
-    # for safety:
-    dfr.reset_index(drop=True, inplace=True)
-    return dfr
+        # for safety:
+        dfr.reset_index(drop=True, inplace=True)
+        return dfr
+
+    finally:
+        sys.stderr = syserr
+
+
+def groupby_stations(dataframe, verbose=True):
+    newdf = []
+    fl_cols = list(floatingcols(dataframe))
+    for (staid, modified, outlier), _df in \
+            dataframe.groupby(['station_id', 'modified', 'outlier']):
+        _dfmedian = _df[fl_cols].median(axis=0, numeric_only=True, skipna=True)
+        _dfmedian['num_segments'] = len(_df)
+        _dfmedian['outlier'] = outlier
+        _dfmedian['modified'] = modified
+        _dfmedian['station_id'] = staid
+        newdf.append(pd.DataFrame([_dfmedian]))
+        # print(pd.DataFrame([_dfmedian]))
+
+    ret = pdconcat(newdf, ignore_index=True)
+    ret['num_segments'] = ret['num_segments'].astype(int)
+    # convert dtypes because they might not match:
+    fl_cols = set(fl_cols)
+    shared_cols = set(c for c in dataframe.columns) & set(c for c in ret.columns)
+    for col in shared_cols - fl_cols:
+        ret[col] = ret[col].astype(dataframe[col].dtype)
+    if verbose:
+        print(dfinfo(ret))
+    return ret
+
+
+def floatingcols(dataframe):
+    '''Iterable yielding all floating point columns of dataframe'''
+    for col in dataframe.columns:
+        try:
+            if np.issubdtype(dataframe[col].dtype, np.floating):
+                yield col
+        except TypeError:
+            # categorical data falls here
+            continue
 
 
 def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
@@ -224,7 +265,7 @@ def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
         return o_dataframe
     dataframe = o_dataframe.loc[dataframe.index, :]
     if verbose:
-        print('Duplicated (per class) removed: %d total rows removed' %
+        print('Duplicated (per class) found: %d rows removed' %
               (len(o_dataframe) - len(dataframe)))
         print(dfinfo(dataframe))
     return dataframe
@@ -293,19 +334,23 @@ def classifier(clf_class, dataframe, **clf_params):
 
 def predict(clf, dataframe, *columns):
     '''
-    :return: a DataFrame with columns 'label' and 'predicted', where
-        both columns values can take wither -1 ('outlier') or 1 ('ok').
+    :return: a DataFrame with columns 'correctly_predicted' (boolean) plus
+        the three columns copied from `dataframe` useful to uniquely identify the
+        segment: 'outlier' (boolean), 'modified' (categorical)
+        and 'Segment.db.id' (int).
     '''
     predicted = _predict(clf, dataframe if not columns else dataframe[list(columns)])
     label = np.ones(len(predicted), dtype=predicted.dtype)
     label[is_outlier(dataframe)] = - 1
     correctly_predicted = label == predicted
-    return pd.DataFrame({
+    data = {
         'correctly_predicted': correctly_predicted,
         'outlier': dataframe['outlier'],
-        'modified': dataframe['modified'],
-        'Segment.db.id': dataframe['Segment.db.id']
-    }, index=dataframe.index)
+        'modified': dataframe['modified']
+    }
+    if 'Segment.db.id' in dataframe.columns:
+        data['Segment.db.id'] = dataframe['Segment.db.id']
+    return pd.DataFrame(data, index=dataframe.index)
 
 
 def _predict(clf, dataframe):
@@ -380,9 +425,9 @@ def is_out_gain_x2(dataframe):
         dataframe['modified'].str.contains('STAGEGAIN:X0.5')
 
 
-def pdconcat(dataframes):
+def pdconcat(dataframes, **kwargs):
     '''forwards to pandas concat with standard arguments'''
-    return pd.concat(dataframes, sort=False, axis=0, copy=True)
+    return pd.concat(dataframes, sort=False, axis=0, copy=True, **kwargs)
 
 
 def split(size, n_folds):
@@ -423,7 +468,7 @@ def dfformat(dataframe):
 
 
 def dfinfo(dataframe, perclass=True):
-    columns = ['segments']
+    columns = ['instances']
     if not perclass:
         oks = ~is_outlier(dataframe)
         oks_count = oks.sum()

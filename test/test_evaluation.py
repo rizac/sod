@@ -14,7 +14,7 @@ from sod.evaluation import pdconcat  #, train_test_split
 from collections import defaultdict
 from sklearn.model_selection._split import KFold
 from sod.evaluation import split, cmatrix, classifier, predict, _predict, open_dataset,\
-    Evaluator, train_test_split, drop_duplicates, keep_cols, drop_na
+    Evaluator, train_test_split, drop_duplicates, keep_cols, drop_na, groupby_stations
 from sklearn.metrics.classification import confusion_matrix
 import mock
 from sklearn.svm.classes import OneClassSVM
@@ -29,6 +29,9 @@ class Tester:
     clf = classifier(OneClassSVM, dfr.iloc[:5,:][['delta_pga', 'delta_pgv']])
 
     tmpdir = join(dirname(__file__), 'tmp')
+
+    def test_groupby_stations(self):
+        groupby_stations(self.dfr)
 
     def test_to_matrix(self):
         val0 = self.dfr.loc[0, 'magnitude']
@@ -113,8 +116,8 @@ class Tester:
         pred_df = predict(None, dfr)
         assert pred_df['correctly_predicted'].sum() == 2
         cm_ = cmatrix(pred_df)
-        cm_ok_row = cm_.loc['ok',:]
-        cm_outlier_row = cm_.loc['outlier',:]
+        cm_ok_row = cm_.loc['ok', :]
+        cm_outlier_row = cm_.loc['outlier', :]
         assert (cm_ok_row == [1, 1]).all()
         assert (cm_outlier_row == [0, 1]).all()
 
@@ -125,8 +128,21 @@ class Tester:
         pred_df = predict(None, dfr)
         assert pred_df['correctly_predicted'].sum() == 2
         cm_ = cmatrix(pred_df)
-        cm_ok_row = cm_.loc['ok',:]
-        cm_outlier_row = cm_.loc['outlier',:]
+        cm_ok_row = cm_.loc['ok', :]
+        cm_outlier_row = cm_.loc['outlier', :]
+        assert (cm_ok_row == [1, 1]).all()
+        assert (cm_outlier_row == [0, 1]).all()
+
+        # test that we do not need Segment.db.id:
+        dfr = pd.DataFrame([{'outlier': False, 'modified': ''},
+                            {'outlier': False, 'modified': ''},
+                            {'outlier': True, 'modified': 'invchanged'}])
+        mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
+        pred_df = predict(None, dfr)
+        assert pred_df['correctly_predicted'].sum() == 2
+        cm_ = cmatrix(pred_df)
+        cm_ok_row = cm_.loc['ok', :]
+        cm_outlier_row = cm_.loc['outlier', :]
         assert (cm_ok_row == [1, 1]).all()
         assert (cm_outlier_row == [0, 1]).all()
 
@@ -135,13 +151,15 @@ class Tester:
         predict(x1, x2 ...]) == [predict(x1), predict(x2), ...]
         '''
         res = _predict(self.clf,
-                         self.dfr.iloc[10:12, :][['delta_pga', 'delta_pgv']])
-        for _ in [10, 12]:
-            res2 = _predict(self.clf,
-                           self.dfr.iloc[_:_+1, :][['delta_pga', 'delta_pgv']])
-            asd = 9
+                       self.dfr.iloc[10:15, :][['delta_pga', 'delta_pgv']])
+        res2 = []
+        for _ in range(10, 15):
+            _ = _predict(self.clf,
+                         self.dfr.iloc[_:_+1, :][['delta_pga', 'delta_pgv']])
+            res2.append(_[0])
+        assert (res == res2).all()
 
-    def tst_evaluator(self,
+    def test_evaluator(self,
                        # pytest fixutres:
                        #tmpdir
                        ):
