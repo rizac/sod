@@ -222,6 +222,9 @@ class Tester:
             'a': [1, np.inf, 4, 5.6, -1],
             'b': [5.56, 5.56, np.nan, 5.56, 5.561],
             'c': [5, 7.7, 6, 6, 6],
+            'd': [np.inf] * 5,
+            'e': [-np.inf] * 5,
+            'f': [np.nan] * 5,
             'modified': ['', '', 'INVFILE:', '', ''],
             'outlier': [False, True, True, False, False],
             'Segment.db.id': [1, 2, 3, 4, 5]
@@ -232,6 +235,9 @@ class Tester:
         assert sorted(drop_na(d, ['b']).index.values) == [0, 1, 3, 4]
         assert sorted(drop_na(d, ['a', 'b']).index.values) == [0, 3, 4]
 
+        for col in ['d', 'e', 'f']:
+            with pytest.raises(Exception):
+                drop_na(d, [col])
 
 #     def test_dropduplicates(self):
 #         dfr = open_dataset(join(dirname(__file__), '..', 'sod', 'dataset',

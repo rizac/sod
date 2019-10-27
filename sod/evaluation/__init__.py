@@ -3,6 +3,7 @@
 '''
 import sys
 import json
+from contextlib import contextmanager
 from multiprocessing import Pool, cpu_count
 from io import StringIO
 from os import makedirs
@@ -18,7 +19,7 @@ import pandas as pd
 import time
 from sklearn.metrics.classification import confusion_matrix
 import click
-from contextlib import contextmanager
+from pandas.core.indexes.range import RangeIndex
 
 
 DATASET_COLUMNS = [
@@ -108,6 +109,15 @@ DATASET_FILENAME = abspath(join(dirname(__file__), '..',
 
 @contextmanager
 def capture_stderr(verbose=False):
+    '''Context manager to be used in a with statement in order to capture
+    std.error messages (e.g., python warnings):
+    ```
+    with capture_stderr():
+        ... code here
+    ```
+    :param verbose: boolean (default False). If True, prints the captured
+        messages (if present)
+    '''
     # Code to acquire resource, e.g.:
     # capture warnings which are redirected to stderr:
     syserr = sys.stderr
@@ -124,7 +134,7 @@ def capture_stderr(verbose=False):
                 print(errs)
         captured_err.close()
     finally:
-        # Code to release resource, e.g.:
+        # restore standard error:
         sys.stderr = syserr
 
 
@@ -205,16 +215,14 @@ def open_dataset(filename=None, verbose=True):
             print(df2str(pd.DataFrame(data=list(sum_df.values()),
                                       columns=columns,
                                       index=list(sum_df.keys()))))
-
-        if verbose:
             print("-------")
-            print("Min and max might be outside [0, 1] because the normalization ")
+            print("Min and max might be outside [0, 1]: the normalization ")
             print("bounds are calculated on good segments (non outlier) only")
             print("%s: values which are NaN or Infinity" % columns[3])
-            print("%s: unique segments (not outliers) "
+            print("%s: good segments (not outliers) "
                   "outside 1 percentile" % columns[4])
-            print("%s: unique stations of the segments in %s"
-                  % (columns[5], columns[4]))
+            print("%s: good stations (with segments not outliers) "
+                  "outside 1 percentile" % columns[5])
 
         # for safety:
         dfr.reset_index(drop=True, inplace=True)
@@ -222,6 +230,9 @@ def open_dataset(filename=None, verbose=True):
 
 
 def groupby_stations(dataframe, verbose=True):
+    '''Groups `dataframe` by stations and returns the resulting dataframe
+    Numeric columns are merged taking the median of all rows
+    '''
     if verbose:
         print('Grouping dataset per station')
         print('(For floating columns, the median of all segments stations '
@@ -243,20 +254,20 @@ def groupby_stations(dataframe, verbose=True):
         ret = pdconcat(newdf, ignore_index=True)
         ret['num_segments'] = ret['num_segments'].astype(int)
         # convert dtypes because they might not match:
-        fl_cols = set(fl_cols)
-        shared_cols = set(c for c in dataframe.columns) & set(c for c in ret.columns)
-        for col in shared_cols - fl_cols:
+        shared_c = (set(dataframe.columns) & set(ret.columns)) - set(fl_cols)
+        for col in shared_c:
             ret[col] = ret[col].astype(dataframe[col].dtype)
         if verbose:
-            bins = [1, 5, 10, 100, 500, 1000, 5000, 10000]
+            bins = [1, 10, 100, 1000, 10000]
             if ret['num_segments'].max() > bins[-1]:
                 bins.append(ret['num_segments'].max() + 1)
             groups = ret.groupby(pd.cut(ret['num_segments'], bins, precision=0,
                                         right=False))
             print(pd.DataFrame(groups.size(), columns=['num_stations']).
-                  reset_index().to_string(index=False))
+                  to_string())
+            assert groups.size().sum() == len(ret)
             print('')
-            print('Summary of the new dataset (instances are now stations')
+            print('Summary of the new dataset (instances = stations)')
             print(dfinfo(ret))
         return ret
 
@@ -273,6 +284,12 @@ def floatingcols(dataframe):
 
 
 def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
+    '''Drops duplicates per class
+
+    :return: a VIEW of `dataframe`. If you want
+        to modify the returned dataframe safely (no pandas warnings), call
+        `copy()` on it first.
+    '''
     o_dataframe = dataframe
     dataframe = keep_cols(o_dataframe, columns).copy()
 
@@ -300,35 +317,23 @@ def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
 
 def drop_na(dataframe, columns, verbose=True):
     '''
-    Drops rows of dataframe where any column value (at least 1) is NaN or Infinity
+    Remove rows with non finite values.under the specified columns
+        (a value is finite when it is neither NaN nor +-Infinity)
 
     :return: a VIEW of dataframe with only rows with finite values. If you want to
         modify the returned DataFrame, call copy() on it
     '''
-    nan_expr = None
-
-    for col in columns:
-        # use np.isfinite because it checks also for +-inf, not only nan:
-        expr = np.isfinite(dataframe[col])
-        nan_count = len(dataframe) - expr.sum()
-        if nan_count == len(dataframe):
-            raise ValueError('All values of "%s" NA' % col)
-        if nan_count:
-            if verbose:
-                print('Removing %d NA under column "%s"' % (nan_count, col))
-            if nan_expr is None:
-                nan_expr = expr
-            else:
-                nan_expr &= expr
-
-    if nan_expr is not None:
-        tot = len(dataframe)
-        dataframe = dataframe[nan_expr]
-        if verbose:
-            print('%d NA rows (NaN or Infinity) removed' % (tot - len(dataframe)))
-            print(dfinfo(dataframe))
+    tot = len(dataframe)
+    with pd.option_context('mode.use_inf_as_na', True):
+        dataframe = dataframe.dropna(axis=0, subset=list(columns), how='any')
+    if dataframe.empty:
+        raise ValueError('All values NA')
     elif verbose:
-        print('No row removed (no NA found)')
+        if len(dataframe) == tot:
+            print('No row removed (no NA found)')
+        else:
+            print('%d NA rows removed' % (tot - len(dataframe)))
+            print(dfinfo(dataframe))
 
     return dataframe
 
@@ -341,7 +346,9 @@ def keep_cols(dataframe, columns):
     :return: a VIEW of the original dataframe (does NOT return a copy) keeping the
         specified columns only
     '''
-    cols = list(columns) + ['outlier', 'modified', 'Segment.db.id']
+    cols = list(columns) + ['outlier', 'modified']
+    if 'Segment.db.id' in dataframe.columns:
+        cols += ['Segment.db.id']
     return dataframe[list(set(cols))]
 
 
@@ -425,29 +432,46 @@ def cmatrix(dataframe, sample_weights=None):
 
 
 def is_outlier(dataframe):
-    '''pandas series of boolean telling where dataframe tows are outliers'''
-    return dataframe['outlier']
+    '''pandas series of boolean telling where dataframe rows are outliers'''
+    return dataframe['outlier']  # simply return the column
 
 
 def is_out_wrong_inv(dataframe):
+    '''pandas series of boolean telling where dataframe rows are outliers
+    due to wrong inventory
+    '''
     return dataframe['modified'].str.contains('INVFILE:')
 
 
 def is_out_swap_acc_vel(dataframe):
+    '''pandas series of boolean telling where dataframe rows are outliers
+    generated by swapping the accelerometer and velocimeter
+    response in the inventory (when the segment's inventory has both
+    accelerometers and velocimeters)
+    '''
     return dataframe['modified'].str.contains('CHARESP:')
 
 
 def is_out_gain_x10(dataframe):
+    '''pandas series of boolean telling where dataframe rows are outliers
+    generated by multiplying the trace by a factor of 100 (or 0.01)
+    '''
     return dataframe['modified'].str.contains('STAGEGAIN:X10.0') | \
         dataframe['modified'].str.contains('STAGEGAIN:X0.1')
 
 
 def is_out_gain_x100(dataframe):
+    '''pandas series of boolean telling where dataframe rows are outliers
+    generated by multiplying the trace by a factor of 10 (or 0.1)
+    '''
     return dataframe['modified'].str.contains('STAGEGAIN:X100.0') | \
         dataframe['modified'].str.contains('STAGEGAIN:X0.01')
 
 
 def is_out_gain_x2(dataframe):
+    '''pandas series of boolean telling where dataframe rows are outliers
+    generated by multiplying the trace by a factor of 2 (or 0.5)
+    '''
     return dataframe['modified'].str.contains('STAGEGAIN:X2.0') | \
         dataframe['modified'].str.contains('STAGEGAIN:X0.5')
 
@@ -458,15 +482,28 @@ def pdconcat(dataframes, **kwargs):
 
 
 def split(size, n_folds):
+    '''Iterable yielding tuples of `(start, end)` indices
+    (`start` < `end`) resulting from splitting `size` into `n_folds`.
+    Both start and end are >= than 0 and <= `size`
+    '''
     step = np.true_divide(size, n_folds)
     for i in range(n_folds):
         yield int(np.ceil(i*step)), int(np.ceil((i+1)*step))
 
 
 def train_test_split(dataframe, n_folds=5):
-    if len(pd.unique(dataframe.index.values)) != len(dataframe.index.values):
-        raise ValueError("The dataframe index must be composed of unique numeric "
-                         "values (preferably ints)")
+    '''Iterable yielding tuples of `(train, test)` dataframes.
+    Both `train` and `test` are disjoint subsets of `dataframe`, their union
+    is equal to `dataframe`.
+    `test` results from a random splitting of `dataframe` into `n_folds`
+    subsets, `train` will be in turn composed of the rows of `dataframe` not
+    in `test`
+    '''
+    if not isinstance(dataframe.index, RangeIndex):
+        if not np.issubdtype(dataframe.index.dtype, np.integer) or \
+                len(pd.unique(dataframe.index.values)) != len(dataframe):
+            raise ValueError("The dataframe index must be composed of unique "
+                             "numeric integer values")
     indices = np.copy(dataframe.index.values)
     last_iter = n_folds - 1
     for _, (start, end) in enumerate(split(len(dataframe), n_folds)):
@@ -483,6 +520,9 @@ def train_test_split(dataframe, n_folds=5):
 
 
 def df2str(dataframe):
+    ''':return: the string representation of `dataframe`, with numeric values
+    formatted with comma as decimal separator
+    '''
     return dfformat(dataframe).to_string()
 
 
