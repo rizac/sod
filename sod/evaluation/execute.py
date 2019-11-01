@@ -67,7 +67,7 @@ class IsolationForestEvaluator(Evaluator):
 
     # A dict of default params for the classifier. In principle, put here what
     # should not be iterated over, but applied to any classifier during cv:
-    default_clf_params = {behaviour: 'new'}
+    default_clf_params = {'behaviour': 'new'}
 
     def __init__(self, parameters, n_folds=5):
         Evaluator.__init__(self, IsolationForest, parameters, n_folds)

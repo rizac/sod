@@ -18,7 +18,7 @@ from sod.evaluation import split, cmatrix, classifier, predict, _predict, open_d
 from sklearn.metrics.classification import confusion_matrix
 import mock
 from sklearn.svm.classes import OneClassSVM
-from sod.evaluation.ocsvm import OcsvmEvaluator
+from sod.evaluation.execute import OcsvmEvaluator
 
 
 class Tester:

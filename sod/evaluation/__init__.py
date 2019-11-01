@@ -12,96 +12,14 @@ from itertools import repeat, product
 import warnings
 from collections import defaultdict
 from datetime import timedelta
+import time
 
 from joblib import dump, load
 import numpy as np
 import pandas as pd
-import time
+from pandas.core.indexes.range import RangeIndex
 from sklearn.metrics.classification import confusion_matrix
 import click
-from pandas.core.indexes.range import RangeIndex
-
-
-DATASET_COLUMNS = [
-    "station_id",
-    "event_time",
-    "amplitude_ratio",
-    "snr",
-    "magnitude",
-    "distance_km",
-    "pga_observed",
-    "pga_predicted",
-    "pgv_observed",
-    "pgv_predicted",
-    "noise_psd@1sec",
-    "noise_psd@2sec",
-    "noise_psd@3sec",
-    "noise_psd@5sec",
-    "noise_psd@9sec",
-    "amp@0.5hz",
-    "amp@1hz",
-    "amp@2hz",
-    "amp@5hz",
-    "amp@10hz",
-    "amp@20hz",
-    "outlier",
-    "modified",
-    "Segment.db.id",
-    "delta_pga",
-    "delta_pgv"
-]
-
-DATASET_MODIFICATION_TYPES: [
-    ""
-    "STAGEGAIN:X2.0",
-    "STAGEGAIN:X10.0",
-    "STAGEGAIN:X100.0",
-    "STAGEGAIN:X0.01",
-    "STAGEGAIN:X0.1",
-    "STAGEGAIN:X0.5",
-    "CHARESP:LHZ",
-    "CHARESP:LHN",
-    "CHARESP:LHE",
-    "CHARESP:HHZ",
-    "CHARESP:HHN",
-    "CHARESP:HHE",
-    "CHARESP:BHZ",
-    "CHARESP:BHN",
-    "CHARESP:BHE",
-    "CHARESP:HNZ",
-    "CHARESP:HNE",
-    "CHARESP:HNN",
-    "INVFILE:FR.PYLO.2010-01-17T10:00:00.xml",
-    "CHARESP:VHE",
-    "CHARESP:VHN",
-    "CHARESP:VHZ",
-    "CHARESP:EHE",
-    "CHARESP:EHN",
-    "CHARESP:EHZ",
-    "CHARESP:HLE",
-    "CHARESP:HLN",
-    "CHARESP:HLZ",
-    "INVFILE:CH.GRIMS.2015-10-30T10:50:00.xml",
-    "CHARESP:HGE",
-    "CHARESP:HGN",
-    "CHARESP:HGZ",
-    "INVFILE:CH.GRIMS.2011-11-09T00:00:00.xml",
-    "CHARESP:SHZ",
-    "CHARESP:SNE",
-    "CHARESP:SNN",
-    "CHARESP:SNZ",
-    "CHARESP:SHE",
-    "CHARESP:SHN",
-    "INVFILE:SK.MODS.2004-03-17T00:00:00.xml",
-    "INVFILE:SK.ZST.2004-03-17T00:00:00.xml",
-    "CHARESP:BNZ",
-    "CHARESP:LNZ",
-    "CHARESP:LNN",
-    "CHARESP:BNN",
-    "CHARESP:LNE",
-    "CHARESP:BNE"
-]
-
 
 DATASET_FILENAME = abspath(join(dirname(__file__), '..',
                                 'dataset', 'dataset.hdf'))
@@ -121,24 +39,33 @@ def capture_stderr(verbose=False):
     # Code to acquire resource, e.g.:
     # capture warnings which are redirected to stderr:
     syserr = sys.stderr
-    captured_err = StringIO()
-    sys.stderr = captured_err
-    try:
+    if isinstance(syserr, StringIO):
+        # already within a captured_stderr with statement?
         yield
-        if verbose:
-            errs = captured_err.getvalue()
-            if errs:
-                print('')
-                print('During the operation, '
-                      'the following warning(s) were issued:')
-                print(errs)
-        captured_err.close()
-    finally:
-        # restore standard error:
-        sys.stderr = syserr
+    else:
+        captured_err = StringIO()
+        sys.stderr = captured_err
+        try:
+            yield
+            if verbose:
+                errs = captured_err.getvalue()
+                if errs:
+                    print('')
+                    print('During the operation, '
+                          'the following warning(s) were issued:')
+                    print(errs)
+            captured_err.close()
+        finally:
+            # restore standard error:
+            sys.stderr = syserr
 
 
-def open_dataset(filename=None, verbose=True):
+ID_COL = 'id'
+CORRECTLY_PREDICTED_COL = 'correctly_predicted'
+NUM_SEGMENTS_COL = 'num_segments'
+
+
+def open_dataset(filename=None, normalize_=True, verbose=True):
     if filename is None:
         filename = DATASET_FILENAME
     if verbose:
@@ -147,6 +74,26 @@ def open_dataset(filename=None, verbose=True):
     # capture warnings which are redirected to stderr:
     with capture_stderr(verbose):
         dfr = pd.read_hdf(filename)
+
+        if 'Segment.db.id' in dfr.columns:
+            if ID_COL in dfr.columns:
+                raise ValueError('The data frame already contains a column '
+                                 'named "%s"' % ID_COL)
+            # if it's a prediction dataframe, it's for backward compatibility
+            dfr.rename(columns={"Segment.db.id": ID_COL}, inplace=True)
+
+        if is_prediction_dataframe(dfr):
+            if verbose:
+                print('The dataset contains predictions '
+                      'performed on a trained classifier. '
+                      'Returning the dataset with no further operation')
+            return dfr
+
+        if is_station_df(dfr):
+            if verbose:
+                print('The dataset is per-station basis. '
+                      'Returning the dataset with no further operation')
+            return dfr
 
         # setting up columns:
         dfr['pga'] = np.log10(dfr['pga_observed'].abs())
@@ -166,67 +113,93 @@ def open_dataset(filename=None, verbose=True):
                 dfr[col] = np.log10(dfr[col])
         # save space:
         dfr['modified'] = dfr['modified'].astype('category')
-        # numpy int64 for just zeros and ones is waste of space: use bools (int8)
-        # let's be paranoid first (check later, see below)
+        # numpy int64 for just zeros and ones is waste of space: use bools
+        # (int8). But first, let's be paranoid first (check later, see below)
         _zum = dfr['outlier'].sum()
         # convert:
         dfr['outlier'] = dfr['outlier'].astype(bool)
         # check:
         if dfr['outlier'].sum() != _zum:
-            raise ValueError('The column "outlier" is supposed to be populated with '
-                             '0 or 1, but conversion to boolean failed. Check the column')
+            raise ValueError('The column "outlier" is supposed to be '
+                             'populated with zeros or ones, but conversion '
+                             'to boolean failed. Check the column')
 
         if verbose:
             print('')
             print(dfinfo(dfr))
 
-        sum_df = {}
-        if verbose:
+        if normalize_:
             print('')
+            dfr = normalize(dfr)
+
+    # for safety:
+    dfr.reset_index(drop=True, inplace=True)
+    return dfr
+
+
+def is_prediction_dataframe(dataframe):
+    '''Returns whether the given dataframe is the result of predictions
+    on a trained classifier
+    '''
+    return CORRECTLY_PREDICTED_COL in dataframe.columns
+
+
+def normalize(dataframe, columns=None, verbose=True):
+    '''Normalizes dataframe under the sepcified columns. Only good instances
+    (not outliers) will be considered in the normalization
+
+    :param columns: if None (the default), nornmalizes on floating columns
+        only. Otherwise, it is a list of strings denoting the columns on
+        which to normalize
+    '''
+    sum_df = {}
+    if verbose:
+        if columns is None:
             print('Normalizing numeric columns (floats only)')
-        columns = ['min', 'median', 'max', 'NAs', 'segs1-99',
-                   'stas1-99']
-        oks_ = ~is_outlier(dfr)
-        for col in floatingcols(dfr):
-            _dfr = dfr.loc[oks_, :]
+        else:
+            print('Normalizing %s' % str(columns))
+        print('(only good instances - no outliers - taken into account)')
+
+    with capture_stderr(verbose):
+        infocols = ['min', 'median', 'max', 'NAs', 'ids outside[1-99]%']
+        oks_ = ~is_outlier(dataframe)
+        itercols = floatingcols(dataframe) if columns is None else columns
+        for col in itercols:
+            _dfr = dataframe.loc[oks_, :]
             q01 = np.nanquantile(_dfr[col], 0.01)
             q99 = np.nanquantile(_dfr[col], 0.99)
             df1, df99 = _dfr[(_dfr[col] <= q01)], _dfr[(_dfr[col] >= q99)]
-            segs1 = len(pd.unique(df1['Segment.db.id']))
-            segs99 = len(pd.unique(df99['Segment.db.id']))
-            stas1 = len(pd.unique(df1['station_id']))
-            stas99 = len(pd.unique(df99['station_id']))
+            segs1 = len(pd.unique(df1[ID_COL]))
+            segs99 = len(pd.unique(df99[ID_COL]))
+            # stas1 = len(pd.unique(df1['station_id']))
+            # stas99 = len(pd.unique(df99['station_id']))
 
             # for calculating min and max, we need to drop also infinity, tgus
             # np.nanmin and np.nanmax do not work. Hence:
             finite_values = _dfr[col][np.isfinite(_dfr[col])]
             min_, max_ = np.min(finite_values), np.max(finite_values)
-            dfr[col] = (dfr[col] - min_) / (max_ - min_)
+            dataframe[col] = (dataframe[col] - min_) / (max_ - min_)
             if verbose:
                 sum_df[col] = {
-                    columns[0]: dfr[col].min(),
-                    columns[1]:  dfr[col].quantile(0.5),
-                    columns[2]: dfr[col].max(),
-                    columns[3]: (~np.isfinite(dfr[col])).sum(),
-                    columns[4]: segs1 + segs99,
-                    columns[5]: stas1 + stas99,
+                    infocols[0]: dataframe[col].min(),
+                    infocols[1]:  dataframe[col].quantile(0.5),
+                    infocols[2]: dataframe[col].max(),
+                    infocols[3]: (~np.isfinite(dataframe[col])).sum(),
+                    infocols[4]: segs1 + segs99,
+                    # columns[5]: stas1 + stas99,
                 }
         if verbose:
             print(df2str(pd.DataFrame(data=list(sum_df.values()),
-                                      columns=columns,
+                                      columns=infocols,
                                       index=list(sum_df.keys()))))
             print("-------")
             print("Min and max might be outside [0, 1]: the normalization ")
             print("bounds are calculated on good segments (non outlier) only")
-            print("%s: values which are NaN or Infinity" % columns[3])
-            print("%s: good segments (not outliers) "
-                  "outside 1 percentile" % columns[4])
-            print("%s: good stations (with segments not outliers) "
-                  "outside 1 percentile" % columns[5])
+            print("%s: values which are NaN or Infinity" % infocols[3])
+            print("%s: good instances (not outliers) "
+                  "outside 1 percentile" % infocols[4])
 
-        # for safety:
-        dfr.reset_index(drop=True, inplace=True)
-        return dfr
+    return dataframe
 
 
 def groupby_stations(dataframe, verbose=True):
@@ -243,25 +216,30 @@ def groupby_stations(dataframe, verbose=True):
         fl_cols = list(floatingcols(dataframe))
         for (staid, modified, outlier), _df in \
                 dataframe.groupby(['station_id', 'modified', 'outlier']):
-            _dfmedian = _df[fl_cols].median(axis=0, numeric_only=True, skipna=True)
-            _dfmedian['num_segments'] = len(_df)
+            _dfmedian = _df[fl_cols].median(axis=0, numeric_only=True,
+                                            skipna=True)
+            _dfmedian[NUM_SEGMENTS_COL] = len(_df)
             _dfmedian['outlier'] = outlier
             _dfmedian['modified'] = modified
-            _dfmedian['station_id'] = staid
+            _dfmedian[ID_COL] = staid
             newdf.append(pd.DataFrame([_dfmedian]))
             # print(pd.DataFrame([_dfmedian]))
 
         ret = pdconcat(newdf, ignore_index=True)
-        ret['num_segments'] = ret['num_segments'].astype(int)
+        ret[NUM_SEGMENTS_COL] = ret[NUM_SEGMENTS_COL].astype(int)
         # convert dtypes because they might not match:
         shared_c = (set(dataframe.columns) & set(ret.columns)) - set(fl_cols)
         for col in shared_c:
             ret[col] = ret[col].astype(dataframe[col].dtype)
         if verbose:
             bins = [1, 10, 100, 1000, 10000]
-            if ret['num_segments'].max() > bins[-1]:
-                bins.append(ret['num_segments'].max() + 1)
-            groups = ret.groupby(pd.cut(ret['num_segments'], bins, precision=0,
+            max_num_segs = ret[NUM_SEGMENTS_COL].max()
+            if max_num_segs >= 10 * bins[-1]:
+                bins.append(max_num_segs + 1)
+            elif max_num_segs >= bins[-1]:
+                bins[-1] = max_num_segs + 1
+            groups = ret.groupby(pd.cut(ret[NUM_SEGMENTS_COL], bins,
+                                        precision=0,
                                         right=False))
             print(pd.DataFrame(groups.size(), columns=['num_stations']).
                   to_string())
@@ -281,6 +259,13 @@ def floatingcols(dataframe):
         except TypeError:
             # categorical data falls here
             continue
+
+
+def is_station_df(dataframe):
+    '''Returns whether the given dataframe is the result of `groupby_station`
+    on a given segment-based dataframe
+    '''
+    return NUM_SEGMENTS_COL in dataframe.columns
 
 
 def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
@@ -320,8 +305,8 @@ def drop_na(dataframe, columns, verbose=True):
     Remove rows with non finite values.under the specified columns
         (a value is finite when it is neither NaN nor +-Infinity)
 
-    :return: a VIEW of dataframe with only rows with finite values. If you want to
-        modify the returned DataFrame, call copy() on it
+    :return: a VIEW of dataframe with only rows with finite values.
+        If you want to modify the returned DataFrame, call copy() on it
     '''
     tot = len(dataframe)
     with pd.option_context('mode.use_inf_as_na', True):
@@ -343,12 +328,10 @@ def keep_cols(dataframe, columns):
     Drops all columns of dataframe not in `columns` (preserving in any case the
     columns 'outlier', 'modified' and 'Segment.db.id')
 
-    :return: a VIEW of the original dataframe (does NOT return a copy) keeping the
-        specified columns only
+    :return: a VIEW of the original dataframe (does NOT return a copy)
+        keeping the specified columns only
     '''
-    cols = list(columns) + ['outlier', 'modified']
-    if 'Segment.db.id' in dataframe.columns:
-        cols += ['Segment.db.id']
+    cols = list(columns) + ['outlier', 'modified', ID_COL]
     return dataframe[list(set(cols))]
 
 
@@ -357,8 +340,8 @@ def classifier(clf_class, dataframe, **clf_params):
     `dataframe`.
 
     :param dataframe: pandas DataFrame
-    :param columns: list of string denoting the columns of `dataframe` that represents
-        the feature space to fit the classifier with
+    :param columns: list of string denoting the columns of `dataframe` that
+        represents the feature space to fit the classifier with
     :param clf_params: parameters to be passed to `clf_class`
     '''
     clf = clf_class(**clf_params)
@@ -369,21 +352,20 @@ def classifier(clf_class, dataframe, **clf_params):
 def predict(clf, dataframe, *columns):
     '''
     :return: a DataFrame with columns 'correctly_predicted' (boolean) plus
-        the three columns copied from `dataframe` useful to uniquely identify the
-        segment: 'outlier' (boolean), 'modified' (categorical)
-        and 'Segment.db.id' (int).
+        the three columns copied from `dataframe` useful to uniquely identify
+        the segment: 'outlier' (boolean), 'modified' (categorical)
+        and 'id' (either referring to a segmetn id or a station id) (int).
     '''
     predicted = _predict(clf, dataframe if not columns else dataframe[list(columns)])
     label = np.ones(len(predicted), dtype=predicted.dtype)
     label[is_outlier(dataframe)] = - 1
     correctly_predicted = label == predicted
     data = {
-        'correctly_predicted': correctly_predicted,
+        CORRECTLY_PREDICTED_COL: correctly_predicted,
         'outlier': dataframe['outlier'],
-        'modified': dataframe['modified']
+        'modified': dataframe['modified'],
+        ID_COL: dataframe[ID_COL]
     }
-    if 'Segment.db.id' in dataframe.columns:
-        data['Segment.db.id'] = dataframe['Segment.db.id']
     return pd.DataFrame(data, index=dataframe.index)
 
 
@@ -416,8 +398,8 @@ def cmatrix(dataframe, sample_weights=None):
     labels = np.ones(len(dataframe))
     labels[is_outlier(dataframe)] = -1
     predicted = -labels
-    predicted[dataframe['correctly_predicted']] = \
-        labels[dataframe['correctly_predicted']]
+    predicted[dataframe[CORRECTLY_PREDICTED_COL]] = \
+        labels[dataframe[CORRECTLY_PREDICTED_COL]]
     confm = pd.DataFrame(confusion_matrix(labels,
                                           predicted,
                                           # labels here just assures that
@@ -515,8 +497,8 @@ def train_test_split(dataframe, n_folds=5):
         else:
             # avoid randomly sampling, we have just to use indices:
             samples = indices
-        yield dataframe.loc[~dataframe.index.isin(samples), :].copy(), \
-            dataframe.loc[samples, :].copy()
+        yield dataframe.loc[~dataframe.index.isin(samples), :], \
+            dataframe.loc[samples, :]
 
 
 def df2str(dataframe):
@@ -548,14 +530,14 @@ def dfinfo(dataframe, perclass=True):
     return df2str(pd.DataFrame(data, columns=columns, index=index))
 
 
-_CLASSNAMES = [
+_CLASSNAMES = (
     'ok',
     'outl. (wrong inv. file)',
     'outl. (cha. resp. acc <-> vel)',
     'outl. (gain X100 or X0.01)',
     'outl. (gain X10 or X0.1)',
     'outl. (gain X2 or X0.5)'
-]
+)
 
 CLASSES = {
     _CLASSNAMES[0]: lambda dfr: ~is_outlier(dfr),
@@ -603,8 +585,7 @@ def fit_and_predict(clf_class, train_df, columns, params, test_df=None,
     if filepath is not None and isfile(filepath):
         clf = load(filepath)
     else:
-        clf = classifier(clf_class, train_df[list(columns)],
-                         **{'cache_size': 1500, **dict(params)})
+        clf = classifier(clf_class, train_df[list(columns)], **params)
     evres = EvalResult(clf, params, columns)
     if test_df is not None:
         evres.predict(test_df)
@@ -619,7 +600,10 @@ class Evaluator:
     evaluation, saving all predictions in HDF file, and a summary report in a
     dynamic html page'''
 
-    def __init__(self, clf_class, parameters, rootoutdir=None, n_folds=5):
+    # a dict of default params for the classifier:
+    default_clf_params = {}
+
+    def __init__(self, clf_class, parameters, n_folds=5):
         '''
 
         :param parameters: a dict mapping each parameter name (strings) to its list
@@ -627,13 +611,7 @@ class Evaluator:
             possible combinations of all parameters values
         '''
         assert n_folds >= 1
-        self.rootoutdir = rootoutdir
-        if self.rootoutdir is None:
-            self.rootoutdir = abspath(join(dirname(__file__), 'results'))
-        if not isdir(self.rootoutdir):
-            makedirs(self.rootoutdir)
-        if not isdir(self.rootoutdir):
-            raise ValueError('Could not create %s' % self.rootoutdir)
+        self._rootoutdir = None
         self.clf_class = clf_class
         self.n_folds = n_folds
         # setup self.parameters:
@@ -652,7 +630,7 @@ class Evaluator:
             self.eval_report_html_template = _.read()
 
     def basefilepath(self, *features, **params):
-        basepath = abspath(join(self.rootoutdir, self.clf_class.__name__))
+        basepath = abspath(join(self._rootoutdir, self.clf_class.__name__))
         feats, pars = self.tonormtuple(*features), self.tonormtuple(**params)
         suffix = '?' if feats or pars else ''
         if feats:
@@ -674,10 +652,16 @@ class Evaluator:
         lst.extend((str(k), str(params[k])) for k in sorted(params))
         return tuple(lst)
 
-    def run(self, dataframe, columns, remove_na=True):
+    def run(self, dataframe, columns, remove_na, output):
         '''Runs the model evaluation using the data in `dataframe` under the specified
         columns and for all provided parameters
         '''
+        self._rootoutdir = abspath(output)
+        if not isdir(self._rootoutdir):
+            makedirs(self._rootoutdir)
+        if not isdir(self._rootoutdir):
+            raise ValueError('Could not create %s' % self._rootoutdir)
+
         print('Running evaluator. All files will be stored in:\n%s' %
               dirname(self.basefilepath()))
         print('with file names prefixed with "%s"' % basename(self.basefilepath()))
@@ -696,12 +680,16 @@ class Evaluator:
                 raise ValueError('A %s DataFrame was empty during CV. '
                                  'Try to change the `n_folds` parameter' % err)
 
+        def cpy(dfr):
+            return dfr if dfr is None else dfr.copy()
+
         self._predictions.clear()
         self._eval_reports.clear()
         pool = Pool(processes=int(cpu_count()))
 
-        with click.progressbar(length=len(columns) *
-                               (1 + self.n_folds) * len(self.parameters)) as pbar:
+        with click.progressbar(
+            length=len(columns) * (1 + self.n_folds) * len(self.parameters)
+            ) as pbar:
 
             def aasync_callback(result):
                 self._applyasync_callback(pbar, result)
@@ -716,15 +704,19 @@ class Evaluator:
                 for params in self.parameters:
                     _traindf, _testdf = self.train_test_split_model(dataframe_)
                     fname = self.basefilepath(*cols, **params) + '.model'
+                    prms = {**self.default_clf_params, **dict(params)}
                     pool.apply_async(
                         fit_and_predict,
-                        (self.clf_class, _traindf, cols, params, _testdf, fname),
+                        (self.clf_class, cpy(_traindf), cols, prms,
+                         cpy(_testdf), fname),
                         callback=aasync_callback
                     )
-                    for train_df, test_df in self.train_test_split_cv(dataframe_):
+                    for train_df, test_df in \
+                            self.train_test_split_cv(dataframe_):
                         pool.apply_async(
                             fit_and_predict,
-                            (self.clf_class, train_df, cols, params, test_df, None),
+                            (self.clf_class, cpy(train_df), cols, prms,
+                             cpy(test_df), None),
                             callback=aasync_callback
                         )
 
@@ -732,15 +724,16 @@ class Evaluator:
             pool.join()
 
     def train_test_split_cv(self, dataframe):
-        '''Returns an iterable yielding (train_df, test_df) elements
-        for cross-validation. Both DataFrames in each yielded elements are subset
+        '''Returns an iterable yielding (train_df, test_df) elements for
+        cross-validation. Both DataFrames in each yielded elements are subset
         of `dataframe`
         '''
         return train_test_split(dataframe, self.n_folds)
 
     def train_test_split_model(self, dataframe):  # pylint: disable=no-self-use
         '''Returns two dataframe representing the train and test dataframe for
-        training the global model. Unless subclassed this method returns the tuple:
+        training the global model. Unless subclassed this method returns the
+        tuple:
         ```
         dataframe, None
         ```
@@ -818,7 +811,7 @@ class Evaluator:
             _df = predicted_df[selectorfunc(predicted_df)]
             if _df.empty:
                 continue
-            correctly_pred = _df['correctly_predicted'].sum()
+            correctly_pred = _df[CORRECTLY_PREDICTED_COL].sum()
             # map any class defined here to the index of the column above which denotes
             # 'correctly classified'. Basically, map 'ok' to zero and any other class
             # to 1:

@@ -251,18 +251,12 @@ def _main(segment, config, raw_trace, inventory_used):
         # write stuff to csv:
         ret = OrderedDict()
 
-        
-        
-        
-        ret['distance_km'] = distance
-
         for period, psdval in zip(required_psd_periods, required_psd_values):
             ret['psd@%ssec' % str(period)] = float(psdval)
 
         ret['outlier'] = False
         ret['modified'] = ''
         ret['window_type'] = window_type
-        ret['channel_code'] = channel_code
         ret['start_time'] = raw_trace.stats.starttime.datetime
         ret['length_sec'] = raw_trace.stats.endtime - raw_trace.stats.starttime
 
