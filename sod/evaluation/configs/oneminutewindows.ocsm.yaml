@@ -47,7 +47,7 @@ parameters:
     - 0.5  # np.logspace(np.log10(.1), np.log10(.5), 3)
 
 # the input HDF5 file path
-input: '../../dataset/dataset.hdf'
+input: '../../../tmp/datasets/oneminutewindows.hdf'
 
 # if input has to be normalized before evaluation (normalize on good segments only):
 input_normalize: true
@@ -66,4 +66,4 @@ input_normalize: true
 # for OneClassSVM 'all instances' means good segments only. See `execute.EVALUATORS`
 # for details):
 # - <clf>?features=<features>&params=<params>.model
-output: '../evaluation/results/oneminutewindows'
+output: '../../../tmp/evaluation-results/oneminutewindows'
