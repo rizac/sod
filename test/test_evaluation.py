@@ -18,15 +18,21 @@ from sod.evaluation import split, cmatrix, classifier, predict, _predict, open_d
 from sklearn.metrics.classification import confusion_matrix
 import mock
 from sklearn.svm.classes import OneClassSVM
-from sod.evaluation.execute import OcsvmEvaluator
+from sod.evaluation.execute import OcsvmEvaluator, run
+from mock import patch
+from click.testing import CliRunner
+from sod.evaluation.datasets import pgapgv
 
 
 class Tester:
+    
+    datadir = join(dirname(__file__), 'data')
 
-    dfr = open_dataset(join(dirname(__file__), 'data',
-                       'dataset.secondtry.hdf'), False)
+    dfr = pgapgv(join(datadir, 'pgapgv.hdf'), False)
 
     clf = classifier(OneClassSVM, dfr.iloc[:5,:][['delta_pga', 'delta_pgv']])
+
+    evalconfig = join(dirname(__file__), 'data', 'pgapgv.ocsm.yaml')
 
     tmpdir = join(dirname(__file__), 'tmp')
 
@@ -96,10 +102,10 @@ class Tester:
             assert np.abs(np.abs(elm[1] - elm[0]) -
                           np.abs(a[i-1][1] - a[i-1][0])) <= 1
 
-    @mock.patch('sod.evaluation._predict')
+    @patch('sod.evaluation._predict')
     def test_get_scores(self, mock_predict):
-        dfr = pd.DataFrame([{'outlier': False, 'modified': '', 'Segment.db.id': 1},
-                            {'outlier': True, 'modified': 'invchanged', 'Segment.db.id': 2}])
+        dfr = pd.DataFrame([{'outlier': False, 'modified': '', 'id': 1},
+                            {'outlier': True, 'modified': 'invchanged', 'id': 2}])
         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1])
         pred_df = predict(None, dfr)
         assert pred_df['correctly_predicted'].sum() == 2
@@ -109,9 +115,9 @@ class Tester:
         assert (cm_ok_row == [1, 0]).all()
         assert (cm_outlier_row == [0, 1]).all()
 
-        dfr = pd.DataFrame([{'outlier': False, 'modified': '', 'Segment.db.id': 1},
-                            {'outlier': False, 'modified': '', 'Segment.db.id': 1},
-                            {'outlier': True, 'modified': 'invchanged', 'Segment.db.id': 1}])
+        dfr = pd.DataFrame([{'outlier': False, 'modified': '', 'id': 1},
+                            {'outlier': False, 'modified': '', 'id': 1},
+                            {'outlier': True, 'modified': 'invchanged', 'id': 1}])
         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
         pred_df = predict(None, dfr)
         assert pred_df['correctly_predicted'].sum() == 2
@@ -121,8 +127,8 @@ class Tester:
         assert (cm_ok_row == [1, 1]).all()
         assert (cm_outlier_row == [0, 1]).all()
 
-        dfr = pd.DataFrame([{'outlier': False, 'modified': '', 'Segment.db.id': 1},
-                            {'outlier': False, 'modified': '', 'Segment.db.id': 1},
+        dfr = pd.DataFrame([{'outlier': False, 'modified': '', 'id': 1},
+                            {'outlier': False, 'modified': '', 'id': 1},
                             {'outlier': True, 'modified': 'invchanged', 'Segment.db.id': 3}])
         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
         pred_df = predict(None, dfr)
@@ -133,18 +139,18 @@ class Tester:
         assert (cm_ok_row == [1, 1]).all()
         assert (cm_outlier_row == [0, 1]).all()
 
-        # test that we do not need Segment.db.id:
-        dfr = pd.DataFrame([{'outlier': False, 'modified': ''},
-                            {'outlier': False, 'modified': ''},
-                            {'outlier': True, 'modified': 'invchanged'}])
-        mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
-        pred_df = predict(None, dfr)
-        assert pred_df['correctly_predicted'].sum() == 2
-        cm_ = cmatrix(pred_df)
-        cm_ok_row = cm_.loc['ok', :]
-        cm_outlier_row = cm_.loc['outlier', :]
-        assert (cm_ok_row == [1, 1]).all()
-        assert (cm_outlier_row == [0, 1]).all()
+#         # test that we do not need Segment.db.id:
+#         dfr = pd.DataFrame([{'outlier': False, 'modified': ''},
+#                             {'outlier': False, 'modified': ''},
+#                             {'outlier': True, 'modified': 'invchanged'}])
+#         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
+#         pred_df = predict(None, dfr)
+#         assert pred_df['correctly_predicted'].sum() == 2
+#         cm_ = cmatrix(pred_df)
+#         cm_ok_row = cm_.loc['ok', :]
+#         cm_outlier_row = cm_.loc['outlier', :]
+#         assert (cm_ok_row == [1, 1]).all()
+#         assert (cm_outlier_row == [0, 1]).all()
 
     def test_get_scores_order(self):
         '''test that scikit predcit preserves oreder, i.e.:
@@ -159,31 +165,40 @@ class Tester:
             res2.append(_[0])
         assert (res == res2).all()
 
+    @patch('sod.evaluation.execute.outputpath')
+    @patch('sod.evaluation.execute.inputpath')
     def test_evaluator(self,
                        # pytest fixutres:
                        #tmpdir
+                       mock_in_path,
+                       mock_out_path
                        ):
         if isdir(self.tmpdir):
             shutil.rmtree(self.tmpdir)
-        makedirs(self.tmpdir)
-        root = self.tmpdir
         
-        eval = OcsvmEvaluator(
-            parameters={'kernel': ['rbf'], 'gamma': ['auto', 10.00]},
-            rootoutdir=root,
-            n_folds=5
-        )
+        mock_out_path.return_value = self.tmpdir
+        mock_in_path.return_value = self.datadir
+        
+        runner = CliRunner()
+        result = runner.invoke(run, ["-c", self.evalconfig])
 
-        with pytest.raises(ValueError) as verr:
-            # not enough test instances with current cv
-            eval.run(
-                self.dfr.iloc[:20, :],
-                columns=[['delta_pgv'], ['delta_pga', 'delta_pgv']]
-            )
-        eval.run(
-            self.dfr.iloc[:50, :],
-            columns=[['delta_pgv'], ['delta_pga', 'delta_pgv']]
-        )
+        asd = 9
+#         eval = OcsvmEvaluator(
+#             parameters={'kernel': ['rbf'], 'gamma': ['auto', 10.00]},
+#             rootoutdir=root,
+#             n_folds=5
+#         )
+# 
+#         with pytest.raises(ValueError) as verr:
+#             # not enough test instances with current cv
+#             eval.run(
+#                 self.dfr.iloc[:20, :],
+#                 columns=[['delta_pgv'], ['delta_pga', 'delta_pgv']]
+#             )
+#         eval.run(
+#             self.dfr.iloc[:50, :],
+#             columns=[['delta_pgv'], ['delta_pga', 'delta_pgv']]
+#         )
 
     def test_drop_cols(self):
         d = pd.DataFrame({
@@ -194,14 +209,14 @@ class Tester:
             keep_cols(d, ['a'])
         d['outlier'] = [True, False, False]
         d['modified'] = ['', '', 'inv changed']
-        d['Segment.db.id'] = [1, 1, 2]
+        d['id'] = [1, 1, 2]
 
         assert sorted(keep_cols(d, ['modified']).columns.tolist()) == \
-            ['Segment.db.id', 'modified', 'outlier']
+            sorted(['id', 'modified', 'outlier'])
         assert sorted(keep_cols(d, ['a', 'b']).columns.tolist()) == \
             sorted(d.columns.tolist())
         assert sorted(keep_cols(d, ['b']).columns.tolist()) == \
-            ['Segment.db.id', 'b', 'modified', 'outlier']
+            sorted(['id', 'b', 'modified', 'outlier'])
 
     def test_drop_duplicates(self):
         d = pd.DataFrame({
@@ -210,7 +225,7 @@ class Tester:
             'c': [5, 7.7, 6, 6, 6],
             'modified': ['', '', 'INVFILE:', '', ''],
             'outlier': [False, True, True, False, False],
-            'Segment.db.id': [1, 2, 3, 4, 5]
+            'id': [1, 2, 3, 4, 5]
         })
 
         pd.testing.assert_frame_equal(drop_duplicates(d, ['a']), d)
@@ -227,7 +242,7 @@ class Tester:
             'f': [np.nan] * 5,
             'modified': ['', '', 'INVFILE:', '', ''],
             'outlier': [False, True, True, False, False],
-            'Segment.db.id': [1, 2, 3, 4, 5]
+            'id': [1, 2, 3, 4, 5]
         })
 
         pd.testing.assert_frame_equal(drop_na(d, ['c']), d)

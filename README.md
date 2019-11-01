@@ -3,13 +3,15 @@ A machine learning experimental project to detect seismic events outliers
 
 
 # dataset creation
+
 Move to sod directory
 Activate virtualenv
 ```bash
-process -d postgresql://<user>:<pwsd>@<host>/<dbname> -mp -c ./sod/dataset/executions/oneminutewindows.yaml -p ./sod/dataset/executions/oneminutewindows.py ./tmp/datasets/onwminutewindows.hdf
+s2s process -d postgresql://<user>:<pwsd>@<host>/<dbname> -mp -c ./sod/dataset/executions/oneminutewindows.yaml -p ./sod/dataset/executions/oneminutewindows.py ./tmp/datasets/oneminutewindows.hdf
 ```
 
 # copy from remote to local:
+
 Move to sod directory
 scp <host>:<sod_directory>/tmp/datasets/pgapgv.hdf ./tmp/datasets/pgapgv.hdf
 
@@ -17,7 +19,8 @@ scp <host>:<sod_directory>/tmp/datasets/pgapgv.hdf ./tmp/datasets/pgapgv.hdf
 
 
 
-# Evaluation results (FIXME: TO be improved):
+# Evaluation results:
+
 Move to sod directory
 Activate virtualenv
 ```bash

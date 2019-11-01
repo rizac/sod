@@ -7,7 +7,7 @@ import click
 
 from os.path import isabs, abspath, isdir, isfile, dirname, join, basename
 from yaml import safe_load
-from sod.evaluation import Evaluator, is_outlier, open_dataset
+from sod.evaluation import Evaluator, is_outlier, datasets
 from sklearn.svm.classes import OneClassSVM
 from sklearn.ensemble.iforest import IsolationForest
 
@@ -19,14 +19,22 @@ def load_cfg(fname):
     with open(fname) as stream:
         params = safe_load(stream)
 
-    if not isabs(params['input']):
-        params['input'] = join(dirname(fname), params['input'])
-
-    if not isabs(params['output']):
-        params['output'] = join(dirname(fname), params['output'],
-                                basename(params['input']))
+#     if not isabs(params['input']):
+#         params['input'] = join(dirname(fname), params['input'])
+# 
+#     if not isabs(params['output']):
+#         params['output'] = join(dirname(fname), params['output'],
+#                                 basename(params['input']))
 
     return params
+
+
+def inputpath():
+    return abspath(join(dirname(__file__), '..', 'tmp', 'datasets'))
+
+
+def outputpath():
+    return abspath(join(dirname(__file__), '..', 'tmp', 'evaluation-results'))
 
 
 class OcsvmEvaluator(Evaluator):
@@ -83,16 +91,21 @@ EVALUATORS = {
 @click.option('-c', '--config', help='configuration YAML file', required=True)
 def run(config):
     cfg_dict = load_cfg(config)
+    open_dataset = getattr(datasets, cfg_dict['input'])
+
     evaluator_class = EVALUATORS.get(cfg_dict['clf'], None)
     if evaluator_class is None:
         raise ValueError('%s in the config is invalid, please specify: %s' %
                          ('clf', str(" ".join(EVALUATORS.keys()))))
 
+    infile = join(inputpath(), cfg_dict['input'] + '.hdf')
+    print('Reading from: %s' % str(infile))
+    outdir = join(outputpath(), cfg_dict['input'])
+    print('Saving to: %s' % str(outdir))
     evl = evaluator_class(cfg_dict['parameters'], n_folds=5)
-    evl.run(open_dataset(cfg_dict['input'],
-                         normalize_=cfg_dict['input_normalize']),
-            columns=cfg_dict['features'],
-            output=cfg_dict['output'])
+    evl.run(open_dataset(infile, normalize_=cfg_dict['input_normalize']),
+            columns=cfg_dict['features'], output=outdir)
+    return 0
 
 
 if __name__ == '__main__':

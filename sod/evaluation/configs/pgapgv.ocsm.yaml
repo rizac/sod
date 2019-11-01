@@ -60,7 +60,7 @@ features:
 parameters:
   kernel:
     - 'rbf'
-  gamma':
+  gamma:
     - 'auto'
     - 1
     - 10
@@ -71,7 +71,7 @@ parameters:
     - 0.5  # np.logspace(np.log10(.1), np.log10(.5), 3)
 
 # the input HDF5 file path
-input: '../../../tmp/datasets/pgapgv.hdf'
+input: 'pgapgv'
 
 # if input has to be normalized before evaluation (normalize on good segments only):
 input_normalize: true
@@ -90,4 +90,3 @@ input_normalize: true
 # for OneClassSVM 'all instances' means good segments only. See `execute.EVALUATORS`
 # for details):
 # - <clf>?features=<features>&params=<params>.model
-output: '../../../tmp/evaluation-results/pgapgv'
