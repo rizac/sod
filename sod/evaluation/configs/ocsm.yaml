@@ -1,0 +1,69 @@
+# configuration for training a classifier
+
+# The classifier. See `execute.EVALUATORS` for a list of possible strings
+# mapped to a subclass of the base `Evaluator` class (defined in `evaluation.__init__`)
+clf: "OneClassSVM"
+
+# The features (inout dataframe columns) to iterate over:
+features:
+  -
+    - 'delta_pga'
+    - 'delta_pgv'
+  -
+    - 'delta_pga'
+    - 'delta_pgv'
+    - 'noise_psd@5sec'
+  -
+    - 'magnitude'
+    - 'distance_km'
+    - 'amp@0.5hz'
+    - 'amp@1hz'
+    - 'amp@2hz'
+    - 'amp@5hz'
+    - 'amp@10hz'
+  -
+    - 'magnitude'
+    - 'distance_km'
+    - 'amp@0.5hz'
+    - 'amp@1hz'
+    - 'amp@2hz'
+    - 'amp@5hz'
+    - 'amp@10hz'
+    - 'amp@20hz'
+    - 'noise_psd@5sec'
+
+# The classifier parameters to iterate over:
+parameters:
+  kernel:
+    - 'rbf'
+  gamma':
+    - 'auto'
+    - 1
+    - 10
+    - 50  # np.logspace(np.log10(1), np.log10(50), 4)
+  nu:
+    - 0.1
+    - 0.2
+    - 0.5  # np.logspace(np.log10(.1), np.log10(.5), 3)
+
+# the input HDF5 file path
+input: '../../dataset/dataset.hdf'
+
+# if input has to be normalized before evaluation (normalize on good segments only):
+input_normalize: true
+
+# the output director root path. The output path will be constructed by
+# appending the basename of the input file above to the root path:
+# <output>/basename(<input>) (the directory will be created if non existing)
+# Therein, for any combination of features and parameters three files will be stored:
+# 1. An hdf file with all predictions (same length, in principle, of the input dataframe):
+# - <clf>?features=<features>&params=<params>.evalpredictions.hdf
+# 2. An HTML file with all confusion matrices (one per feature set, the scores of 
+# all parameters combinations are stored in the html):
+# - <clf>?features=<features>.evalreport.html
+# The model (scikit dumped model) for the given features and parameters (using
+# all instances in the set, which depends on the clf implementation, i.e.
+# for OneClassSVM 'all instances' means good segments only. See `execute.EVALUATORS`
+# for details):
+# - <clf>?features=<features>&params=<params>.model
+output: '../evaluation/results'

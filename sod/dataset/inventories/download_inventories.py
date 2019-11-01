@@ -12,7 +12,7 @@ from stream2segment.io.db.models import Station
 from stream2segment.io.utils import loads_inv
 
 root = os.path.dirname(__file__)
-with open(os.path.join(root, '..', 'jupyter', 'jnconfig.yaml')) as _:
+with open(os.path.join(root, '..', '..', 'jupyter', 'jnconfig.yaml')) as _:
     config = yaml.safe_load(_)
 dbpath_old = config['dbpath_old']
 dbpath_new = config['dbpath_new']

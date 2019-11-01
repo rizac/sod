@@ -23,7 +23,7 @@ from sod.evaluation.ocsvm import OcsvmEvaluator
 
 class Tester:
 
-    dfr = open_dataset(join(dirname(__file__), '..', 'sod', 'dataset',
+    dfr = open_dataset(join(dirname(__file__), 'data',
                        'dataset.secondtry.hdf'), False)
 
     clf = classifier(OneClassSVM, dfr.iloc[:5,:][['delta_pga', 'delta_pgv']])
