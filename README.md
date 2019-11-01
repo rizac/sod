@@ -6,7 +6,7 @@ A machine learning experimental project to detect seismic events outliers
 Move to sod directory
 Activate virtualenv
 ```bash
-process -d postgresql://<user>:<pwsd>@<host>/<dbname> -c ./sod/dataset/executions/oneminutewindows.yaml -p ./sod/dataset/executions/oneminutewindows.py ./tmp/datasets/onwminutewindows.hdf
+process -d postgresql://<user>:<pwsd>@<host>/<dbname> -mp -c ./sod/dataset/executions/oneminutewindows.yaml -p ./sod/dataset/executions/oneminutewindows.py ./tmp/datasets/onwminutewindows.hdf
 ```
 
 
@@ -16,3 +16,6 @@ Activate virtualenv
 ```bash
 export PYTHONPATH='.' && python sod/evaluation.execute.py -c config_file
 ```
+
+
+# copy back data (TO BE DONE):

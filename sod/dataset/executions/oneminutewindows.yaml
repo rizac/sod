@@ -277,7 +277,7 @@ station_ids_with_wrong_local_inventory:
     FR.PYLO.00.HNZ: "FR.PYLO.2010-01-17T10:00:00.xml"
 
 # path to the local inventory files listed above (relative to the path the processing is executed)
-inventories_dir: 'inventories/s2s_2017_10'
+inventories_dir: 'sod/dataset/inventories/inventories/s2s_2017_10'
 
 # stage gains factors for programmatically creating "wrong" inventory responses by
 # increasing / decreasing stage gain:
