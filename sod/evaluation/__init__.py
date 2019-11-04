@@ -291,6 +291,8 @@ def predict(clf, dataframe, *columns):
         'modified': dataframe['modified'],
         ID_COL: dataframe[ID_COL]
     }
+    if 'window_type' in dataframe.columns:
+        data['window_type'] = dataframe['window_type']
     return pd.DataFrame(data, index=dataframe.index)
 
 
