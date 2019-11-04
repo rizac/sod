@@ -22,7 +22,7 @@ features:
 parameters:
   kernel:
     - 'rbf'
-  gamma':
+  gamma:
     # - 'auto'
     # - 1
     - 10
