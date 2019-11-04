@@ -24,12 +24,16 @@ def inputcfgpath():
     return abspath(join(dirname(__file__), 'executions'))
 
 
+def _rootpath():
+    return abspath(join(dirname(__file__), '..', '..'))
+
+
 def inputpath():
-    return abspath(join(dirname(__file__), '..', 'tmp', 'datasets'))
+    return abspath(join(_rootpath(), 'tmp', 'datasets'))
 
 
 def outputpath():
-    return abspath(join(dirname(__file__), '..', 'tmp', 'evaluation-results'))
+    return abspath(join(_rootpath(), 'tmp', 'evaluation-results'))
 
 
 class OcsvmEvaluator(Evaluator):
