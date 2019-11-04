@@ -13,7 +13,7 @@ from itertools import repeat
 from sod.evaluation import pdconcat  #, train_test_split
 from collections import defaultdict
 from sklearn.model_selection._split import KFold
-from sod.evaluation import split, cmatrix, classifier, predict, _predict, open_dataset,\
+from sod.evaluation import split, cmatrix, classifier, predict, _predict,\
     Evaluator, train_test_split, drop_duplicates, keep_cols, drop_na, groupby_stations
 from sklearn.metrics.classification import confusion_matrix
 import mock
@@ -253,6 +253,9 @@ class Tester:
         for col in ['d', 'e', 'f']:
             with pytest.raises(Exception):
                 drop_na(d, [col])
+                
+    def test_paths(self):
+        pass
 
 #     def test_dropduplicates(self):
 #         dfr = open_dataset(join(dirname(__file__), '..', 'sod', 'dataset',

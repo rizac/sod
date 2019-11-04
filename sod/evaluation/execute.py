@@ -5,7 +5,7 @@ Created on 28 Oct 2019
 '''
 import click
 
-from os.path import isabs, abspath, isdir, isfile, dirname, join, basename
+from os.path import isabs, abspath, isdir, isfile, dirname, join, basename, splitext
 from yaml import safe_load
 from sod.evaluation import Evaluator, is_outlier, datasets
 from sklearn.svm.classes import OneClassSVM
@@ -14,19 +14,14 @@ from sklearn.ensemble.iforest import IsolationForest
 
 def load_cfg(fname):
     if not isabs(fname):
-        fname = join(dirname(__file__), fname)
+        fname = join(inputcfgpath(), fname)
     fname = abspath(fname)
     with open(fname) as stream:
-        params = safe_load(stream)
+        return safe_load(stream)
 
-#     if not isabs(params['input']):
-#         params['input'] = join(dirname(fname), params['input'])
-# 
-#     if not isabs(params['output']):
-#         params['output'] = join(dirname(fname), params['output'],
-#                                 basename(params['input']))
 
-    return params
+def inputcfgpath():
+    return abspath(join(dirname(__file__), 'executions'))
 
 
 def inputpath():
@@ -88,19 +83,19 @@ EVALUATORS = {
 
 
 @click.command()
-@click.option('-c', '--config', help='configuration YAML file', required=True)
+@click.option('-c', '--config', help='configuration YAML file NAME', required=True)
 def run(config):
     cfg_dict = load_cfg(config)
-    open_dataset = getattr(datasets, cfg_dict['input'])
+    open_dataset = getattr(datasets, splitext(cfg_dict['input'])[0])
 
     evaluator_class = EVALUATORS.get(cfg_dict['clf'], None)
     if evaluator_class is None:
         raise ValueError('%s in the config is invalid, please specify: %s' %
                          ('clf', str(" ".join(EVALUATORS.keys()))))
 
-    infile = join(inputpath(), cfg_dict['input'] + '.hdf')
+    infile = join(inputpath(), cfg_dict['input'])
     print('Reading from: %s' % str(infile))
-    outdir = join(outputpath(), cfg_dict['input'])
+    outdir = join(outputpath(), basename(config))
     print('Saving to: %s' % str(outdir))
     evl = evaluator_class(cfg_dict['parameters'], n_folds=5)
     evl.run(open_dataset(infile, normalize_=cfg_dict['input_normalize']),

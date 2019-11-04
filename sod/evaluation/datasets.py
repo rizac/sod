@@ -30,12 +30,11 @@ import numpy as np
 import pandas as pd
 
 from sod.evaluation import capture_stderr, ID_COL, is_prediction_dataframe,\
-    is_station_df, DATASET_FILENAME, dfinfo, normalize
+    is_station_df, dfinfo, normalize
+
 
 def open_dataset(func):
-    def wrapper(filename=None, normalize_=True, verbose=True):
-        if filename is None:
-            filename = DATASET_FILENAME
+    def wrapper(filename, normalize_=True, verbose=True):
         if verbose:
             print('Opening %s' % abspath(filename))
 
