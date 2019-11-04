@@ -629,7 +629,10 @@ class Evaluator:
             def kill_pool(err_msg):
                 print('ERROR:')
                 print(err_msg)
-                pool.terminate()
+                try:
+                    pool.terminate()
+                except ValueError:  # ignore ValueError('pool not running')
+                    pass
 
             for cols in columns:
                 # purge the dataframe from duplicates (drop_duplicates)
