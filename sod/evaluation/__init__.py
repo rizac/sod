@@ -626,6 +626,11 @@ class Evaluator:
             def aasync_callback(result):
                 self._applyasync_callback(pbar, result)
 
+            def kill_pool(err_msg):
+                print('ERROR:')
+                print(err_msg)
+                pool.terminate()
+
             for cols in columns:
                 # purge the dataframe from duplicates (drop_duplicates)
                 # and unnecessary columns (keep_cols). Return a copy at the end
@@ -641,7 +646,8 @@ class Evaluator:
                         fit_and_predict,
                         (self.clf_class, cpy(_traindf), cols, prms,
                          cpy(_testdf), fname),
-                        callback=aasync_callback
+                        callback=aasync_callback,
+                        error_callback=kill_pool
                     )
                     for train_df, test_df in \
                             self.train_test_split_cv(dataframe_):
@@ -649,7 +655,8 @@ class Evaluator:
                             fit_and_predict,
                             (self.clf_class, cpy(train_df), cols, prms,
                              cpy(test_df), None),
-                            callback=aasync_callback
+                            callback=aasync_callback,
+                            error_callback=kill_pool
                         )
 
             pool.close()
