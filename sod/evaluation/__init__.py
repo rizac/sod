@@ -21,9 +21,6 @@ from pandas.core.indexes.range import RangeIndex
 from sklearn.metrics.classification import confusion_matrix
 import click
 
-DATASET_FILENAME = abspath(join(dirname(__file__), '..',
-                                'dataset', 'dataset.hdf'))
-
 
 @contextmanager
 def capture_stderr(verbose=False):
@@ -63,78 +60,6 @@ def capture_stderr(verbose=False):
 ID_COL = 'id'
 CORRECTLY_PREDICTED_COL = 'correctly_predicted'
 NUM_SEGMENTS_COL = 'num_segments'
-
-
-def open_dataset(filename=None, normalize_=True, verbose=True):
-    if filename is None:
-        filename = DATASET_FILENAME
-    if verbose:
-        print('Opening %s' % abspath(filename))
-
-    # capture warnings which are redirected to stderr:
-    with capture_stderr(verbose):
-        dfr = pd.read_hdf(filename)
-
-        if 'Segment.db.id' in dfr.columns:
-            if ID_COL in dfr.columns:
-                raise ValueError('The data frame already contains a column '
-                                 'named "%s"' % ID_COL)
-            # if it's a prediction dataframe, it's for backward compatibility
-            dfr.rename(columns={"Segment.db.id": ID_COL}, inplace=True)
-
-        if is_prediction_dataframe(dfr):
-            if verbose:
-                print('The dataset contains predictions '
-                      'performed on a trained classifier. '
-                      'Returning the dataset with no further operation')
-            return dfr
-
-        if is_station_df(dfr):
-            if verbose:
-                print('The dataset is per-station basis. '
-                      'Returning the dataset with no further operation')
-            return dfr
-
-        # setting up columns:
-        dfr['pga'] = np.log10(dfr['pga_observed'].abs())
-        dfr['pgv'] = np.log10(dfr['pgv_observed'].abs())
-        dfr['delta_pga'] = np.log10(dfr['pga_observed'].abs()) - \
-            np.log10(dfr['pga_predicted'].abs())
-        dfr['delta_pgv'] = np.log10(dfr['pgv_observed'].abs()) - \
-            np.log10(dfr['pgv_predicted'].abs())
-        del dfr['pga_observed']
-        del dfr['pga_predicted']
-        del dfr['pgv_observed']
-        del dfr['pgv_predicted']
-        for col in dfr.columns:
-            if col.startswith('amp@'):
-                # go to db. We should multuply log * 20 (amp spec) or * 10 (pow spec)
-                # but it's unnecessary as we will normalize few lines below
-                dfr[col] = np.log10(dfr[col])
-        # save space:
-        dfr['modified'] = dfr['modified'].astype('category')
-        # numpy int64 for just zeros and ones is waste of space: use bools
-        # (int8). But first, let's be paranoid first (check later, see below)
-        _zum = dfr['outlier'].sum()
-        # convert:
-        dfr['outlier'] = dfr['outlier'].astype(bool)
-        # check:
-        if dfr['outlier'].sum() != _zum:
-            raise ValueError('The column "outlier" is supposed to be '
-                             'populated with zeros or ones, but conversion '
-                             'to boolean failed. Check the column')
-
-        if verbose:
-            print('')
-            print(dfinfo(dfr))
-
-        if normalize_:
-            print('')
-            dfr = normalize(dfr)
-
-    # for safety:
-    dfr.reset_index(drop=True, inplace=True)
-    return dfr
 
 
 def is_prediction_dataframe(dataframe):
@@ -643,13 +568,17 @@ class Evaluator:
 
         return basepath + suffix
 
-    @staticmethod
-    def tonormtuple(*features, **params):
+    @classmethod
+    def tonormtuple(cls, *features, **params):
         '''Normalizes features and params into a tuple that is sorted and hashable, so
         that it can be used to uniquely identify the same features and params couple
         '''
         lst = sorted(str(_) for _ in features)
-        lst.extend((str(k), str(params[k])) for k in sorted(params))
+        # make params sorted first by iteration params then default ones,
+        pr1 = sorted(k for k in params if k not in cls.default_clf_params)
+        pr2 = sorted(k for k in params if k in cls.default_clf_params)
+        prs = pr1 + pr2
+        lst.extend((str(k), str(params[k])) for k in prs)
         return tuple(lst)
 
     def run(self, dataframe, columns, remove_na, output):
@@ -688,8 +617,9 @@ class Evaluator:
         pool = Pool(processes=int(cpu_count()))
 
         with click.progressbar(
-            length=len(columns) * (1 + self.n_folds) * len(self.parameters)
-            ) as pbar:
+            length=len(columns) * (1 + self.n_folds) * len(self.parameters),
+            fill_char='o', empty_char='.'
+        ) as pbar:
 
             def aasync_callback(result):
                 self._applyasync_callback(pbar, result)
@@ -703,8 +633,8 @@ class Evaluator:
                 dataframe_ = keep_cols(dataframe_, cols).copy()
                 for params in self.parameters:
                     _traindf, _testdf = self.train_test_split_model(dataframe_)
-                    fname = self.basefilepath(*cols, **params) + '.model'
                     prms = {**self.default_clf_params, **dict(params)}
+                    fname = self.basefilepath(*cols, **prms) + '.model'
                     pool.apply_async(
                         fit_and_predict,
                         (self.clf_class, cpy(_traindf), cols, prms,
@@ -820,7 +750,7 @@ class Evaluator:
             sum_df.loc[typ, sum_df_cols[col_idx]] += correctly_pred
             sum_df.loc[typ, sum_df_cols[1-col_idx]] += len(_df) - correctly_pred
             sum_df.loc[typ, sum_df_cols[2]] = \
-                np.around(100 * np.true_divide(correctly_pred, len(_df)), 2)
+                np.around(100 * np.true_divide(correctly_pred, len(_df)), 3)
 
 #         oks = sum_df[sum_df_cols[0]]
 #         tots = sum_df[sum_df_cols[0]] + sum_df[sum_df_cols[1]]

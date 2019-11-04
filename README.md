@@ -24,7 +24,7 @@ scp <host>:<sod_directory>/tmp/datasets/pgapgv.hdf ./tmp/datasets/pgapgv.hdf
 Move to sod directory
 Activate virtualenv
 ```bash
-export PYTHONPATH='.' && python sod/evaluation.execute.py -c config_file
+export PYTHONPATH='.' && python sod/evaluation/execute.py -c sod/evaluation/executions/<yamlfile>
 ```
 
 

@@ -1,5 +1,8 @@
 # configuration for training a classifier
 
+# the input HDF5 file path
+input: 'pgapgv.hdf'
+
 # The classifier. See `execute.EVALUATORS` for a list of possible strings
 # mapped to a subclass of the base `Evaluator` class (defined in `evaluation.__init__`)
 clf: "OneClassSVM"
@@ -66,9 +69,6 @@ parameters:
     - 50  # np.logspace(np.log10(1), np.log10(50), 4)
   nu:
     - 0.1
-
-# the input HDF5 file path
-input: 'pgapgv'
 
 # if input has to be normalized before evaluation (normalize on good segments only):
 input_normalize: true

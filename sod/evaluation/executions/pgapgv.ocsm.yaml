@@ -1,5 +1,8 @@
 # configuration for training a classifier
 
+# the input HDF5 file path
+input: 'pgapgv.hdf'
+
 # The classifier. See `execute.EVALUATORS` for a list of possible strings
 # mapped to a subclass of the base `Evaluator` class (defined in `evaluation.__init__`)
 clf: "OneClassSVM"
@@ -31,12 +34,36 @@ features:
     - 'amp@10hz'
     - 'amp@20hz'
     - 'noise_psd@5sec'
+  -
+    - 'noise_psd@2sec'
+  -
+    - 'noise_psd@5sec'
+  -
+    - 'noise_psd@9sec'
+  -
+    - 'noise_psd@2sec'
+    - 'noise_psd@5sec'
+  -
+    - 'noise_psd@5sec'
+    - 'noise_psd@9sec'
+  -
+    - 'noise_psd@2sec'
+    - 'noise_psd@9sec'
+  -
+    - 'noise_psd@2sec'
+    - 'noise_psd@5sec'
+    - 'noise_psd@9sec'
+  -
+    - 'noise_psd@1sec'
+    - 'noise_psd@2sec'
+    - 'noise_psd@5sec'
+    - 'noise_psd@9sec'
 
 # The classifier parameters to iterate over:
 parameters:
   kernel:
     - 'rbf'
-  gamma':
+  gamma:
     - 'auto'
     - 1
     - 10
@@ -45,9 +72,6 @@ parameters:
     - 0.1
     - 0.2
     - 0.5  # np.logspace(np.log10(.1), np.log10(.5), 3)
-
-# the input HDF5 file path
-input: 'oneminutewindows'
 
 # if input has to be normalized before evaluation (normalize on good segments only):
 input_normalize: true
