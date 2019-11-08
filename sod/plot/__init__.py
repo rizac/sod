@@ -123,25 +123,3 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
     plt.subplots_adjust(left=None, bottom=None, right=None, top=None,
                         wspace=wspace, hspace=hspace)
     return fig
-
-
-# def plot_decision_func_2d(axs, clf):
-#     x0, x1 = axs.get_xlim()
-#     y0, y1 = axs.get_ylim()
-#     print([x0,x1, y0, y1])
-#     xx, yy = np.meshgrid(np.linspace(x0, y1, 101, endpoint=True),
-#                          np.linspace(y0, y1, 101, endpoint=True))
-#     Z = clf.decision_function(np.c_[xx.ravel(), yy.ravel()])
-#     Z = Z.reshape(xx.shape)
-#     print(Z)
-# 
-#     # print contours shaded (ignore it is just for showing off):
-#     # plt.contourf(xx, yy, Z, levels=np.linspace(Z.min(), 0, 7), cmap=plt.cm.PuBu)
-# 
-#     # print contour:
-#     axs.contour(xx, yy, Z, levels=[0], linewidths=2, colors='darkred')
-# 
-# def _make_contour(clf, xxx, yyy):
-#     zzz = clf.decision_function(np.c_[xxx.ravel(), yyy.ravel()])
-#     return zzz.reshape(xxx.shape)
-    
