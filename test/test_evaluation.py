@@ -257,7 +257,8 @@ class Tester:
 
     @patch('sod.plot.plt')        
     def test_plot(self, mock_plt):
-        plot(self.dfr, 'noise_psd@5sec', 'noise_psd@2sec', axis_lim=.945)
+        plot(self.dfr, 'noise_psd@5sec', 'noise_psd@2sec', axis_lim=.945,
+             clfs={'a': self.clf})
         # plot_decision_func_2d(None, self.clf)
         
 
