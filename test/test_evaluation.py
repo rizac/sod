@@ -22,6 +22,7 @@ from sod.evaluation.execute import OcsvmEvaluator, run
 from mock import patch
 from click.testing import CliRunner
 from sod.evaluation.datasets import pgapgv
+from sod.plot import plot, plot_decision_func_2d
 
 
 class Tester:
@@ -253,9 +254,12 @@ class Tester:
         for col in ['d', 'e', 'f']:
             with pytest.raises(Exception):
                 drop_na(d, [col])
-                
-    def test_paths(self):
-        pass
+
+    @patch('sod.plot.plt')        
+    def test_plot(self, mock_plt):
+        plot(self.dfr, 'noise_psd@5sec', 'noise_psd@2sec', axis_lim=.945)
+        plot_decision_func_2d(None, self.clf)
+        
 
 #     def test_dropduplicates(self):
 #         dfr = open_dataset(join(dirname(__file__), '..', 'sod', 'dataset',
