@@ -22,7 +22,7 @@ from sod.evaluation.execute import OcsvmEvaluator, run
 from mock import patch
 from click.testing import CliRunner
 from sod.evaluation.datasets import pgapgv
-from sod.plot import plot, plot_decision_func_2d
+from sod.plot import plot
 
 
 class Tester:
@@ -258,7 +258,7 @@ class Tester:
     @patch('sod.plot.plt')        
     def test_plot(self, mock_plt):
         plot(self.dfr, 'noise_psd@5sec', 'noise_psd@2sec', axis_lim=.945)
-        plot_decision_func_2d(None, self.clf)
+        # plot_decision_func_2d(None, self.clf)
         
 
 #     def test_dropduplicates(self):
