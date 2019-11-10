@@ -9,7 +9,7 @@ from os import makedirs
 from os.path import join, abspath, dirname, isdir, isfile
 import pandas as pd
 import shutil
-from itertools import repeat
+from itertools import repeat, product
 from sod.evaluation import pdconcat  #, train_test_split
 from collections import defaultdict
 from sklearn.model_selection._split import KFold
@@ -22,7 +22,9 @@ from sod.evaluation.execute import OcsvmEvaluator, run
 from mock import patch
 from click.testing import CliRunner
 from sod.evaluation.datasets import pgapgv
-from sod.plot import plot
+from sod.plot import plot, plot_calibration_curve
+from sklearn.ensemble.iforest import IsolationForest
+from sklearn.calibration import CalibratedClassifierCV
 
 
 class Tester:
@@ -259,9 +261,62 @@ class Tester:
     def test_plot(self, mock_plt):
         plot(self.dfr, 'noise_psd@5sec', 'noise_psd@2sec', axis_lim=.945,
              clfs={'a': self.clf})
+        plot_calibration_curve({'a': self.clf}, self.dfr,
+                               ['noise_psd@5sec', 'noise_psd@2sec'])
         # plot_decision_func_2d(None, self.clf)
         
+    def test_calibration(self):
+        xtrain = np.random.rand(1000, 2)
+        xtest = list(product(range(5, 50), range(5, 50)))  # [[100, 100], [-100, 100], [100, -100], [-100, -100]]
 
+        iforest = IsolationForest(contamination=0)
+        iforest.fit(xtrain)
+        
+        ocsvm = OneClassSVM()
+        ocsvm.fit(xtrain)
+        
+        iforest.classes_ = [False, True]
+        ocsvm.classes_ = [False, True]
+        
+        assert not hasattr(iforest, 'predict_proba')
+        assert not hasattr(ocsvm, 'predict_proba')
+        
+        # Now the problem: CalibratedClassifierCV expects estimators
+        # with the classes_ attribute, which ocsvm and iforest don't have.
+        # We need to "manually" use platt and isotonic regression algorithms
+        # For info see:
+        # http://fastml.com/classifier-calibration-with-platts-scaling-and-isotonic-regression/
+        
+        iforest_dfn = iforest.decision_function(xtest)
+        ocsvm_dfn = ocsvm.decision_function(xtest)
+        
+        iforest_sig= CalibratedClassifierCV(iforest, cv='prefit', method='sigmoid')
+        ocsvm_sig = CalibratedClassifierCV(ocsvm, cv='prefit', method='sigmoid')
+        
+        assert hasattr(iforest_sig, 'predict_proba')
+        assert hasattr(ocsvm_sig, 'predict_proba')
+        
+        iforest_iso= CalibratedClassifierCV(iforest, cv='prefit', method='isotonic')
+        ocsvm_iso = CalibratedClassifierCV(ocsvm, cv='prefit', method='isotonic')
+        
+        assert hasattr(iforest_sig, 'predict_proba')
+        assert hasattr(ocsvm_sig, 'predict_proba')
+        
+        ytrue = [True]*len(xtest) + [False]
+        xtest += [[0.5, 0.5]]
+        iforest_sig.fit(xtest, ytrue)
+        ocsvm_sig.fit(xtest, ytrue)
+        iforest_iso.fit(xtest, ytrue)
+        ocsvm_iso.fit(xtest, ytrue)
+
+        iforest_sig_dfn = iforest_sig.predict_proba(xtest)
+        ocsvm_sig_dfn = ocsvm_sig.predict_proba(xtest)
+        iforest_iso_dfn = iforest_iso.predict_proba(xtest)
+        ocsvm_iso_dfn = ocsvm_iso.predict_proba(xtest)
+
+        asd = 9
+        
+        
 #     def test_dropduplicates(self):
 #         dfr = open_dataset(join(dirname(__file__), '..', 'sod', 'dataset',
 #                                 'dataset.hdf'), False)

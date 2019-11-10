@@ -6,9 +6,8 @@ import matplotlib
 from mpl_toolkits.mplot3d import Axes3D
 from math import sqrt
 from itertools import product, repeat, cycle
+from sklearn.calibration import calibration_curve, CalibratedClassifierCV
 # %matplotlib inline
-
-PLOT_RATIO = 0.2  # there is too much data, show only this ratio
 
 
 def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
@@ -33,9 +32,12 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
             minz, maxz = df[col_z].quantile([1-axis_lim, axis_lim])
 
     dfs = {}
-    # divide the dataframe in bins. Take PLOT_RATIO randomly points for each bin
+    numsegments = {}
+    # divide the dataframe in bins using pandas qcut, which creates bins
+    # with roughly the same size of samples per bin
     for name, fff in CLASSES.items():
         class_df = df[fff(df)]
+        numsegments[name] = len(class_df)
         if class_df.empty:
             continue
         qcuts = [pd.qcut(class_df[k], 100, duplicates='drop') for k in cols]
@@ -50,7 +52,8 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
         class_df_bins = class_df_bins[class_df_bins[0] > 0]
         # convert bins to midpoints:
         for col in cols:
-            class_df_bins[col] = class_df_bins[col].apply(lambda val: (val.left+val.right)/2.0)
+            class_df_bins[col] = \
+                class_df_bins[col].apply(lambda val: (val.left+val.right)/2.0)
         dfs[name] = class_df_bins
 
     fig = plt.figure(figsize=(15, 15))
@@ -89,18 +92,21 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
             ax.scatter(df[col_x], df[col_y], df[col_z], color=colors, **kwargs)
         return ax
 
+    # create colors:
     colors = [
-        [0, 0.1, 0.75],
-        [0.75, 0.1, 0],
-        [0, 0.75, 0.1]
+        [0, 0.1, 0.75],  # segments ok
+        [0.75, 0.1, 0],  # wrong inv
+        [0, 0.75, 0.1]   # swap acc <-> vel
     ]
+    # now for all other classes set the same color:
     for _ in range(len(CLASSES)-len(colors)):
         colors.append([0.75, 0.5, 0])
 
     for i, ((name, _df_), color) in enumerate(zip(dfs.items(), colors)):
         ax_ = scatter(newaxes(i+1), _df_, color)
-        ax_.set_title('%s: %d segments' % (name, len(_df_)))
+        ax_.set_title('%s: %d segments' % (numsegments[name], len(_df_)))
 
+    # draw each classifier decision function's contour:
     if clfs is not None and col_z is None:
         clst = product(['r', 'b', 'g', 'y', 'c', 'm'],
                        ['solid', 'dashed', 'dashdot', 'dotted'])
@@ -116,6 +122,7 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
                 ttt += "\nclassifier '%s': color '%s', %s" % (name, color, linestyle)
                 axs.set_title(ttt)
 
+    # set subplots spaces:
     wspace = .4 if col_z is not None else .25
     hspace = wspace
     if clfs is not None and col_z is None:
@@ -123,3 +130,45 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
     plt.subplots_adjust(left=None, bottom=None, right=None, top=None,
                         wspace=wspace, hspace=hspace)
     return fig
+
+
+def plot_calibration_curve(estimators, test_df, columns):
+    """Plot calibration curve for est w/o and with calibration.
+    
+    :param estimators: dict of strings names mapped to a fitted classifier
+    """
+    X_test = test_df[columns].values
+
+    fig = plt.figure(figsize=(10, 10))
+    ax1 = plt.subplot2grid((3, 1), (0, 0), rowspan=2)
+    ax2 = plt.subplot2grid((3, 1), (2, 0))
+
+    ax1.plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
+    for name, clf in estimators.items():
+        if hasattr(clf, "predict_proba"):
+            prob_pos = clf.predict_proba(X_test)[:, 1]
+        else:  # use decision function
+            prob_pos = clf.decision_function(X_test)
+            min_, max_ = np.nanmin(prob_pos), np.nanmax(prob_pos)
+            prob_pos = (prob_pos - min_) / (max_ - min_)
+
+        fraction_of_positives, mean_predicted_value = \
+            calibration_curve(test_df['outlier'].astype(int),
+                              prob_pos, n_bins=10)
+
+        ax1.plot(mean_predicted_value, fraction_of_positives, "s-",
+                 label=name)
+
+        ax2.hist(prob_pos, range=(0, 1), bins=10, label=name,
+                 histtype="step", lw=2)
+
+    ax1.set_ylabel("Fraction of positives")
+    ax1.set_ylim([-0.05, 1.05])
+    ax1.legend(loc="lower right")
+    ax1.set_title('Calibration plots  (reliability curve)')
+
+    ax2.set_xlabel("Mean predicted value")
+    ax2.set_ylabel("Count")
+    ax2.legend(loc="upper center", ncol=2)
+
+    plt.tight_layout()
