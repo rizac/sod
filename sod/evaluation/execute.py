@@ -70,11 +70,11 @@ class OcsvmEvaluator(Evaluator):
         Evaluator.run(self, dataframe, columns, remove_na=True, output=output)
 
 
-class IsolationForestEvaluator(Evaluator):
+class IsolationForestEvaluator(OcsvmEvaluator):
 
     # A dict of default params for the classifier. In principle, put here what
     # should not be iterated over, but applied to any classifier during cv:
-    default_clf_params = {'behaviour': 'new'}
+    default_clf_params = {'behaviour': 'new'}  # , 'contamination': 0}
 
     def __init__(self, parameters, n_folds=5):
         Evaluator.__init__(self, IsolationForest, parameters, n_folds)
@@ -82,7 +82,7 @@ class IsolationForestEvaluator(Evaluator):
 
 EVALUATORS = {
     'OneClassSVM': OcsvmEvaluator,
-    'IsolationForest': None  # IsolationForestEvaluator
+    'IsolationForest': IsolationForestEvaluator  # IsolationForestEvaluator
 }
 
 
