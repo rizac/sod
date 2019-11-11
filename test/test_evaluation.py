@@ -5,8 +5,8 @@ Created on 11 Oct 2019
 '''
 import numpy as np
 import pytest
-from os import makedirs
-from os.path import join, abspath, dirname, isdir, isfile
+from os import makedirs, listdir
+from os.path import join, abspath, dirname, isdir, isfile, basename, splitext
 import pandas as pd
 import shutil
 from itertools import repeat, product
@@ -15,27 +15,30 @@ from collections import defaultdict
 from sklearn.model_selection._split import KFold
 from sod.evaluation import split, cmatrix, classifier, predict, _predict,\
     Evaluator, train_test_split, drop_duplicates, keep_cols, drop_na, groupby_stations
-from sklearn.metrics.classification import confusion_matrix
+from sklearn.metrics.classification import confusion_matrix, brier_score_loss, log_loss
 import mock
 from sklearn.svm.classes import OneClassSVM
 from sod.evaluation.execute import OcsvmEvaluator, run
 from mock import patch
 from click.testing import CliRunner
-from sod.evaluation.datasets import pgapgv
+from sod.evaluation.datasets import pgapgv, oneminutewindows
 from sod.plot import plot, plot_calibration_curve
 from sklearn.ensemble.iforest import IsolationForest
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.metrics.scorer import brier_score_loss_scorer
 
 
 class Tester:
-    
+
     datadir = join(dirname(__file__), 'data')
 
     dfr = pgapgv(join(datadir, 'pgapgv.hdf'), False)
+    dfr2 = oneminutewindows(join(datadir, 'oneminutewindows.hdf'), False)
 
     clf = classifier(OneClassSVM, dfr.iloc[:5,:][['delta_pga', 'delta_pgv']])
 
-    evalconfig = join(dirname(__file__), 'data', 'pgapgv.ocsm.yaml')
+    evalconfig = join(dirname(__file__), 'data', 'pgapgv.ocsvm.yaml')
+    evalconfig2 = join(dirname(__file__), 'data', 'oneminutewindows.ocsvm.yaml')
 
     tmpdir = join(dirname(__file__), 'tmp')
 
@@ -170,38 +173,55 @@ class Tester:
 
     @patch('sod.evaluation.execute.outputpath')
     @patch('sod.evaluation.execute.inputpath')
+    @patch('sod.evaluation.execute.inputcfgpath')
     def test_evaluator(self,
                        # pytest fixutres:
                        #tmpdir
+                       mock_inputcfgpath,
                        mock_in_path,
                        mock_out_path
                        ):
         if isdir(self.tmpdir):
             shutil.rmtree(self.tmpdir)
+        INPATH, OUTPATH = self.datadir, self.tmpdir
+        mock_out_path.return_value = OUTPATH
+        mock_inputcfgpath.return_value = INPATH
+        mock_in_path.return_value = INPATH
+
+        for evalconfigpath in [self.evalconfig, self.evalconfig2]:
+            evalconfigname = basename(evalconfigpath)
+            runner = CliRunner()
+            result = runner.invoke(run, ["-c", evalconfigname])
+            assert not result.exception
+    
+            assert listdir(join(OUTPATH, evalconfigname))
+            # check prediction file:
+            html_file=None
+            prediction_file = None
+            model_file = None
+            for fle in listdir(join(OUTPATH, evalconfigname)):
+                if not model_file and splitext(fle)[1] == '.model':
+                    model_file = join(OUTPATH, evalconfigname, fle)
+                elif not prediction_file and splitext(fle)[1] == '.hdf':
+                    prediction_file = join(OUTPATH, evalconfigname, fle)
+                elif not html_file and splitext(fle)[1] == '.html':
+                    html_file = join(OUTPATH, evalconfigname, fle)
+            assert html_file and prediction_file and model_file
+            
+            if evalconfigpath == self.evalconfig:
+                cols = ['correctly_predicted', 'outlier', 'modified', 'id']
+            else:
+                cols = ['window_type',
+                        'correctly_predicted', 'outlier', 'modified', 'id']
+            assert sorted(pd.read_hdf(prediction_file).columns) == \
+                sorted(cols)
         
-        mock_out_path.return_value = self.tmpdir
-        mock_in_path.return_value = self.datadir
+        # shutil.rmtree(self.tmpdir)
         
         runner = CliRunner()
-        result = runner.invoke(run, ["-c", self.evalconfig])
+        result = runner.invoke(run, ["-c", basename(self.evalconfig2)])
 
-        asd = 9
-#         eval = OcsvmEvaluator(
-#             parameters={'kernel': ['rbf'], 'gamma': ['auto', 10.00]},
-#             rootoutdir=root,
-#             n_folds=5
-#         )
-# 
-#         with pytest.raises(ValueError) as verr:
-#             # not enough test instances with current cv
-#             eval.run(
-#                 self.dfr.iloc[:20, :],
-#                 columns=[['delta_pgv'], ['delta_pga', 'delta_pgv']]
-#             )
-#         eval.run(
-#             self.dfr.iloc[:50, :],
-#             columns=[['delta_pgv'], ['delta_pga', 'delta_pgv']]
-#         )
+        
 
     def test_drop_cols(self):
         d = pd.DataFrame({
@@ -265,7 +285,12 @@ class Tester:
                                ['noise_psd@5sec', 'noise_psd@2sec'])
         # plot_decision_func_2d(None, self.clf)
         
-    def test_calibration(self):
+    def tst_calibration(self):
+        '''this basically tests CalibratedClassifierCV, and the result is
+        that we can not use it with OneClassSVM or IsolationForest. The hack
+        here below is to set the attribute classes_ on the evaluator instance,
+        but this does not work woth isotonic regression (maybe too few samples?)
+        '''
         xtrain = np.random.rand(1000, 2)
         xtest = list(product(range(5, 50), range(5, 50)))  # [[100, 100], [-100, 100], [100, -100], [-100, -100]]
 
@@ -316,7 +341,72 @@ class Tester:
 
         asd = 9
         
+    
+    def test_scores(self):
         
+        
+        ytrue = [False]
+        ypred=[
+            [1, 0]
+        ]
+        
+        with pytest.raises(ValueError):
+            # yrue contains only one label:
+            ll1 = log_loss(ytrue, ypred)
+
+        # Now, ypred is for outlier detection a list of probabilities (or scores)
+        # all in [0, .., 1], defining the:
+        # [probability_class_0, probability_class_1, ..., probability_classN]
+        # Given that our classes are [False, True] (ok, outlier),
+        # a probability (or score) of [0, 1] means: 100% outlier,
+        # a probability (or score) of [1, 0] means: 100% ok.
+        ypred = [
+            [1, 0],  # 100% ok (class False)
+            [0, 1]   # 100% outlier (class True)
+        ]
+        ll1 = log_loss([False, True], ypred)
+        ll2 = log_loss([True, False], ypred)
+        # assert that ll1 is BETTER (log score is lower):
+        assert ll1 < ll2
+        
+        # now try to see if the log gives more penalty to completely wrong
+        # classifications:
+        
+        # only one correctly classified, but both with high score
+        # (the correctly classified class predicts a 1, the mislcassified one predicts the
+        # wrong class but with a .55 score)
+        ll3 = log_loss([False, True],
+                       [
+                           [0.45, 0.55],  # 55% outlier (misclassified for few points)
+                           [0, 1]  # 100% outlier (correctly classified)
+                        ])
+        # both correctly classified, but both with a very low score:
+        ll4 = log_loss([False, True],
+                       [
+                           [0.55, 0.45],  # 55% ok (correctly classified, but for few points)
+                           [0.45, .55]   # 100% outlier (correctly classified, but for few points)
+                        ])
+        
+        assert ll3 < ll4
+        assert ll1 < ll3 < ll4 < ll2
+        
+        # assert that the 
+        y_true = [False, True, True, False]
+        y_pred = [
+            [0, 1],
+            [0.45, 0.55],
+            [0.55, 0.45],
+            [1, 0]
+        ]
+        ll1 = log_loss(y_true, y_pred)
+        y_pred2 = [
+            [1, 0],
+            [0.55, 0.45],
+            [0.45, 0.55],
+            [0, 1]
+        ]
+        ll2 = log_loss(y_true, y_pred2)
+        asd = 9
 #     def test_dropduplicates(self):
 #         dfr = open_dataset(join(dirname(__file__), '..', 'sod', 'dataset',
 #                                 'dataset.hdf'), False)

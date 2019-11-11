@@ -8,7 +8,7 @@ from multiprocessing import Pool, cpu_count
 from io import StringIO
 from os import makedirs
 from os.path import abspath, join, dirname, isfile, isdir, basename
-from itertools import repeat, product
+from itertools import repeat, product, chain
 import warnings
 from collections import defaultdict
 from datetime import timedelta
@@ -18,7 +18,8 @@ from joblib import dump, load
 import numpy as np
 import pandas as pd
 from pandas.core.indexes.range import RangeIndex
-from sklearn.metrics.classification import confusion_matrix
+from sklearn.metrics.classification import (confusion_matrix,
+                                            log_loss as scikit_log_loss)
 import click
 
 
@@ -60,6 +61,10 @@ def capture_stderr(verbose=False):
 ID_COL = 'id'
 CORRECTLY_PREDICTED_COL = 'correctly_predicted'
 NUM_SEGMENTS_COL = 'num_segments'
+OUTLIER_COL = 'outlier'
+MODIFIED_COL = 'modified'
+WINDOW_TYPE_COL = 'window_type'
+UNIQUE_ID_COLUMNS = [ID_COL, OUTLIER_COL, MODIFIED_COL, WINDOW_TYPE_COL]
 
 
 def is_prediction_dataframe(dataframe):
@@ -251,13 +256,15 @@ def drop_na(dataframe, columns, verbose=True):
 def keep_cols(dataframe, columns):
     '''
     Drops all columns of dataframe not in `columns` (preserving in any case the
-    columns 'outlier', 'modified' and 'Segment.db.id')
+    columns in `UNIQUE_ID_COLUMNS` found in dataframe's columns)
 
     :return: a VIEW of the original dataframe (does NOT return a copy)
         keeping the specified columns only
     '''
-    cols = list(columns) + ['outlier', 'modified', ID_COL]
-    return dataframe[list(set(cols))]
+    dfcols = set(dataframe.columns)
+    cols = chain((k for k in columns if k not in UNIQUE_ID_COLUMNS),
+                 (k for k in UNIQUE_ID_COLUMNS if k in dfcols))
+    return dataframe[list(cols)]
 
 
 def classifier(clf_class, dataframe, **clf_params):
@@ -276,33 +283,109 @@ def classifier(clf_class, dataframe, **clf_params):
 
 def predict(clf, dataframe, *columns):
     '''
-    :return: a DataFrame with columns 'correctly_predicted' (boolean) plus
-        the three columns copied from `dataframe` useful to uniquely identify
-        the segment: 'outlier' (boolean), 'modified' (categorical)
-        and 'id' (either referring to a segmetn id or a station id) (int).
+    :return: a DataFrame with columns 'correctly_predicted' (boolean),
+        'log_loss' (float) plus the columns of `dataframe` useful to uniquely
+        identify the row: these columns depend on the dataset used and are
+        `UNIQUE_ID_COLUMNS` (or a subset of it).
     '''
-    predicted = _predict(clf, dataframe if not columns else dataframe[list(columns)])
-    label = np.ones(len(predicted), dtype=predicted.dtype)
-    label[is_outlier(dataframe)] = - 1
-    correctly_predicted = label == predicted
+
+#     OneClassSVM.decision_function(self, X):
+#         """Signed distance to the separating hyperplane.
+#         Signed distance is positive for an inlier and negative for an outlier
+
+#     IsolationForest.def decision_function(self, X):
+#         ''' ...
+#         Returns
+#         -------
+#         scores : array, shape (n_samples,)
+#             The anomaly score of the input samples.
+#             The lower, the more abnormal. Negative scores represent outliers,
+#             positive scores represent inliers.
+#
+#         """
+
+    predicted = _predict(
+        clf,
+        dataframe if not columns else dataframe[list(columns)]
+    )
+    outliers = is_outlier(dataframe)
+    logloss_ = log_loss(outliers, predicted)
+    cpred_ = correctly_predicted(outliers, predicted)
+    dfcols = set(dataframe.columns)
     data = {
-        CORRECTLY_PREDICTED_COL: correctly_predicted,
-        'outlier': dataframe['outlier'],
-        'modified': dataframe['modified'],
-        ID_COL: dataframe[ID_COL]
+        CORRECTLY_PREDICTED_COL: cpred_,
+        'log_loss': logloss_,
+        **{k: dataframe[k] for k in UNIQUE_ID_COLUMNS if k in dfcols}
     }
-    if 'window_type' in dataframe.columns:
-        data['window_type'] = dataframe['window_type']
     return pd.DataFrame(data, index=dataframe.index)
 
 
+def log_loss(outliers, predictions, eps=1e-15, normalize_=True):
+    '''Computes the log loss of each prediction
+
+    :param outliers: boolean array denoting if the element is an outlier
+    :param predictions: the output of `_predict`: float array with positive
+        (inlier) or negative (outlier) scores
+
+    :return: a numpy array the same length of `predictions` with the log loss
+        scores
+    '''
+    if normalize_:
+        predictions_n = normalize_predictions(predictions)
+    else:
+        predictions_n = np.copy(predictions)
+    not_outliers = ~outliers
+    predictions_n[not_outliers] = (1 + predictions_n[not_outliers]) / 2.0
+    predictions_n[outliers] = (1 + -predictions_n[outliers]) / 2.0
+    if eps is not None:
+        predictions_n = np.clip(predictions_n, eps, 1 - eps)
+    return -np.log10(predictions_n)  # http://wiki.fast.ai/index.php/Log_Loss
+
+
+def correctly_predicted(outliers, predictions):
+    '''Returns if the instances are correctly predicted
+
+    :param outliers: boolean array denoting if the element is an outlier
+    :param predictions: the output of `_predict`: float array with positive
+        (inlier) or negative (outlier) scores
+
+    :return: a boolean numpy array telling if the element is correctly
+        predicted
+    '''
+    return (outliers & (predictions < 0)) | ((~outliers) & (predictions >= 0))
+
+
+def normalize_predictions(predictions, inbounds=None, outbounds=(-1, 1)):
+    '''Returns predictions (numpy array of values where negative
+    values represent OUTLIERS and positive ones INLIERS) normalized in
+    [outbounds[0], outbounds[1]]
+
+    :param inbounds: the input bounds, if None, it will be inferred from
+        `predictions` min and max (ignoring NaNs)
+    :param predictions: the output of `_predict`: float array with positive
+        (inlier) or negative (outlier) scores
+
+    '''
+    if inbounds is None:
+        imin, imax = np.nanmin(predictions), np.nanmax(predictions)
+    else:
+        imin, imax = inbounds
+    omin, omax = outbounds
+    # map predictions to -1 1 and then to 0 1
+    ret = omin + (omax - omin) * (predictions - imin) / (imax - imin)
+    if inbounds is not None:
+        ret[ret < -1] = -1
+        ret[ret > 1] = 1
+    return ret
+
+
 def _predict(clf, dataframe):
-    '''Returns a numpy array of len(dataframe) integers in [-1, 1],
-    where:
-    -1: item is classified as OUTLIER
-     1: item is classified as OK (no outlier)
-    Each number at index I is the prediction (classification) of
-    the I-th element of `dataframe`.
+    '''Returns a numpy array of len(dataframe) integers where:
+    negative values represent samples classified as OUTLIER (the lower, the
+        more abnormal)
+    positive values represent samples classified as INLIER (the higher, the
+        more normal)
+    The returned values bounds depend on the classifier chosen
 
     :param clf: the given (trained) classifier
     :param dataframe: pandas DataFrame
@@ -310,7 +393,7 @@ def _predict(clf, dataframe):
         represents the feature space to fit the classifier with
     '''
     # this method is very trivial it is used mainly for test purposes (mock)
-    return clf.predict(dataframe.values)
+    return clf.decision_function(dataframe.values)
 
 
 def cmatrix(dataframe, sample_weights=None):
