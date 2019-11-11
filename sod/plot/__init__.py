@@ -7,6 +7,8 @@ from mpl_toolkits.mplot3d import Axes3D
 from math import sqrt
 from itertools import product, repeat, cycle
 from sklearn.calibration import calibration_curve, CalibratedClassifierCV
+from matplotlib.patches import Rectangle
+from matplotlib.collections import PatchCollection
 # %matplotlib inline
 
 
@@ -37,23 +39,35 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
     # with roughly the same size of samples per bin
     for name, fff in CLASSES.items():
         class_df = df[fff(df)]
+
         numsegments[name] = len(class_df)
         if class_df.empty:
             continue
-        qcuts = [pd.qcut(class_df[k], 100, duplicates='drop') for k in cols]
+
+        if col_z is None and axis_lim is not None:
+            # remove out of bounds so that the granularity of bins is
+            # zoom  dependent (otherwise too big bins <-> rectangles for
+            # dataframes with far far away outliers):
+            class_df = class_df[class_df[col_x].between(minx, maxx)]
+            class_df = class_df[class_df[col_y].between(miny, maxy)]
+
+        qcuts = [pd.cut(class_df[k], 100, duplicates='drop') for k in cols]
         # make a series with bins (one for each column) -> num of pts per bins:
         series_df_bins = class_df.groupby(qcuts).size()
         # convert to dataframe with columns:
         class_df_bins = series_df_bins.reset_index()
         # column 0 is the columns with the counts (how many pts per interval)
         # log-normalize it:
-        class_df_bins[0] = np.log10(1 + 9*class_df_bins[0]/np.nanmax(class_df_bins[0]))
+        class_df_bins[0] = \
+            np.log10(1.5 + 8.5*class_df_bins[0]/np.nanmax(class_df_bins[0]))
         # drop zeros:
         class_df_bins = class_df_bins[class_df_bins[0] > 0]
         # convert bins to midpoints:
-        for col in cols:
-            class_df_bins[col] = \
-                class_df_bins[col].apply(lambda val: (val.left+val.right)/2.0)
+        # but only in case of Axes3D. In 2d mode, we will draw rectangles
+        if col_z is not None:
+            for col in cols:
+                class_df_bins[col] = \
+                    class_df_bins[col].apply(lambda val: val.mid)
         dfs[name] = class_df_bins
 
     fig = plt.figure(figsize=(15, 15))
@@ -86,10 +100,17 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
         colors[:, 1] = color[1]
         colors[:, 2] = color[2]
         colors[:, 3] = df[0].values
-        if col_z is None:
+        if col_z is not None:  # 3D
             ax.scatter(df[col_x], df[col_y], color=colors, **kwargs)
         else:
-            ax.scatter(df[col_x], df[col_y], df[col_z], color=colors, **kwargs)
+            rects = [
+                Rectangle((c_x.left, c_y.left), c_x.length, c_y.length)
+                for c_x, c_y in zip(df[col_x], df[col_y])
+            ]
+            ax.add_collection(
+                PatchCollection(rects, facecolors=colors, edgecolors='None',
+                                linewidth=0)
+            )
         return ax
 
     # create colors:
@@ -104,7 +125,7 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
 
     for i, ((name, _df_), color) in enumerate(zip(dfs.items(), colors)):
         ax_ = scatter(newaxes(i+1), _df_, color)
-        ax_.set_title('%s: %d segments' % (numsegments[name], len(_df_)))
+        ax_.set_title('%s: %d segments' % (name, numsegments[name]))
 
     # draw each classifier decision function's contour:
     if clfs is not None and col_z is None:
@@ -134,7 +155,7 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
 
 def plot_calibration_curve(estimators, test_df, columns):
     """Plot calibration curve for est w/o and with calibration.
-    
+
     :param estimators: dict of strings names mapped to a fitted classifier
     """
     X_test = test_df[columns].values
