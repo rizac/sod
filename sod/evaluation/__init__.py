@@ -323,8 +323,10 @@ def predict(clf, dataframe, *columns):
 def log_loss(outliers, predictions, eps=1e-15, normalize_=True):
     '''Computes the log loss of each prediction
 
-    :param outliers: boolean array denoting if the element is an outlier
-    :param predictions: the output of `_predict`: float array with positive
+    :param outliers: Ground truth (correct) labels (True: outlier,
+        False: inlier)
+    :param predictions: predicted scores (must have the same length as
+        `outliers`) as returned by `_predict`: float array with positive
         (inlier) or negative (outlier) scores
 
     :return: a numpy array the same length of `predictions` with the log loss
