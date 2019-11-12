@@ -40,7 +40,7 @@
   <div class='d-flex flex-row' style='flex: 1 1 auto'>
   	 <div class='position-relative' style='flex: 1 1 auto'>
   	 	<div class='position-absolute d-flex flex-row flex-wrap align-content-start justify-content-start align-items-start' style='top:0px;right:0px;bottom:0px;left:0px;overflow:auto'>
-	  		<div v-for="(cm, index0) in cms" class='m-2 p-1 pr-2 d-flex flex-row border rounded'>
+	  		<div v-for="(cm, index0) in cms" :key="cm.key" class='m-2 p-1 pr-2 d-flex flex-row border rounded'>
 	     		<table>
 	     			<tr>
 	     				<td rowspan="2" class='p-0 pr-3 align-top'>
@@ -51,10 +51,10 @@
 	     						</span>
 	     					</div>
 	     				</td>
-	     				<td :colspan='cm.data[0].length-2' class='text-right align-bottom pb-0 pt-2'>
+	     				<td :colspan='2' class='text-right align-bottom pb-0 pt-2'>
 	     					Classified as:
 	     				</td>
-	     				<td></td>
+	     				<td :colspan='cm.data[0].length-3'></td>
 	     			</tr>
 	     			<tr>
 	     				<td v-for='col in columns' v-html='col' class='text-right pt-0'></td>
@@ -63,16 +63,11 @@
 	     				<td v-for="(cell, index2) in row" v-html="formatNum(cell)"
 	     					class='text-right'
 	     					:class="{
-	     						'text-danger': index2 == row.length-1,
-	     						'border': index2 > 0
+	     						'text-danger': index2 > 2 || index1 == cm.data.length-1,
+	     						'border': index2 > 0 && index2 <= 2 &&  index1 < cm.data.length-1
 	     					}"
 		 				>
 	     				</td>
-	     			</tr>
-	     			<tr>
-	     				<td :colspan='cm.data[0].length-2'></td>
-	     				<td>Score:</td>
-	     				<td v-html='cm.score' class='text-danger font-weight-bold'></td>
 	     			</tr>
 	     		</table>
 	     	</div>
@@ -83,7 +78,7 @@
     <div class='ml-3 bg-info border'>
     	<div class='p-1 d-flex flex-row'>
     		<transition name="slide">
-	    		<span style='flex:1 1 auto'  v-show='panelVisible'>Score configuration</span>
+	    		<span style='flex:1 1 auto'  v-show='panelVisible'>Configuration</span>
 	    	</transition>
 	    	<button class='p-1 btn btn-outline-info btn-sm'
 	    		style='border-width:0px !important'
@@ -91,14 +86,24 @@
 	    	</button>
     	</div>
     	<transition name="slide">
-			<table v-show='panelVisible'>
+    	<div v-show='panelVisible'>
+    		<div class='d-flex flex-row mx-1 mt-2 align-items-start'>
+	    		<div>Sort by:</div>
+	    		<select :size="Object.keys(scoreColumns).length" v-model='currentScoreColumn' class='ml-1 form-control'>
+	    			<option v-for='val in Object.keys(scoreColumns)' :value='val'>
+	    				{{ val + ' (' + scoreColumns[val] + ')' }}
+	    			</option>
+	    		</select>
+    		</div>
+			<table class='mt-2'>
 	    		<tr><td>Class</td><td>Weight</td></tr>
 	    		<tr v-for='(weight, index) in weights'>
 	    			<td>{{ classes[index] }}</td>
 	    			<td><input type="number" v-model.number="weights[index]" style="width:5rem"></td>
 	    		</tr>
 	    	</table>
-    	<>/transition> 
+	    </div>
+    	</transition> 
     </div>
   </div>
 </div>
@@ -116,8 +121,18 @@ let app = new Vue({
     // list of classes (rows of the confusion matrix)
     classes: %(classes)s,
     // list of columns of each confusion matrix. This is not the same as
-    // classes as the latter has a finer subdivision 
+    // classes as our confusion matrix is Nx2. The first two columns are
+    // the labels (ok, outlier). Some of the columns are SCORE COLUMNS (when
+    // the relative 'scoreColumnsSortOrders' is not null). Score columns
+    // will compute a score - a weighted average of all rows, and
+    // each confusion matrix can then be displayed sorted according to the
+    // selected score) 
     columns: %(columns)s,
+    // Object of columns mapped to 'asc' or 'desc'
+    scoreColumns: %(scoreColumns)s,
+    // string (a key of scoreColumns) denoting the currently selected score column
+    // whereby to sort confusion matrices:
+    currentScoreColumn: %(currentScoreColumn)s, 
  	// list of weights, one for each class in classes
     weights: %(weights)s,
     // the Confusion matrices used for display. It is a subset of evaluations above 
@@ -131,6 +146,10 @@ let app = new Vue({
   		handler: function(newVal, oldVal){
   			this.createCms();
   		}
+  	},
+  	currentScoreColumn: function(newVal, oldVal){
+  		this.sortCms();
+  		// this.cms = Array.from(this.cms);
   	}
   },
   methods: {
@@ -141,53 +160,102 @@ let app = new Vue({
   		}
   		return value;
   	},
-	createCms: function(event){
-  		// set the new values (scores):
-  		var newcms = [];
+  	getScoreColIndices: function(){
+  		// returns the indices of the score columns, i.e. the indices
+  		// of this.scoreColumnsSortOrders that are not null
+  		var scoreColIndices = {};
+  		var columns = this.columns;
+  		Object.keys(this.scoreColumns).forEach(elm => {
+  			scoreColIndices[elm] = columns.indexOf(elm);
+  		});
+  		return scoreColIndices;
+  	},
+  	getVisibleClassIndices: function(){
+  		// return the indices of the visible classes (conf.matrix rows)
+  		// A class  is visible if the corresponding weight is numeric (not NaN) 
+  		var [classes, weights] = [this.classes, this.weights];
+  		var classIndices = [];
+  		for (var i=0; i< classes.length ; i++){
+  		    var weight = parseFloat(weights[i]);
+			if (isNaN(weight)){
+				continue;
+			}
+			classIndices.push(i);
+  		}
+  		return classIndices;
+  	},
+  	getWeightsSum: function(){
   		var weights = this.weights;
-  		var classes = this.classes;
-  		var denom = 0;
-  		// calculate denominator. There is surely a shorter way but
-  		// JavaScript reduce is cumbersome na dI prefer like this:
-  		for(var w of weights){
-  		    var wfloat = parseFloat(w);
-	  		if (isNaN(wfloat)){
-	  		    continue;
-	  		}
-  		    denom += w;
+  		var sum = 0;
+  		for (var w of weights){
+  		    weight = parseFloat(w);
+			if (isNaN(weight)){
+				continue;
+			}
+			sum += weight;
   		}
-  		var i = 0;
+  		return sum;
+  	},
+	createCms: function(event){
+  		// map each score column to its index in the columns array:
+  		var scoreColIndices = this.getScoreColIndices();
+  		var classIndices = this.getVisibleClassIndices();
+		// calculate the sum of the weights (use Array reduce?):
+		var weightDenom = this.getWeightsSum();
+		var classes = this.classes;
+  		// populate newcms, an Array of Objects where each Object represents
+  		// a confusion matrix (resulting from a set of parameters)
+  		var newcms = [];
   		for (var cm of this.evaluations){
-	  		var score = 0;
-	  		newcm = {key: cm.key, data:[]};
-	  		for (var i=0; i<classes.length ; i++){
-	  		    var weight = parseFloat(this.weights[i]);
-				if (isNaN(weight)){
-					continue;
-				}
-  				var row = cm.data[i];
+	  		newcm = {
+	  			key: cm.key,
+	  			data:[],
+	  			scores: {}
+	  		};
+	  		for (var i of classIndices){
+	  			// insert the row header at position 0 in each row:
+	  			var row = cm.data[i];
 	  		    newcm.data.push([classes[i]].concat(row));
-	  		    var value = parseFloat(row[row.length-1]);
-				if (isNaN(value)){
-					continue;
-				}
-				score += weight * value;
-  			}
-  			newcm.score = parseFloat(score / denom).toFixed(3);
-  			newcms.push(newcm);
+	  		    // update the scores
+	  		    var weight = this.weights[i];
+	  		    for (var scoreCol of Object.keys(scoreColIndices)){
+	  		    	if (!(scoreCol in newcm.scores)){
+	  		    		newcm.scores[scoreCol] = 0;
+	  		    	}
+	  		    	var colIndex = scoreColIndices[scoreCol];
+	  		    	newcm.scores[scoreCol] += row[colIndex] * weight;
+	  		    }
+	  		}
+	  		// normalize the scores:
+	  		for (var scoreCol of Object.keys(scoreColIndices)){
+  		    	newcm.scores[scoreCol] /= weightDenom;
+  		    }
+  		    // populate and insert last row:
+  		    var lastrow = new Array(this.columns.length).fill('');
+  		    for (var scoreCol of Object.keys(scoreColIndices)){
+  		    	var colIndex = scoreColIndices[scoreCol];
+	  		    lastrow[colIndex] = newcm.scores[scoreCol];
+  		    }
+  		    newcm.data.push(['Weighted Average'].concat(lastrow));
+	  		newcms.push(newcm);
   		}
+  		this.cms = newcms;
+  		this.sortCms();
+  	},
+	sortCms: function(event){
+  		var scoreCol = this.currentScoreColumn;
+  		var sortOrder = this.scoreColumns[scoreCol];
   		// sort:
-  		newcms.sort(function(cm1, cm2) {
-  		    var [val1, val2] = [cm1.score, cm2.score];
+  		this.cms.sort((cm1, cm2) => {
+  		    var [val1, val2] = [cm1.scores[scoreCol], cm2.scores[scoreCol]];
   		    if (isNaN(val1) || val1 < val2) {
-    			return 1;  // not -1 because we want sorted it is descending
+    			return sortOrder == 'desc' ? 1: -1;
   			}
 			if (isNaN(val2) || val1 > val2) {
-    			return -1;  // not 1 because we want sorted it is descending
+    			return sortOrder == 'desc' ? -1: 1;
  			}
   			return 0;
 		});
-		this.cms = newcms;
   	}
   }
 });

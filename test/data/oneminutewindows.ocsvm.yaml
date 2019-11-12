@@ -29,7 +29,7 @@ parameters:
     - 50  # np.logspace(np.log10(1), np.log10(50), 4)
   nu:
     - 0.1
-    # - 0.2
+    - 0.2
     # - 0.5  # np.logspace(np.log10(.1), np.log10(.5), 3)
 
 # if input has to be normalized before evaluation (normalize on good segments only):

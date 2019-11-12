@@ -102,7 +102,7 @@ def run(config):
     outdir = join(outputpath(), basename(config))
     print('Saving to: %s' % str(outdir))
     evl = evaluator_class(cfg_dict['parameters'], n_folds=5)
-    evl.run(open_dataset(infile, normalize_=cfg_dict['input_normalize']),
+    evl.run(open_dataset(infile, normalize=cfg_dict['input_normalize']),
             columns=cfg_dict['features'], output=outdir)
     return 0
 
