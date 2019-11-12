@@ -7,9 +7,9 @@ and saved usually to
 `sod.tmp.datasets`
 
 Each file in `sod.tmp.datasets` is usually different, thus we need a way to
-open it in such a way. Therefore, after creating a dataset file, you should usually write
-here a function **with the same name as the hdf file**, performing the
-operations on the input dataframe.
+open it in such a way. Therefore, after creating a dataset file, you should
+usually write here a function **with the same name as the hdf file**,
+performing the operations on the input dataframe.
 
 The method **must be decorated** with `open_dataset`, making the decorated
 function with signature:
@@ -25,16 +25,33 @@ Created on 1 Nov 2019
 
 @author: riccardo
 '''
+import sys
+from io import StringIO
+from contextlib import contextmanager
 from os.path import isfile, isdir, isabs, abspath
 import numpy as np
 import pandas as pd
 
-from sod.evaluation import capture_stderr, ID_COL, is_prediction_dataframe,\
-    is_station_df, dfinfo, normalize
+from sod.evaluation import (ID_COL, is_prediction_dataframe,
+                            is_outlier, CLASSES, pdconcat)
 
 
 def open_dataset(func):
-    def wrapper(filename, normalize_=True, verbose=True):
+    '''Decorator opening an HDF dataset file and calling the decorating
+    function. For instance by writing:
+    ```
+    @open_dataset
+    def funcname(dataframe):
+    ```
+    `funcname` (which usually denotes the dataset name) changes its signature
+    into:
+    ```
+    funcname(filename, normalize=True, verbose=True)
+    ```
+    and will perform the HDF opening PLUS the additional operations implemented
+    in `funcname` before returning the opened dataframe.
+    '''
+    def wrapper(filename, normalize=True, verbose=True):
         if verbose:
             print('Opening %s' % abspath(filename))
 
@@ -44,9 +61,9 @@ def open_dataset(func):
 
             if 'Segment.db.id' in dfr.columns:
                 if ID_COL in dfr.columns:
-                    raise ValueError('The data frame already contains a column '
-                                     'named "%s"' % ID_COL)
-                # if it's a prediction dataframe, it's for backward compatibility
+                    raise ValueError('The data frame already contains a '
+                                     'column named "%s"' % ID_COL)
+                # if it's a prediction dataframe, it's for backward compatib.
                 dfr.rename(columns={"Segment.db.id": ID_COL}, inplace=True)
 
             if is_prediction_dataframe(dfr):
@@ -68,9 +85,9 @@ def open_dataset(func):
                 print('')
                 print(dfinfo(dfr))
 
-            if normalize_:
+            if normalize:
                 print('')
-                dfr = normalize(dfr)
+                dfr = dfnormalize(dfr, None, verbose)
 
         # for safety:
         dfr.reset_index(drop=True, inplace=True)
@@ -81,6 +98,12 @@ def open_dataset(func):
 
 @open_dataset
 def pgapgv(dataframe):
+    '''Custom operations to be performed on the pgapgv HDF dataset. Note that
+    (see decorator) the actual signature of this function is:
+    ```
+    pgapgv(filename, normalize=True, verbose=True)
+    ```
+    '''
     # setting up columns:
     dataframe['pga'] = np.log10(dataframe['pga_observed'].abs())
     dataframe['pgv'] = np.log10(dataframe['pgv_observed'].abs())
@@ -94,8 +117,8 @@ def pgapgv(dataframe):
     del dataframe['pgv_predicted']
     for col in dataframe.columns:
         if col.startswith('amp@'):
-            # go to db. We should multuply log * 20 (amp spec) or * 10 (pow spec)
-            # but it's unnecessary as we will normalize few lines below
+            # go to db. We should multuply log * 20 (amp spec) or * 10 (pow
+            # spec) but it's unnecessary as we will normalize few lines below
             dataframe[col] = np.log10(dataframe[col])
     # save space:
     dataframe['modified'] = dataframe['modified'].astype('category')
@@ -114,7 +137,227 @@ def pgapgv(dataframe):
 
 @open_dataset
 def oneminutewindows(dataframe):
+    '''Custom operations to be performed on the oneminutewindows HDF dataset.
+    Note that (see decorator) the actual signature of this function is:
+    ```
+    oneminutewindows(filename, normalize=True, verbose=True)
+    ```
+    '''
     # save space:
     dataframe['modified'] = dataframe['modified'].astype('category')
     dataframe['window_type'] = dataframe['window_type'].astype('category')
     return dataframe
+
+
+###########################
+# Other operations
+###########################
+
+
+@contextmanager
+def capture_stderr(verbose=False):
+    '''Context manager to be used in a with statement in order to capture
+    std.error messages (e.g., python warnings):
+    ```
+    with capture_stderr():
+        ... code here
+    ```
+    :param verbose: boolean (default False). If True, prints the captured
+        messages (if present)
+    '''
+    # Code to acquire resource, e.g.:
+    # capture warnings which are redirected to stderr:
+    syserr = sys.stderr
+    if isinstance(syserr, StringIO):
+        # already within a captured_stderr with statement?
+        yield
+    else:
+        captured_err = StringIO()
+        sys.stderr = captured_err
+        try:
+            yield
+            if verbose:
+                errs = captured_err.getvalue()
+                if errs:
+                    print('')
+                    print('During the operation, '
+                          'the following warning(s) were issued:')
+                    print(errs)
+            captured_err.close()
+        finally:
+            # restore standard error:
+            sys.stderr = syserr
+
+
+def dfinfo(dataframe, perclass=True):
+    '''Returns a adataframe with info about the given `dataframe` representing
+    a given dataset
+    '''
+    columns = ['instances']
+    if not perclass:
+        oks = ~is_outlier(dataframe)
+        oks_count = oks.sum()
+        data = [oks_count, len(dataframe)-oks_count, len(dataframe)]
+        index = ['oks', 'outliers', 'total']
+    else:
+        data = [_(dataframe).sum() for _ in CLASSES.values()] + [len(dataframe)]
+        index = list(CLASSES.keys()) + ['total']
+
+    return df2str(pd.DataFrame(data, columns=columns, index=index))
+
+
+def df2str(dataframe):
+    ''':return: the string representation of `dataframe`, with numeric values
+    formatted with comma as decimal separator
+    '''
+    return _dfformat(dataframe).to_string()
+
+
+def _dfformat(dataframe, n_decimals=2):
+    '''Returns a copy of `dataframe` with all numeric values converted to
+    formatted strings (with comma as thousand separator)
+
+    :param n_decimals: how many decimals to display for floats (defautls to 2)
+    '''
+    float_frmt = '{:,.' + str(n_decimals) + 'f}'  # e.g.: '{:,.2f}'
+    strformat = {
+        c: "{:,d}" if str(dataframe[c].dtype).startswith('int') else float_frmt
+        for c in dataframe.columns
+    }
+    return pd.DataFrame({c: dataframe[c].map(strformat[c].format)
+                         for c in dataframe.columns},
+                        index=dataframe.index)
+
+
+def dfnormalize(dataframe, columns=None, verbose=True):
+    '''Normalizes dataframe under the sepcified columns. Only good instances
+    (not outliers) will be considered in the normalization
+
+    :param columns: if None (the default), nornmalizes on floating columns
+        only. Otherwise, it is a list of strings denoting the columns on
+        which to normalize
+    '''
+    sum_df = {}
+    if verbose:
+        if columns is None:
+            print('Normalizing numeric columns (floats only)')
+        else:
+            print('Normalizing %s' % str(columns))
+        print('(only good instances - no outliers - taken into account)')
+
+    with capture_stderr(verbose):
+        infocols = ['min', 'median', 'max', 'NAs', 'ids outside[1-99]%']
+        oks_ = ~is_outlier(dataframe)
+        itercols = floatingcols(dataframe) if columns is None else columns
+        for col in itercols:
+            _dfr = dataframe.loc[oks_, :]
+            q01 = np.nanquantile(_dfr[col], 0.01)
+            q99 = np.nanquantile(_dfr[col], 0.99)
+            df1, df99 = _dfr[(_dfr[col] <= q01)], _dfr[(_dfr[col] >= q99)]
+            segs1 = len(pd.unique(df1[ID_COL]))
+            segs99 = len(pd.unique(df99[ID_COL]))
+            # stas1 = len(pd.unique(df1['station_id']))
+            # stas99 = len(pd.unique(df99['station_id']))
+
+            # for calculating min and max, we need to drop also infinity, tgus
+            # np.nanmin and np.nanmax do not work. Hence:
+            finite_values = _dfr[col][np.isfinite(_dfr[col])]
+            min_, max_ = np.min(finite_values), np.max(finite_values)
+            dataframe[col] = (dataframe[col] - min_) / (max_ - min_)
+            if verbose:
+                sum_df[col] = {
+                    infocols[0]: dataframe[col].min(),
+                    infocols[1]:  dataframe[col].quantile(0.5),
+                    infocols[2]: dataframe[col].max(),
+                    infocols[3]: (~np.isfinite(dataframe[col])).sum(),
+                    infocols[4]: segs1 + segs99,
+                    # columns[5]: stas1 + stas99,
+                }
+        if verbose:
+            print(df2str(pd.DataFrame(data=list(sum_df.values()),
+                                      columns=infocols,
+                                      index=list(sum_df.keys()))))
+            print("-------")
+            print("Min and max might be outside [0, 1]: the normalization ")
+            print("bounds are calculated on good segments (non outlier) only")
+            print("%s: values which are NaN or Infinity" % infocols[3])
+            print("%s: good instances (not outliers) "
+                  "outside 1 percentile" % infocols[4])
+
+    return dataframe
+
+
+def floatingcols(dataframe):
+    '''Iterable yielding all floating point columns of dataframe'''
+    for col in dataframe.columns:
+        try:
+            if np.issubdtype(dataframe[col].dtype, np.floating):
+                yield col
+        except TypeError:
+            # categorical data falls here
+            continue
+
+
+####################
+# TO BE TESTED!!!!
+####################
+
+
+NUM_SEGMENTS_COL = 'num_segments'
+
+
+def is_station_df(dataframe):
+    '''Returns whether the given dataframe is the result of `groupby_station`
+    on a given segment-based dataframe
+    '''
+    return NUM_SEGMENTS_COL in dataframe.columns
+
+
+def groupby_stations(dataframe, verbose=True):
+    '''Groups `dataframe` by stations and returns the resulting dataframe
+    Numeric columns are merged taking the median of all rows
+    '''
+    if verbose:
+        print('Grouping dataset per station')
+        print('(For floating columns, the median of all segments stations '
+              'will be set)')
+        print('')
+    with capture_stderr(verbose):
+        newdf = []
+        fl_cols = list(floatingcols(dataframe))
+        for (staid, modified, outlier), _df in \
+                dataframe.groupby(['station_id', 'modified', 'outlier']):
+            _dfmedian = _df[fl_cols].median(axis=0, numeric_only=True,
+                                            skipna=True)
+            _dfmedian[NUM_SEGMENTS_COL] = len(_df)
+            _dfmedian['outlier'] = outlier
+            _dfmedian['modified'] = modified
+            _dfmedian[ID_COL] = staid
+            newdf.append(pd.DataFrame([_dfmedian]))
+            # print(pd.DataFrame([_dfmedian]))
+
+        ret = pdconcat(newdf, ignore_index=True)
+        ret[NUM_SEGMENTS_COL] = ret[NUM_SEGMENTS_COL].astype(int)
+        # convert dtypes because they might not match:
+        shared_c = (set(dataframe.columns) & set(ret.columns)) - set(fl_cols)
+        for col in shared_c:
+            ret[col] = ret[col].astype(dataframe[col].dtype)
+        if verbose:
+            bins = [1, 10, 100, 1000, 10000]
+            max_num_segs = ret[NUM_SEGMENTS_COL].max()
+            if max_num_segs >= 10 * bins[-1]:
+                bins.append(max_num_segs + 1)
+            elif max_num_segs >= bins[-1]:
+                bins[-1] = max_num_segs + 1
+            groups = ret.groupby(pd.cut(ret[NUM_SEGMENTS_COL], bins,
+                                        precision=0,
+                                        right=False))
+            print(pd.DataFrame(groups.size(), columns=['num_stations']).
+                  to_string())
+            assert groups.size().sum() == len(ret)
+            print('')
+            print('Summary of the new dataset (instances = stations)')
+            print(dfinfo(ret))
+        return ret
+
+

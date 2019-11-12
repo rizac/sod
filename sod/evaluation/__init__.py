@@ -3,9 +3,7 @@
 '''
 import sys
 import json
-from contextlib import contextmanager
 from multiprocessing import Pool, cpu_count
-from io import StringIO
 from os import makedirs
 from os.path import abspath, join, dirname, isfile, isdir, basename
 from itertools import repeat, product, chain
@@ -14,53 +12,18 @@ from collections import defaultdict
 from datetime import timedelta
 import time
 
-from joblib import dump, load
+import click
 import numpy as np
 import pandas as pd
 from pandas.core.indexes.range import RangeIndex
+from joblib import dump, load
 from sklearn.metrics.classification import (confusion_matrix,
                                             log_loss as scikit_log_loss)
-import click
-
-
-@contextmanager
-def capture_stderr(verbose=False):
-    '''Context manager to be used in a with statement in order to capture
-    std.error messages (e.g., python warnings):
-    ```
-    with capture_stderr():
-        ... code here
-    ```
-    :param verbose: boolean (default False). If True, prints the captured
-        messages (if present)
-    '''
-    # Code to acquire resource, e.g.:
-    # capture warnings which are redirected to stderr:
-    syserr = sys.stderr
-    if isinstance(syserr, StringIO):
-        # already within a captured_stderr with statement?
-        yield
-    else:
-        captured_err = StringIO()
-        sys.stderr = captured_err
-        try:
-            yield
-            if verbose:
-                errs = captured_err.getvalue()
-                if errs:
-                    print('')
-                    print('During the operation, '
-                          'the following warning(s) were issued:')
-                    print(errs)
-            captured_err.close()
-        finally:
-            # restore standard error:
-            sys.stderr = syserr
 
 
 ID_COL = 'id'
 CORRECTLY_PREDICTED_COL = 'correctly_predicted'
-NUM_SEGMENTS_COL = 'num_segments'
+LOGLOSS_COL = 'log_loss'
 OUTLIER_COL = 'outlier'
 MODIFIED_COL = 'modified'
 WINDOW_TYPE_COL = 'window_type'
@@ -72,130 +35,6 @@ def is_prediction_dataframe(dataframe):
     on a trained classifier
     '''
     return CORRECTLY_PREDICTED_COL in dataframe.columns
-
-
-def normalize(dataframe, columns=None, verbose=True):
-    '''Normalizes dataframe under the sepcified columns. Only good instances
-    (not outliers) will be considered in the normalization
-
-    :param columns: if None (the default), nornmalizes on floating columns
-        only. Otherwise, it is a list of strings denoting the columns on
-        which to normalize
-    '''
-    sum_df = {}
-    if verbose:
-        if columns is None:
-            print('Normalizing numeric columns (floats only)')
-        else:
-            print('Normalizing %s' % str(columns))
-        print('(only good instances - no outliers - taken into account)')
-
-    with capture_stderr(verbose):
-        infocols = ['min', 'median', 'max', 'NAs', 'ids outside[1-99]%']
-        oks_ = ~is_outlier(dataframe)
-        itercols = floatingcols(dataframe) if columns is None else columns
-        for col in itercols:
-            _dfr = dataframe.loc[oks_, :]
-            q01 = np.nanquantile(_dfr[col], 0.01)
-            q99 = np.nanquantile(_dfr[col], 0.99)
-            df1, df99 = _dfr[(_dfr[col] <= q01)], _dfr[(_dfr[col] >= q99)]
-            segs1 = len(pd.unique(df1[ID_COL]))
-            segs99 = len(pd.unique(df99[ID_COL]))
-            # stas1 = len(pd.unique(df1['station_id']))
-            # stas99 = len(pd.unique(df99['station_id']))
-
-            # for calculating min and max, we need to drop also infinity, tgus
-            # np.nanmin and np.nanmax do not work. Hence:
-            finite_values = _dfr[col][np.isfinite(_dfr[col])]
-            min_, max_ = np.min(finite_values), np.max(finite_values)
-            dataframe[col] = (dataframe[col] - min_) / (max_ - min_)
-            if verbose:
-                sum_df[col] = {
-                    infocols[0]: dataframe[col].min(),
-                    infocols[1]:  dataframe[col].quantile(0.5),
-                    infocols[2]: dataframe[col].max(),
-                    infocols[3]: (~np.isfinite(dataframe[col])).sum(),
-                    infocols[4]: segs1 + segs99,
-                    # columns[5]: stas1 + stas99,
-                }
-        if verbose:
-            print(df2str(pd.DataFrame(data=list(sum_df.values()),
-                                      columns=infocols,
-                                      index=list(sum_df.keys()))))
-            print("-------")
-            print("Min and max might be outside [0, 1]: the normalization ")
-            print("bounds are calculated on good segments (non outlier) only")
-            print("%s: values which are NaN or Infinity" % infocols[3])
-            print("%s: good instances (not outliers) "
-                  "outside 1 percentile" % infocols[4])
-
-    return dataframe
-
-
-def groupby_stations(dataframe, verbose=True):
-    '''Groups `dataframe` by stations and returns the resulting dataframe
-    Numeric columns are merged taking the median of all rows
-    '''
-    if verbose:
-        print('Grouping dataset per station')
-        print('(For floating columns, the median of all segments stations '
-              'will be set)')
-        print('')
-    with capture_stderr(verbose):
-        newdf = []
-        fl_cols = list(floatingcols(dataframe))
-        for (staid, modified, outlier), _df in \
-                dataframe.groupby(['station_id', 'modified', 'outlier']):
-            _dfmedian = _df[fl_cols].median(axis=0, numeric_only=True,
-                                            skipna=True)
-            _dfmedian[NUM_SEGMENTS_COL] = len(_df)
-            _dfmedian['outlier'] = outlier
-            _dfmedian['modified'] = modified
-            _dfmedian[ID_COL] = staid
-            newdf.append(pd.DataFrame([_dfmedian]))
-            # print(pd.DataFrame([_dfmedian]))
-
-        ret = pdconcat(newdf, ignore_index=True)
-        ret[NUM_SEGMENTS_COL] = ret[NUM_SEGMENTS_COL].astype(int)
-        # convert dtypes because they might not match:
-        shared_c = (set(dataframe.columns) & set(ret.columns)) - set(fl_cols)
-        for col in shared_c:
-            ret[col] = ret[col].astype(dataframe[col].dtype)
-        if verbose:
-            bins = [1, 10, 100, 1000, 10000]
-            max_num_segs = ret[NUM_SEGMENTS_COL].max()
-            if max_num_segs >= 10 * bins[-1]:
-                bins.append(max_num_segs + 1)
-            elif max_num_segs >= bins[-1]:
-                bins[-1] = max_num_segs + 1
-            groups = ret.groupby(pd.cut(ret[NUM_SEGMENTS_COL], bins,
-                                        precision=0,
-                                        right=False))
-            print(pd.DataFrame(groups.size(), columns=['num_stations']).
-                  to_string())
-            assert groups.size().sum() == len(ret)
-            print('')
-            print('Summary of the new dataset (instances = stations)')
-            print(dfinfo(ret))
-        return ret
-
-
-def floatingcols(dataframe):
-    '''Iterable yielding all floating point columns of dataframe'''
-    for col in dataframe.columns:
-        try:
-            if np.issubdtype(dataframe[col].dtype, np.floating):
-                yield col
-        except TypeError:
-            # categorical data falls here
-            continue
-
-
-def is_station_df(dataframe):
-    '''Returns whether the given dataframe is the result of `groupby_station`
-    on a given segment-based dataframe
-    '''
-    return NUM_SEGMENTS_COL in dataframe.columns
 
 
 def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
@@ -226,7 +65,7 @@ def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
     if verbose:
         print('Duplicated (per class) found: %d rows removed' %
               (len(o_dataframe) - len(dataframe)))
-        print(dfinfo(dataframe))
+        # print(dfinfo(dataframe))
     return dataframe
 
 
@@ -248,7 +87,6 @@ def drop_na(dataframe, columns, verbose=True):
             print('No row removed (no NA found)')
         else:
             print('%d NA rows removed' % (tot - len(dataframe)))
-            print(dfinfo(dataframe))
 
     return dataframe
 
@@ -314,7 +152,7 @@ def predict(clf, dataframe, *columns):
     dfcols = set(dataframe.columns)
     data = {
         CORRECTLY_PREDICTED_COL: cpred_,
-        'log_loss': logloss_,
+        LOGLOSS_COL: logloss_,
         **{k: dataframe[k] for k in UNIQUE_ID_COLUMNS if k in dfcols}
     }
     return pd.DataFrame(data, index=dataframe.index)
@@ -398,31 +236,43 @@ def _predict(clf, dataframe):
     return clf.decision_function(dataframe.values)
 
 
-def cmatrix(dataframe, sample_weights=None):
-    '''
-        :param dataframe: the output of predict(dataframe, *columns)
-        :param sample_weights: a numpy array the same length of dataframe
-            with the sameple weights. Default: None (no weights)
+# NOTE: IF YOU WANT TO CHANGE 'ok' or 'outlier' THEN CONSIDER CHANGING
+# ALSO THE ROWS (SEE `_CLASSNAMES`). If you want to add new columns,
+# also ADD a sort order in CMATRIX_SCORE_COLUMNS (see below)
+CMATRIX_COLUMNS = ('ok', 'outlier', '% rec.', 'Mean %s' % LOGLOSS_COL)
 
-        :return: a pandas 2x2 DataFrame with labels 'ok', 'outlier'
+
+def cmatrix_df(predicted_df):
+    '''Returns a (custom) confusion matrix in the form of a dataframe
+    The rows of the dataframe will be the keys of `CLASSES` (== `_CLASSNAMES`),
+    the columns 'ok' (inlier), 'outlier' '%rec', 'Mean log loss'.
     '''
-    labelnames = ['ok', 'outlier']
-    labels = np.ones(len(dataframe))
-    labels[is_outlier(dataframe)] = -1
-    predicted = -labels
-    predicted[dataframe[CORRECTLY_PREDICTED_COL]] = \
-        labels[dataframe[CORRECTLY_PREDICTED_COL]]
-    confm = pd.DataFrame(confusion_matrix(labels,
-                                          predicted,
-                                          # labels here just assures that
-                                          # 1 (ok) is first and
-                                          # -1 (outlier) is second:
-                                          labels=[1, -1],
-                                          sample_weight=sample_weights),
-                         index=labelnames, columns=labelnames)
-    confm.columns.name = 'Classified as:'
-    confm.index.name = 'Label:'
-    return confm
+    # NOTE: IF YOU WANT TO CHANGE 'ok' or 'outlier' THEN CONSIDER CHANGING
+    # ALSO THE ROWS (SEE `_CLASSNAMES`)
+    sum_df_cols = CMATRIX_COLUMNS
+    sum_df = pd.DataFrame(index=_CLASSNAMES,
+                          data=[[0] * len(sum_df_cols)] * len(_CLASSNAMES),
+                          columns=sum_df_cols,
+                          dtype=int)
+
+    for typ, selectorfunc in CLASSES.items():
+        cls_df = predicted_df[selectorfunc(predicted_df)]
+        if cls_df.empty:
+            continue
+        correctly_pred = cls_df[CORRECTLY_PREDICTED_COL].sum()
+        avg_log_loss = cls_df[LOGLOSS_COL].mean()
+        # map any class defined here to the index of the column above which denotes
+        # 'correctly classified'. Basically, map 'ok' to zero and any other class
+        # to 1:
+        col_idx = 0 if typ == _CLASSNAMES[0] else 1
+        # assign value and caluclate percentage recognition:
+        sum_df.loc[typ, sum_df_cols[col_idx]] += correctly_pred
+        sum_df.loc[typ, sum_df_cols[1-col_idx]] += len(cls_df) - correctly_pred
+        sum_df.loc[typ, sum_df_cols[2]] = \
+            np.around(100 * np.true_divide(correctly_pred, len(cls_df)), 3)
+        sum_df.loc[typ, sum_df_cols[3]] = np.around(avg_log_loss, 5)
+
+    return sum_df
 
 
 def is_outlier(dataframe):
@@ -511,35 +361,6 @@ def train_test_split(dataframe, n_folds=5):
             samples = indices
         yield dataframe.loc[~dataframe.index.isin(samples), :], \
             dataframe.loc[samples, :]
-
-
-def df2str(dataframe):
-    ''':return: the string representation of `dataframe`, with numeric values
-    formatted with comma as decimal separator
-    '''
-    return dfformat(dataframe).to_string()
-
-
-def dfformat(dataframe):
-    strformat = {c: "{:,d}" if str(dataframe[c].dtype).startswith('int')
-                 else '{:,.2f}' for c in dataframe.columns}
-    return pd.DataFrame({c: dataframe[c].map(strformat[c].format)
-                         for c in dataframe.columns},
-                        index=dataframe.index)
-
-
-def dfinfo(dataframe, perclass=True):
-    columns = ['instances']
-    if not perclass:
-        oks = ~is_outlier(dataframe)
-        oks_count = oks.sum()
-        data = [oks_count, len(dataframe)-oks_count, len(dataframe)]
-        index = ['oks', 'outliers', 'total']
-    else:
-        data = [_(dataframe).sum() for _ in CLASSES.values()] + [len(dataframe)]
-        index = list(CLASSES.keys()) + ['total']
-
-    return df2str(pd.DataFrame(data, columns=columns, index=index))
 
 
 _CLASSNAMES = (
@@ -724,7 +545,7 @@ class Evaluator:
                 # and unnecessary columns (keep_cols). Return a copy at the end
                 # of the process. This helps memory mamagement in
                 # sub-processes (especialy keep_cols + copy)
-                dataframe_ = drop_duplicates(dataframe, cols, 0, False)
+                dataframe_ = drop_duplicates(dataframe, cols, 0, verbose=False)
                 dataframe_ = keep_cols(dataframe_, cols).copy()
                 for params in self.parameters:
                     _traindf, _testdf = self.train_test_split_model(dataframe_)
@@ -796,7 +617,7 @@ class Evaluator:
                                      if not getattr(_, 'empty', True)))
         fpath = self.basefilepath(*features, **params)
         predicted_df.to_hdf(
-            fpath + '.evalpredictions.hdf', 'cv',
+            fpath + '.predictions.hdf', 'predictions',
             format='table', mode='w',
             # min_itemsize={'modified': predicted_df.modified.str.len().max()}
         )
@@ -804,18 +625,27 @@ class Evaluator:
             # delete unused data (help gc?):
             del self._predictions[fpkey]
         # now save the summary dataframe of the predicted segments just saved:
-        return self.get_summary_df(predicted_df)
+        return cmatrix_df(predicted_df)
 
     def save_evel_report(self, features, delete=True):
         fkey = self.tonormtuple(*features)
         sum_dfs = self._eval_reports[fkey]
+
+        # score columns: list of 'asc', 'desc' or None relative to each element of
+        # CMATRIX_COLUMNS
+        score_columns = {
+            CMATRIX_COLUMNS[-2]: 'desc',  # '% rec.'
+            CMATRIX_COLUMNS[-1]: 'asc'  # 'Mean %s' % LOGLOSS_COL
+        }
 
         content = self.eval_report_html_template % {
             'title': self.clf_class.__name__ + " (features: " + ", ".join(fkey) + ")",
             'evaluations': json.dumps([{'key': params,
                                         'data': sumdf.values.tolist()}
                                        for (params, sumdf) in sum_dfs.items()]),
-            'columns': json.dumps(next(iter(sum_dfs.values())).columns.tolist()),
+            'columns': json.dumps(CMATRIX_COLUMNS),
+            'scoreColumns': json.dumps(score_columns),
+            'currentScoreColumn': json.dumps(CMATRIX_COLUMNS[-1]),
             'weights': json.dumps([WEIGHTS[_] for _ in self._classes]),
             'classes': json.dumps(self._classes)
         }
@@ -825,31 +655,3 @@ class Evaluator:
             opn_.write(content)
         if delete:
             del self._eval_reports[fkey]
-
-    def get_summary_df(self, predicted_df):
-        sum_df_cols = ['ok', 'outlier', '% rec.']
-
-        sum_df = pd.DataFrame(index=self._classes,
-                              data=[[0, 0, 0]] * len(self._classes),
-                              columns=sum_df_cols,
-                              dtype=int)
-
-        for typ, selectorfunc in CLASSES.items():
-            _df = predicted_df[selectorfunc(predicted_df)]
-            if _df.empty:
-                continue
-            correctly_pred = _df[CORRECTLY_PREDICTED_COL].sum()
-            # map any class defined here to the index of the column above which denotes
-            # 'correctly classified'. Basically, map 'ok' to zero and any other class
-            # to 1:
-            col_idx = 0 if typ == _CLASSNAMES[0] else 1
-            # assign value and caluclate percentage recognition:
-            sum_df.loc[typ, sum_df_cols[col_idx]] += correctly_pred
-            sum_df.loc[typ, sum_df_cols[1-col_idx]] += len(_df) - correctly_pred
-            sum_df.loc[typ, sum_df_cols[2]] = \
-                np.around(100 * np.true_divide(correctly_pred, len(_df)), 3)
-
-#         oks = sum_df[sum_df_cols[0]]
-#         tots = sum_df[sum_df_cols[0]] + sum_df[sum_df_cols[1]]
-#         sum_df[sum_col] = np.around(100 * np.true_divide(oks, tots), 2)
-        return sum_df
