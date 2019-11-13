@@ -26,6 +26,7 @@ Created on 1 Nov 2019
 @author: riccardo
 '''
 import sys
+from os.path import splitext, dirname, join, basename
 from io import StringIO
 from contextlib import contextmanager
 from os.path import isfile, isdir, isabs, abspath
@@ -36,67 +37,65 @@ from sod.evaluation import (ID_COL, is_prediction_dataframe,
                             is_outlier, CLASSES, pdconcat)
 
 
-def open_dataset(func):
-    '''Decorator opening an HDF dataset file and calling the decorating
-    function. For instance by writing:
-    ```
-    @open_dataset
-    def funcname(dataframe):
-    ```
-    `funcname` (which usually denotes the dataset name) changes its signature
-    into:
-    ```
-    funcname(filename, normalize=True, verbose=True)
-    ```
-    and will perform the HDF opening PLUS the additional operations implemented
-    in `funcname` before returning the opened dataframe.
-    '''
-    def wrapper(filename, normalize=True, verbose=True):
-        if verbose:
-            print('Opening %s' % abspath(filename))
+def datasets_input_dir():
+    return abspath(join(dirname(__file__), '..', 'datasets'))
 
-        # capture warnings which are redirected to stderr:
-        with capture_stderr(verbose):
-            dfr = pd.read_hdf(filename)
 
-            if 'Segment.db.id' in dfr.columns:
-                if ID_COL in dfr.columns:
-                    raise ValueError('The data frame already contains a '
-                                     'column named "%s"' % ID_COL)
-                # if it's a prediction dataframe, it's for backward compatib.
-                dfr.rename(columns={"Segment.db.id": ID_COL}, inplace=True)
+def dataset_path(filename, assure_exist=True):
+    keyname, ext = splitext(filename)
+    if not ext:
+        filename += '.hdf'
+    filepath = join(datasets_input_dir(), filename)
+    if assure_exist and not isfile(filename):
+        raise ValueError('Invalid dataset, no file found with name "%s"'
+                         % keyname)
+    return filepath
 
-            if is_prediction_dataframe(dfr):
-                if verbose:
-                    print('The dataset contains predictions '
-                          'performed on a trained classifier. '
-                          'Returning the dataset with no further operation')
-                return dfr
 
-            if is_station_df(dfr):
-                if verbose:
-                    print('The dataset is per-station basis. '
-                          'Returning the dataset with no further operation')
-                return dfr
+def open_dataset(filename, normalize=True, verbose=True):
 
+    filepath = dataset_path(filename)
+    keyname = splitext(basename(filepath))[0]
+
+    try:
+        func = globals()[keyname]
+    except KeyError:
+        raise ValueError('Invalid dataset, no function "%s" '
+                         'implemented' % keyname)
+
+    if verbose:
+        print('Opening %s' % abspath(filepath))
+
+    # capture warnings which are redirected to stderr:
+    with capture_stderr(verbose):
+        dfr = pd.read_hdf(filepath)
+
+        if 'Segment.db.id' in dfr.columns:
+            if ID_COL in dfr.columns:
+                raise ValueError('The data frame already contains a '
+                                 'column named "%s"' % ID_COL)
+            # if it's a prediction dataframe, it's for backward compatib.
+            dfr.rename(columns={"Segment.db.id": ID_COL}, inplace=True)
+
+        try:
             dfr = func(dfr)
+        except Exception as exc:
+            raise ValueError('Check module function "%s", error: %s' %
+                             (func.__name__, str(exc)))
 
-            if verbose:
-                print('')
-                print(dfinfo(dfr))
+        if verbose:
+            print('')
+            print(dfinfo(dfr))
 
-            if normalize:
-                print('')
-                dfr = dfnormalize(dfr, None, verbose)
+        if normalize:
+            print('')
+            dfr = dfnormalize(dfr, None, verbose)
 
-        # for safety:
-        dfr.reset_index(drop=True, inplace=True)
-        return dfr
-
-    return wrapper
+    # for safety:
+    dfr.reset_index(drop=True, inplace=True)
+    return dfr
 
 
-@open_dataset
 def pgapgv(dataframe):
     '''Custom operations to be performed on the pgapgv HDF dataset. Note that
     (see decorator) the actual signature of this function is:
@@ -135,7 +134,6 @@ def pgapgv(dataframe):
     return dataframe
 
 
-@open_dataset
 def oneminutewindows(dataframe):
     '''Custom operations to be performed on the oneminutewindows HDF dataset.
     Note that (see decorator) the actual signature of this function is:
@@ -146,6 +144,18 @@ def oneminutewindows(dataframe):
     # save space:
     dataframe['modified'] = dataframe['modified'].astype('category')
     dataframe['window_type'] = dataframe['window_type'].astype('category')
+    return dataframe
+
+
+def magnitudeenergy(dataframe):
+    '''Custom operations to be performed on the magnitudeenergy HDF dataset.
+    Note that (see decorator) the actual signature of this function is:
+    ```
+    magnitudeenergy(filename, normalize=True, verbose=True)
+    ```
+    '''
+    # save space:
+    dataframe['modified'] = dataframe['modified'].astype('category')
     return dataframe
 
 
@@ -246,14 +256,15 @@ def dfnormalize(dataframe, columns=None, verbose=True):
         print('(only good instances - no outliers - taken into account)')
 
     with capture_stderr(verbose):
-        infocols = ['min', 'median', 'max', 'NAs', 'ids outside[1-99]%']
+        infocols = ['prenorm_min', 'prenorm_max',
+                    'min', 'median', 'max', 'NAs', 'ids outside [1-99]%']
         oks_ = ~is_outlier(dataframe)
         itercols = floatingcols(dataframe) if columns is None else columns
         for col in itercols:
             _dfr = dataframe.loc[oks_, :]
             q01 = np.nanquantile(_dfr[col], 0.01)
             q99 = np.nanquantile(_dfr[col], 0.99)
-            df1, df99 = _dfr[(_dfr[col] <= q01)], _dfr[(_dfr[col] >= q99)]
+            df1, df99 = _dfr[(_dfr[col] < q01)], _dfr[(_dfr[col] > q99)]
             segs1 = len(pd.unique(df1[ID_COL]))
             segs99 = len(pd.unique(df99[ID_COL]))
             # stas1 = len(pd.unique(df1['station_id']))
@@ -266,11 +277,13 @@ def dfnormalize(dataframe, columns=None, verbose=True):
             dataframe[col] = (dataframe[col] - min_) / (max_ - min_)
             if verbose:
                 sum_df[col] = {
-                    infocols[0]: dataframe[col].min(),
-                    infocols[1]:  dataframe[col].quantile(0.5),
-                    infocols[2]: dataframe[col].max(),
-                    infocols[3]: (~np.isfinite(dataframe[col])).sum(),
-                    infocols[4]: segs1 + segs99,
+                    infocols[0]: min_,
+                    infocols[1]: max_,
+                    infocols[2]: dataframe[col].min(),
+                    infocols[3]: dataframe[col].quantile(0.5),
+                    infocols[4]: dataframe[col].max(),
+                    infocols[5]: (~np.isfinite(dataframe[col])).sum(),
+                    infocols[6]: segs1 + segs99,
                     # columns[5]: stas1 + stas99,
                 }
         if verbose:
@@ -280,9 +293,9 @@ def dfnormalize(dataframe, columns=None, verbose=True):
             print("-------")
             print("Min and max might be outside [0, 1]: the normalization ")
             print("bounds are calculated on good segments (non outlier) only")
-            print("%s: values which are NaN or Infinity" % infocols[3])
-            print("%s: good instances (not outliers) "
-                  "outside 1 percentile" % infocols[4])
+            print("%s: values which are NaN or Infinity" % infocols[5])
+            print("%s: good instances (not outliers) the given percentiles" %
+                  infocols[6])
 
     return dataframe
 
