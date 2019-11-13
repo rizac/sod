@@ -1,6 +1,8 @@
 # Added by me
 tmp/
 jnconfig.yaml
+*.model
+*.hdf
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
