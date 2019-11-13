@@ -87,7 +87,7 @@ EVALUATORS = {
 @click.command()
 @click.option(
     '-c', '--config',
-    help='configuration YAML file name (in "sod/sod/evaluation/execution")',
+    help='configuration YAML file name (in "sod/evaluations/configs")',
     required=True
 )
 def run(config):
@@ -100,7 +100,11 @@ def run(config):
 
     dataframe = open_dataset(cfg_dict['input'],
                              normalize=cfg_dict['input_normalize'])
-    outdir = join(outputpath(), basename(config))
+    outdir = abspath(join(outputpath(), basename(config)))
+    if isdir(outdir):
+        raise ValueError("Output directory exists:\n"
+                         "'%s'\n"
+                         "Rename yaml file or remove directory" % outdir)
     print('Saving to: %s' % str(outdir))
     evl = evaluator_class(cfg_dict['parameters'], n_folds=5)
     evl.run(dataframe, columns=cfg_dict['features'], output=outdir)
