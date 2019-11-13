@@ -8,7 +8,8 @@ import click
 from os.path import (isabs, abspath, isdir, isfile, dirname, join, basename,
                      splitext)
 from yaml import safe_load
-from sod.evaluation import Evaluator, is_outlier, datasets
+from sod.dataset import dataset_path, open_dataset
+from sod.evaluation import Evaluator, is_outlier
 from sklearn.svm.classes import OneClassSVM
 from sklearn.ensemble.iforest import IsolationForest
 
@@ -21,12 +22,16 @@ def load_cfg(fname):
         return safe_load(stream)
 
 
+def _output_root():
+    return abspath(join(dirname(__file__), 'evaluations'))
+
+
 def inputcfgpath():
-    return abspath(join(dirname(__file__), 'executions'))
+    return abspath(join(_output_root(), 'configs'))
 
 
 def outputpath():
-    return abspath(join(inputcfgpath(), 'results'))
+    return abspath(join(_output_root(), 'results'))
 
 
 class OcsvmEvaluator(Evaluator):
@@ -93,12 +98,12 @@ def run(config):
         raise ValueError('%s in the config is invalid, please specify: %s' %
                          ('clf', str(" ".join(EVALUATORS.keys()))))
 
-    print('Reading from: %s' % str(datasets.dataset_path(cfg_dict['input'])))
+    print('Reading from: %s' % str(dataset_path(cfg_dict['input'])))
     outdir = join(outputpath(), basename(config))
     print('Saving to: %s' % str(outdir))
     evl = evaluator_class(cfg_dict['parameters'], n_folds=5)
-    evl.run(datasets.open_dataset(cfg_dict['input'],
-                                  normalize=cfg_dict['input_normalize']),
+    evl.run(open_dataset(cfg_dict['input'],
+                         normalize=cfg_dict['input_normalize']),
             columns=cfg_dict['features'], output=outdir)
     return 0
 
