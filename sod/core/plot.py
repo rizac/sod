@@ -8,7 +8,7 @@ from itertools import product, repeat, cycle
 from sklearn.calibration import calibration_curve, CalibratedClassifierCV
 from matplotlib.patches import Rectangle
 from matplotlib.collections import PatchCollection
-from sod.evaluation import is_outlier, CLASSES, pdconcat
+from sod.core.evaluation import is_outlier, CLASSES, pdconcat
 # %matplotlib inline
 
 
