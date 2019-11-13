@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sod.evaluation import is_outlier, CLASSES, pdconcat
 import matplotlib
 from mpl_toolkits.mplot3d import Axes3D
 from math import sqrt
@@ -9,6 +8,7 @@ from itertools import product, repeat, cycle
 from sklearn.calibration import calibration_curve, CalibratedClassifierCV
 from matplotlib.patches import Rectangle
 from matplotlib.collections import PatchCollection
+from sod.evaluation import is_outlier, CLASSES, pdconcat
 # %matplotlib inline
 
 
