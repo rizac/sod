@@ -5,8 +5,8 @@ import sys
 import json
 from multiprocessing import Pool, cpu_count
 from os import makedirs
-from os.path import abspath, join, dirname, isfile, isdir, basename
-from itertools import repeat, product, chain
+from os.path import abspath, join, dirname, isfile, isdir, basename, splitext
+from itertools import repeat, product, chain, cycle
 import warnings
 from collections import defaultdict
 from datetime import timedelta
@@ -274,6 +274,146 @@ def cmatrix_df(predicted_df):
 
     return sum_df
 
+
+def _get_eval_report_html_template():
+    with open(join(dirname(__file__), 'eval_report_template.html'), 'r') as _:
+        return _.read()
+
+
+# def load_and_predict(classifier_path, test_dataframe, *columns):
+#     return predict(load(classifier_path), test_dataframe, *columns)
+
+
+def params_from_filename(filepath):
+    ret = {}
+    pth = splitext(basename(filepath))[0]
+    if '?' not in pth:
+        return ret
+    pth = pth[pth.find('?') + 1:]
+    splits = pth.split('&')
+    for s in splits:
+        param, values = s.split('=')
+        if ',' in values:
+            values = values.split(',')
+        ret[param] = values
+    return ret
+
+
+def predict_from_files(test_df, classifier_paths, destdir=None):
+    if len(set(basename(_) for _ in classifier_paths)) != \
+            len(classifier_paths):
+        raise ValueError('You need to pass a list of **unique file names**')
+
+    if not all('features' in params_from_filename(_)
+               for _ in classifier_paths):
+        raise ValueError("'features=' not found in all classifiers names")
+
+    try:
+        clfs = {basename(_): load(_) for _ in classifier_paths}
+    except Exception as exc:
+        raise ValueError('Error reading classifier(s): %s' % str(exc))
+
+    def iterator(dataframe):
+        for name, clf in clfs.items():
+            features = params_from_filename(name)['features']
+            dataframe_ = drop_duplicates(dataframe, features, 0, verbose=False)
+            dataframe_ = keep_cols(dataframe_, features).copy()
+            yield clf, dataframe_
+
+    pool = Pool(processes=int(cpu_count()))
+    title = ''
+
+    with click.progressbar(
+        length=len(classifier_paths),
+        fill_char='o', empty_char='.'
+    ) as pbar:
+
+        def _load_and_predict(name_clf_testdf):
+            name, clf, test_df = name_clf_testdf
+            return name, predict(clf, test_df)
+
+        def kill_pool(err_msg):
+            print('ERROR:')
+            print(err_msg)
+            try:
+                pool.terminate()
+            except ValueError:  # ignore ValueError('pool not running')
+                pass
+
+        try:
+            cmatrix_dfs = {}
+            for clfname, predicted_df in pool.imap_unordered(
+                _load_and_predict,
+                iterator(test_df)
+            ):
+                pbar.update(1)
+                if destdir is not None:
+                    save_df(predicted_df, join(destdir,
+                                               clfname+'.predictions.hdf'))
+                cmatrix_dfs[(('filename', clfname))] = \
+                    cmatrix_df(predicted_df)
+
+                if not title:
+                    title = clfname
+                else:
+                    title += ', ' + clfname
+
+            pool.close()
+            pool.join()
+
+        except Exception as exc:  # pylint: disable=broad-except
+            kill_pool(exc)
+
+        outfilepath = None if destdir is None else join(destdir,
+                                                        'predictreport.html')
+        return create_evel_report(cmatrix_dfs, outfilepath, title)
+
+
+def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
+    '''Saves the given confusion matrices dataframe to html
+
+    :param cmatrix_df: a dict of unique keys (whatever is json serializable)
+        mapped to dataframe as returned from the function `cmatrix_df`.
+        Typically, it is a list of lists: [[paramname, paramvalue], ... ]
+        as returned from `list(dict.items())`
+    :param outfilepath: the output file path. The extension will be
+        appended as 'html', if an extension is not set
+    :param title: the HTML title page
+    '''
+    # score columns: list of 'asc', 'desc' or None relative to each element of
+    # CMATRIX_COLUMNS
+    score_columns = {
+        CMATRIX_COLUMNS[-2]: 'desc',  # '% rec.'
+        CMATRIX_COLUMNS[-1]: 'asc'  # 'Mean %s' % LOGLOSS_COL
+    }
+    evl = [
+        {'key': params, 'data': sumdf.values.tolist()}
+        for (params, sumdf) in cmatrix_dfs.items()
+    ]
+    content = _get_eval_report_html_template() % {
+        'title': title,
+        'evaluations': json.dumps(evl),
+        'columns': json.dumps(CMATRIX_COLUMNS),
+        'scoreColumns': json.dumps(score_columns),
+        'currentScoreColumn': json.dumps(CMATRIX_COLUMNS[-1]),
+        'weights': json.dumps([WEIGHTS[_] for _ in _CLASSNAMES]),
+        'classes': json.dumps(_CLASSNAMES)
+    }
+    if outfilepath is not None:
+        if splitext(outfilepath)[1].lower() not in ('.htm', '.html'):
+            outfilepath += ' .html'
+        with open(outfilepath, 'w') as opn_:
+            opn_.write(content)
+
+    return content
+
+
+def save_df(dataframe, filepath, **kwargs):
+    dataframe.to_hdf(
+        filepath,
+        format='table', mode='w',
+        **kwargs
+    )
 
 def is_outlier(dataframe):
     '''pandas series of boolean telling where dataframe rows are outliers'''
@@ -629,29 +769,38 @@ class Evaluator:
 
     def save_evel_report(self, features, delete=True):
         fkey = self.tonormtuple(*features)
+        title = \
+            self.clf_class.__name__ + " (features: " + ", ".join(fkey) + ")"
+        outfilepath = self.basefilepath(*features) + '.evalreport.html'
         sum_dfs = self._eval_reports[fkey]
-
-        # score columns: list of 'asc', 'desc' or None relative to each element of
-        # CMATRIX_COLUMNS
-        score_columns = {
-            CMATRIX_COLUMNS[-2]: 'desc',  # '% rec.'
-            CMATRIX_COLUMNS[-1]: 'asc'  # 'Mean %s' % LOGLOSS_COL
-        }
-
-        content = self.eval_report_html_template % {
-            'title': self.clf_class.__name__ + " (features: " + ", ".join(fkey) + ")",
-            'evaluations': json.dumps([{'key': params,
-                                        'data': sumdf.values.tolist()}
-                                       for (params, sumdf) in sum_dfs.items()]),
-            'columns': json.dumps(CMATRIX_COLUMNS),
-            'scoreColumns': json.dumps(score_columns),
-            'currentScoreColumn': json.dumps(CMATRIX_COLUMNS[-1]),
-            'weights': json.dumps([WEIGHTS[_] for _ in self._classes]),
-            'classes': json.dumps(self._classes)
-        }
-
-        fpath = self.basefilepath(*features)
-        with open(fpath + '.evalreport.html', 'w') as opn_:
-            opn_.write(content)
+        create_evel_report(sum_dfs, outfilepath, title)
         if delete:
             del self._eval_reports[fkey]
+
+#         fkey = self.tonormtuple(*features)
+#         sum_dfs = self._eval_reports[fkey]
+# 
+#         # score columns: list of 'asc', 'desc' or None relative to each element of
+#         # CMATRIX_COLUMNS
+#         score_columns = {
+#             CMATRIX_COLUMNS[-2]: 'desc',  # '% rec.'
+#             CMATRIX_COLUMNS[-1]: 'asc'  # 'Mean %s' % LOGLOSS_COL
+#         }
+# 
+#         content = self.eval_report_html_template % {
+#             'title': self.clf_class.__name__ + " (features: " + ", ".join(fkey) + ")",
+#             'evaluations': json.dumps([{'key': params,
+#                                         'data': sumdf.values.tolist()}
+#                                        for (params, sumdf) in sum_dfs.items()]),
+#             'columns': json.dumps(CMATRIX_COLUMNS),
+#             'scoreColumns': json.dumps(score_columns),
+#             'currentScoreColumn': json.dumps(CMATRIX_COLUMNS[-1]),
+#             'weights': json.dumps([WEIGHTS[_] for _ in self._classes]),
+#             'classes': json.dumps(self._classes)
+#         }
+# 
+#         fpath = self.basefilepath(*features)
+#         with open(fpath + '.evalreport.html', 'w') as opn_:
+#             opn_.write(content)
+#         if delete:
+#             del self._eval_reports[fkey]
