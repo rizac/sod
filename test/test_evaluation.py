@@ -10,30 +10,35 @@ from os.path import join, abspath, dirname, isdir, isfile, basename, splitext
 import pandas as pd
 import shutil
 from itertools import repeat, product
-from sod.evaluation import pdconcat  #, train_test_split
 from collections import defaultdict
 from sklearn.model_selection._split import KFold
-from sod.evaluation import split, classifier, predict, _predict,\
-    Evaluator, train_test_split, drop_duplicates, keep_cols, drop_na, cmatrix_df
-from sklearn.metrics.classification import confusion_matrix, brier_score_loss, log_loss
+from sklearn.metrics.classification import (confusion_matrix, brier_score_loss,
+                                            log_loss)
 import mock
 from sklearn.svm.classes import OneClassSVM
-from sod.evaluation.execute import OcsvmEvaluator, run
 from mock import patch
 from click.testing import CliRunner
-from sod.evaluation.datasets import pgapgv, oneminutewindows, groupby_stations
-from sod.plot import plot, plot_calibration_curve
 from sklearn.ensemble.iforest import IsolationForest
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics.scorer import brier_score_loss_scorer
+
+from sod.core.evaluation import (split, classifier, predict, _predict,
+                                 Evaluator, train_test_split, drop_duplicates,
+                                 keep_cols, drop_na, cmatrix_df)
+from sod.core.dataset import (open_dataset, groupby_stations,
+                              datasets_input_dir as dataset_datasets_input_dir)
+from sod.core.plot import plot, plot_calibration_curve
+from sod.evaluate import (OcsvmEvaluator, run,
+                          inputcfgpath as evaluate_inputcfgpath,
+                          outputpath as evaluate_outputpath)
 
 
 class Tester:
 
     datadir = join(dirname(__file__), 'data')
 
-    dfr = pgapgv(join(datadir, 'pgapgv.hdf'), False)
-    dfr2 = oneminutewindows(join(datadir, 'oneminutewindows.hdf'), False)
+    dfr = open_dataset(join(datadir, 'pgapgv.hdf_'), False)
+    dfr2 = open_dataset(join(datadir, 'oneminutewindows.hdf_'), False)
 
     clf = classifier(OneClassSVM, dfr.iloc[:5, :][['delta_pga', 'delta_pgv']])
 
@@ -109,7 +114,7 @@ class Tester:
             assert np.abs(np.abs(elm[1] - elm[0]) -
                           np.abs(a[i-1][1] - a[i-1][0])) <= 1
 
-    @patch('sod.evaluation._predict')
+    @patch('sod.core.evaluation._predict')
     def test_get_scores(self, mock_predict):
         dfr = pd.DataFrame([
             {'outlier': False, 'modified': '', 'id': 1},
@@ -231,22 +236,23 @@ class Tester:
             res2.append(_[0])
         assert (res == res2).all()
 
-    @patch('sod.evaluation.execute.outputpath')
-    @patch('sod.evaluation.execute.inputpath')
-    @patch('sod.evaluation.execute.inputcfgpath')
+    @patch('sod.core.dataset.dataset_path')
+    @patch('sod.evaluate.inputcfgpath')
+    @patch('sod.evaluate.outputpath')
     def test_evaluator(self,
                        # pytest fixutres:
                        #tmpdir
+                       mock_out_path,
                        mock_inputcfgpath,
-                       mock_in_path,
-                       mock_out_path
+                       mock_dataset_in_path
                        ):
         if isdir(self.tmpdir):
             shutil.rmtree(self.tmpdir)
         INPATH, OUTPATH = self.datadir, self.tmpdir
         mock_out_path.return_value = OUTPATH
         mock_inputcfgpath.return_value = INPATH
-        mock_in_path.return_value = INPATH
+        mock_dataset_in_path.side_effect = \
+            lambda filename, *a, **v: join(INPATH, filename)
 
         for evalconfigpath in [self.evalconfig, self.evalconfig2]:
             evalconfigname = basename(evalconfigpath)
@@ -282,7 +288,15 @@ class Tester:
         runner = CliRunner()
         result = runner.invoke(run, ["-c", basename(self.evalconfig2)])
 
-        
+    def test_dirs_exist(self):
+        '''these tests MIGHT FAIL IF DIRECTORIES ARE NOT YET INITIALIZED
+        (no evaluation or stream2segment run)
+        JUST CREATE THEM IN CASE
+        '''
+        for _ in [dataset_datasets_input_dir,
+                  evaluate_inputcfgpath,
+                  evaluate_outputpath]:
+            assert isdir(_())
 
     def test_drop_cols(self):
         d = pd.DataFrame({

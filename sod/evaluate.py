@@ -8,8 +8,8 @@ import click
 from os.path import (isabs, abspath, isdir, isfile, dirname, join, basename,
                      splitext)
 from yaml import safe_load
-from sod.dataset import dataset_path, open_dataset
-from sod.evaluation import Evaluator, is_outlier
+from sod.core.dataset import dataset_path, open_dataset
+from sod.core.evaluation import Evaluator, is_outlier
 from sklearn.svm.classes import OneClassSVM
 from sklearn.ensemble.iforest import IsolationForest
 
@@ -98,13 +98,12 @@ def run(config):
         raise ValueError('%s in the config is invalid, please specify: %s' %
                          ('clf', str(" ".join(EVALUATORS.keys()))))
 
-    print('Reading from: %s' % str(dataset_path(cfg_dict['input'])))
+    dataframe = open_dataset(cfg_dict['input'],
+                             normalize=cfg_dict['input_normalize'])
     outdir = join(outputpath(), basename(config))
     print('Saving to: %s' % str(outdir))
     evl = evaluator_class(cfg_dict['parameters'], n_folds=5)
-    evl.run(open_dataset(cfg_dict['input'],
-                         normalize=cfg_dict['input_normalize']),
-            columns=cfg_dict['features'], output=outdir)
+    evl.run(dataframe, columns=cfg_dict['features'], output=outdir)
     return 0
 
 
