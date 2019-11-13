@@ -33,8 +33,8 @@ from os.path import isfile, isdir, isabs, abspath
 import numpy as np
 import pandas as pd
 
-from sod.evaluation import (ID_COL, is_prediction_dataframe,
-                            is_outlier, CLASSES, pdconcat)
+from sod.core.evaluation import (ID_COL, is_prediction_dataframe,
+                                 is_outlier, CLASSES, pdconcat)
 
 
 def datasets_input_dir():
