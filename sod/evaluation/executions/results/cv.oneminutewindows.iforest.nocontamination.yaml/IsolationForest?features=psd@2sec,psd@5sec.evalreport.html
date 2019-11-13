@@ -1,0 +1,197 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <title>IsolationForest (features: psd@2sec, psd@5sec)</title>
+  <meta name="description" content="sod evaluation report">
+  <meta name="author" content="rizac">
+
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+  <link href="https://fonts.googleapis.com/css?family=Roboto+Condensed&display=swap" rel="stylesheet">
+ 
+  <!-- <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>-->
+  <script src="https://cdn.jsdelivr.net/npm/vue@2.6.0"></script>
+  <style>
+  	body{font-family: 'Roboto Condensed', sans-serif;}
+  	td{padding:0.25rem;}
+  	.bg-info{background-color: #17a2b82e !important;}
+  	/* Vuejs transition: */
+  	.slide-leave-active,
+	.slide-enter-active {
+	  transition: .5s;
+	}
+	.slide-enter, .slide-leave-to {
+		opacity: 0;
+	}
+	/*.slide-enter {
+	  transform: translate(-100%, 0);
+	}
+	.slide-leave-to {
+	  transform: translate(100%, 0);
+	}*/
+  </style>
+</head>
+
+<body style='width:100vw;height:100vh;'>
+<div id='app' class='d-flex flex-column p-2' style='width:100vw;height:100vh;'> <!-- https://stackoverflow.com/a/39166186 -->
+  <h3 class='text-warning font-weight-bold text-center'>IsolationForest (features: psd@2sec, psd@5sec)</h3>
+  <div class='d-flex flex-row' style='flex: 1 1 auto'>
+  	 <div class='position-relative' style='flex: 1 1 auto'>
+  	 	<div class='position-absolute d-flex flex-row flex-wrap align-content-start justify-content-start align-items-start' style='top:0px;right:0px;bottom:0px;left:0px;overflow:auto'>
+	  		<div v-for="(cm, index0) in cms" class='m-2 p-1 pr-2 d-flex flex-row border rounded'>
+	     		<table>
+	     			<tr>
+	     				<td rowspan="2" class='p-0 pr-3 align-top'>
+	     					<div class="bg-info p-2 rounded" style="max-width:15rem;overflow:auto">
+	     						<span><b>[{{ index0 + 1 }}]</b></span>
+	     						<span v-for='key in cm.key' class='ml-1'>
+	     							{{key[0]}}: {{key[1]}}
+	     						</span>
+	     					</div>
+	     				</td>
+	     				<td :colspan='cm.data[0].length-2' class='text-right align-bottom pb-0 pt-2'>
+	     					Classified as:
+	     				</td>
+	     				<td></td>
+	     			</tr>
+	     			<tr>
+	     				<td v-for='col in columns' v-html='col' class='text-right pt-0'></td>
+	     			</tr>
+	     			<tr v-for="(row, index1) in cm.data">
+	     				<td v-for="(cell, index2) in row" v-html="formatNum(cell)"
+	     					class='text-right'
+	     					:class="{
+	     						'text-danger': index2 == row.length-1,
+	     						'border': index2 > 0
+	     					}"
+		 				>
+	     				</td>
+	     			</tr>
+	     			<tr>
+	     				<td :colspan='cm.data[0].length-2'></td>
+	     				<td>Score:</td>
+	     				<td v-html='cm.score' class='text-danger font-weight-bold'></td>
+	     			</tr>
+	     		</table>
+	     	</div>
+	  	</div>
+  	</div> 
+  	
+    
+    <div class='ml-3 bg-info border'>
+    	<div class='p-1 d-flex flex-row'>
+    		<transition name="slide">
+	    		<span style='flex:1 1 auto'  v-show='panelVisible'>Score configuration</span>
+	    	</transition>
+	    	<button class='p-1 btn btn-outline-info btn-sm'
+	    		style='border-width:0px !important'
+	    		@click='panelVisible=!panelVisible'>↔
+	    	</button>
+    	</div>
+    	<transition name="slide">
+			<table v-show='panelVisible'>
+	    		<tr><td>Class</td><td>Weight</td></tr>
+	    		<tr v-for='(weight, index) in weights'>
+	    			<td>{{ classes[index] }}</td>
+	    			<td><input type="number" v-model.number="weights[index]" style="width:5rem"></td>
+	    		</tr>
+	    	</table>
+    	<>/transition> 
+    </div>
+  </div>
+</div>
+
+<script type="text/javascript">
+
+let app = new Vue({
+  el: '#app',
+  data: {
+  	panelVisible: true,
+    // Evaluation data, list of objects. Each object has property
+    // key -> list of [paramname, paramvalue] elements,
+    // data -> numeric (confusion) matrix
+    evaluations: [{"key": [["max_samples", "32768"], ["n_estimators", "100"], ["behaviour", "new"], ["contamination", "0"]], "data": [[937070.0, 0.0, 100.0], [4347.0, 0.0, 0.0], [290237.0, 0.0, 0.0], [935449.0, 0.0, 0.0], [960150.0, 0.0, 0.0], [960422.0, 0.0, 0.0]]}, {"key": [["max_samples", "65536"], ["n_estimators", "100"], ["behaviour", "new"], ["contamination", "0"]], "data": [[937070.0, 0.0, 100.0], [4347.0, 0.0, 0.0], [290237.0, 0.0, 0.0], [935449.0, 0.0, 0.0], [960150.0, 0.0, 0.0], [960422.0, 0.0, 0.0]]}, {"key": [["max_samples", "131072"], ["n_estimators", "100"], ["behaviour", "new"], ["contamination", "0"]], "data": [[937069.0, 1.0, 100.0], [4347.0, 0.0, 0.0], [290237.0, 0.0, 0.0], [935449.0, 0.0, 0.0], [960150.0, 0.0, 0.0], [960422.0, 0.0, 0.0]]}],
+    // list of classes (rows of the confusion matrix)
+    classes: ["ok", "outl. (wrong inv. file)", "outl. (cha. resp. acc <-> vel)", "outl. (gain X100 or X0.01)", "outl. (gain X10 or X0.1)", "outl. (gain X2 or X0.5)"],
+    // list of columns of each confusion matrix. This is not the same as
+    // classes as the latter has a finer subdivision 
+    columns: ["ok", "outlier", "% rec."],
+ 	// list of weights, one for each class in classes
+    weights: [100, 100, 10, 50, 5, 1],
+    // the Confusion matrices used for display. It is a subset of evaluations above 
+    // (a propery score will be added to each Object element when creating this Vue, see below)
+    cms: [],
+  },
+  watch: {
+  	weights: {
+  		immediate: true,
+  		deep: true,
+  		handler: function(newVal, oldVal){
+  			this.createCms();
+  		}
+  	}
+  },
+  methods: {
+  	formatNum: function(value){  // https://stackoverflow.com/a/49868526
+  		var val = typeof value === 'number' ? value : parseFloat(value);
+  		if (!isNaN(val)){
+  			return val.toLocaleString();
+  		}
+  		return value;
+  	},
+	createCms: function(event){
+  		// set the new values (scores):
+  		var newcms = [];
+  		var weights = this.weights;
+  		var classes = this.classes;
+  		var denom = 0;
+  		// calculate denominator. There is surely a shorter way but
+  		// JavaScript reduce is cumbersome na dI prefer like this:
+  		for(var w of weights){
+  		    var wfloat = parseFloat(w);
+	  		if (isNaN(wfloat)){
+	  		    continue;
+	  		}
+  		    denom += w;
+  		}
+  		var i = 0;
+  		for (var cm of this.evaluations){
+	  		var score = 0;
+	  		newcm = {key: cm.key, data:[]};
+	  		for (var i=0; i<classes.length ; i++){
+	  		    var weight = parseFloat(this.weights[i]);
+				if (isNaN(weight)){
+					continue;
+				}
+  				var row = cm.data[i];
+	  		    newcm.data.push([classes[i]].concat(row));
+	  		    var value = parseFloat(row[row.length-1]);
+				if (isNaN(value)){
+					continue;
+				}
+				score += weight * value;
+  			}
+  			newcm.score = parseFloat(score / denom).toFixed(3);
+  			newcms.push(newcm);
+  		}
+  		// sort:
+  		newcms.sort(function(cm1, cm2) {
+  		    var [val1, val2] = [cm1.score, cm2.score];
+  		    if (isNaN(val1) || val1 < val2) {
+    			return 1;  // not -1 because we want sorted it is descending
+  			}
+			if (isNaN(val2) || val1 > val2) {
+    			return -1;  // not 1 because we want sorted it is descending
+ 			}
+  			return 0;
+		});
+		this.cms = newcms;
+  	}
+  }
+});
+</script>
+
+</body>
+</html>

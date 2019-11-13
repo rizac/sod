@@ -1,0 +1,188 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <title>OneClassSVM (features: noise_psd@1sec, noise_psd@2sec, noise_psd@5sec, noise_psd@9sec)</title>
+  <meta name="description" content="sod evaluation report">
+  <meta name="author" content="rizac">
+
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+  <!-- <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>-->
+  <script src="https://cdn.jsdelivr.net/npm/vue@2.6.0"></script>
+  <style>
+  	td{padding:0.25rem;}
+  	.bg-info{background-color: #17a2b82e !important;}
+  	/* Vuejs transition: */
+  	.slide-leave-active,
+	.slide-enter-active {
+	  transition: .5s;
+	}
+	.slide-enter, .slide-leave-to {
+		opacity: 0;
+	}
+	/*.slide-enter {
+	  transform: translate(-100%, 0);
+	}
+	.slide-leave-to {
+	  transform: translate(100%, 0);
+	}*/
+  </style>
+</head>
+
+<body style='width:100vw;height:100vh;'>
+<div id='app' class='d-flex flex-column p-2' style='width:100vw;height:100vh;'> <!-- https://stackoverflow.com/a/39166186 -->
+  <h3 class='text-warning font-weight-bold text-center'>OneClassSVM (features: noise_psd@1sec, noise_psd@2sec, noise_psd@5sec, noise_psd@9sec)</h3>
+  <div class='d-flex flex-row' style='flex: 1 1 auto'>
+  	 <div class='position-relative' style='flex: 1 1 auto'>
+  	 	<div class='position-absolute d-flex flex-row flex-wrap align-content-start justify-content-start align-items-start' style='top:0px;right:0px;bottom:0px;left:0px;overflow:auto'>
+	  		<div v-for="(cm, index0) in cms" class='m-2 p-1 pr-2 d-flex flex-row border rounded'>
+	     		<table>
+	     			<tr>
+	     				<td rowspan="2" class='p-0 pr-3 align-top'>
+	     					<div class="bg-info p-2 rounded" style="max-width:15rem;">
+	     						<span><b>[{{ index0 + 1 }}]</b></span>
+	     						<span v-for='key in cm.key' class='text-nowrap'>
+	     							{{key[0]}}: {{key[1]}}
+	     						</span>
+	     					</div>
+	     				</td>
+	     				<td :colspan='cm.data[0].length-2' class='text-right align-bottom pb-0 pt-2'>
+	     					Classified as:
+	     				</td>
+	     				<td></td>
+	     			</tr>
+	     			<tr>
+	     				<td v-for='col in columns' v-html='col' class='text-right pt-0'></td>
+	     			</tr>
+	     			<tr v-for="(row, index1) in cm.data">
+	     				<td v-for="(cell, index2) in row" v-html="cell"
+	     					class='text-right'
+	     					:class="{
+	     						'text-danger': index2 == row.length-1,
+	     						'border': index2 > 0
+	     					}"
+		 				>
+	     				</td>
+	     			</tr>
+	     			<tr>
+	     				<td :colspan='cm.data[0].length-2'></td>
+	     				<td>Score:</td>
+	     				<td v-html='cm.score' class='text-danger font-weight-bold'></td>
+	     			</tr>
+	     		</table>
+	     	</div>
+	  	</div>
+  	</div> 
+  	
+    
+    <div class='ml-3 bg-info border'>
+    	<div class='p-1 d-flex flex-row'>
+    		<transition name="slide">
+	    		<span style='flex:1 1 auto'  v-show='panelVisible'>Score configuration</span>
+	    	</transition>
+	    	<button class='p-1 btn btn-outline-info btn-sm'
+	    		style='border-width:0px !important'
+	    		@click='panelVisible=!panelVisible'>↔
+	    	</button>
+    	</div>
+    	<transition name="slide">
+			<table v-show='panelVisible'>
+	    		<tr><td>Class</td><td>Weight</td></tr>
+	    		<tr v-for='(weight, index) in weights'>
+	    			<td>{{ classes[index] }}</td>
+	    			<td><input type="number" v-model.number="weights[index]" style="width:5rem"></td>
+	    		</tr>
+	    	</table>
+    	<>/transition> 
+    </div>
+  </div>
+</div>
+
+<script type="text/javascript">
+
+let app = new Vue({
+  el: '#app',
+  data: {
+  	panelVisible: true,
+    // Evaluation data, list of objects. Each object has property
+    // key -> list of [paramname, paramvalue] elements,
+    // data -> numeric (confusion) matrix
+    evaluations: [{"key": [["gamma", "auto"], ["kernel", "rbf"], ["nu", "0.1"]], "data": [[289635.0, 32187.0, 90.0], [1247.0, 39.0, 3.03], [153936.0, 158403.0, 50.72], [150499.0, 171323.0, 53.24], [193241.0, 128581.0, 39.95], [269315.0, 52507.0, 16.32]]}, {"key": [["gamma", "auto"], ["kernel", "rbf"], ["nu", "0.2"]], "data": [[257467.0, 64355.0, 80.0], [1247.0, 39.0, 3.03], [130839.0, 181500.0, 58.11], [150089.0, 171733.0, 53.36], [173602.0, 148220.0, 46.06], [244329.0, 77493.0, 24.08]]}, {"key": [["gamma", "1"], ["kernel", "rbf"], ["nu", "0.1"]], "data": [[289639.0, 32183.0, 90.0], [0.0, 1286.0, 100.0], [57963.0, 254376.0, 81.44], [13549.0, 308273.0, 95.79], [106824.0, 214998.0, 66.81], [262814.0, 59008.0, 18.34]]}, {"key": [["gamma", "1"], ["kernel", "rbf"], ["nu", "0.2"]], "data": [[257481.0, 64341.0, 80.01], [0.0, 1286.0, 100.0], [49428.0, 262911.0, 84.17], [8342.0, 313480.0, 97.41], [71775.0, 250047.0, 77.7], [217159.0, 104663.0, 32.52]]}, {"key": [["gamma", "auto"], ["kernel", "rbf"], ["nu", "0.5"]], "data": [[160909.0, 160913.0, 50.0], [1.0, 1285.0, 99.92], [26307.0, 286032.0, 91.58], [20858.0, 300964.0, 93.52], [101942.0, 219880.0, 68.32], [155138.0, 166684.0, 51.79]]}, {"key": [["gamma", "10"], ["kernel", "rbf"], ["nu", "0.1"]], "data": [[289618.0, 32204.0, 89.99], [0.0, 1286.0, 100.0], [58347.0, 253992.0, 81.32], [12578.0, 309244.0, 96.09], [118483.0, 203339.0, 63.18], [265055.0, 56767.0, 17.64]]}, {"key": [["gamma", "10"], ["kernel", "rbf"], ["nu", "0.2"]], "data": [[257477.0, 64345.0, 80.01], [0.0, 1286.0, 100.0], [51516.0, 260823.0, 83.51], [6767.0, 315055.0, 97.9], [76265.0, 245557.0, 76.3], [220674.0, 101148.0, 31.43]]}, {"key": [["gamma", "1"], ["kernel", "rbf"], ["nu", "0.5"]], "data": [[160902.0, 160920.0, 50.0], [0.0, 1286.0, 100.0], [21639.0, 290700.0, 93.07], [1904.0, 319918.0, 99.41], [26170.0, 295652.0, 91.87], [145210.0, 176612.0, 54.88]]}, {"key": [["gamma", "50"], ["kernel", "rbf"], ["nu", "0.1"]], "data": [[289627.0, 32195.0, 90.0], [0.0, 1286.0, 100.0], [58347.0, 253992.0, 81.32], [12589.0, 309233.0, 96.09], [117921.0, 203901.0, 63.36], [264918.0, 56904.0, 17.68]]}, {"key": [["gamma", "50"], ["kernel", "rbf"], ["nu", "0.2"]], "data": [[257461.0, 64361.0, 80.0], [0.0, 1286.0, 100.0], [51357.0, 260982.0, 83.56], [6810.0, 315012.0, 97.88], [76114.0, 245708.0, 76.35], [220495.0, 101327.0, 31.49]]}, {"key": [["gamma", "10"], ["kernel", "rbf"], ["nu", "0.5"]], "data": [[160905.0, 160917.0, 50.0], [0.0, 1286.0, 100.0], [21429.0, 290910.0, 93.14], [1616.0, 320206.0, 99.5], [26086.0, 295736.0, 91.89], [143660.0, 178162.0, 55.36]]}, {"key": [["gamma", "50"], ["kernel", "rbf"], ["nu", "0.5"]], "data": [[160910.0, 160912.0, 50.0], [0.0, 1286.0, 100.0], [21444.0, 290895.0, 93.13], [1634.0, 320188.0, 99.49], [26071.0, 295751.0, 91.9], [143674.0, 178148.0, 55.36]]}],
+    // list of classes (rows of the confusion matrix)
+    classes: ["ok", "outl. (wrong inv. file)", "outl. (cha. resp. acc <-> vel)", "outl. (gain X100 or X0.01)", "outl. (gain X10 or X0.1)", "outl. (gain X2 or X0.5)"],
+    // list of columns of each confusion matrix. This is not the same as
+    // classes as the latter has a finer subdivision 
+    columns: ["ok", "outlier", "% rec."],
+ 	// list of weights, one for each class in classes
+    weights: [100, 100, 10, 50, 5, 1],
+    // the Confusion matrices used for display. It is a subset of evaluations above 
+    // (a propery score will be added to each Object element when creating this Vue, see below)
+    cms: [],
+  },
+  watch: {
+  	weights: {
+  		immediate: true,
+  		deep: true,
+  		handler: function(newVal, oldVal){
+  			this.createCms();
+  		}
+  	}
+  },
+  methods: {
+  	createCms: function(event){
+  		// set the new values (scores):
+  		var newcms = [];
+  		var weights = this.weights;
+  		var classes = this.classes;
+  		var denom = 0;
+  		// calculate denominator. There is surely a shorter way but
+  		// JavaScript reduce is cumbersome na dI prefer like this:
+  		for(var w of weights){
+  		    var wfloat = parseFloat(w);
+	  		if (isNaN(wfloat)){
+	  		    continue;
+	  		}
+  		    denom += w;
+  		}
+  		var i = 0;
+  		for (var cm of this.evaluations){
+	  		var score = 0;
+	  		newcm = {key: cm.key, data:[]};
+	  		for (var i=0; i<classes.length ; i++){
+	  		    var weight = parseFloat(this.weights[i]);
+				if (isNaN(weight)){
+					continue;
+				}
+  				var row = cm.data[i];
+	  		    newcm.data.push([classes[i]].concat(row));
+	  		    var value = parseFloat(row[row.length-1]);
+				if (isNaN(value)){
+					continue;
+				}
+				score += weight * value;
+  			}
+  			newcm.score = parseFloat(score / denom).toFixed(2);
+  			newcms.push(newcm);
+  		}
+  		// sort:
+  		newcms.sort(function(cm1, cm2) {
+  		    var [val1, val2] = [cm1.score, cm2.score];
+  		    if (isNaN(val1) || val1 < val2) {
+    			return 1;  // not -1 because we want sorted it is descending
+  			}
+			if (isNaN(val2) || val1 > val2) {
+    			return -1;  // not 1 because we want sorted it is descending
+ 			}
+  			return 0;
+		});
+		this.cms = newcms;
+  	}
+  }
+});
+</script>
+
+</body>
+</html>

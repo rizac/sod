@@ -29,11 +29,11 @@ def _rootpath():
 
 
 def inputpath():
-    return abspath(join(_rootpath(), 'tmp', 'datasets'))
+    return abspath(join(dirname(__file__), '..', 'datasets', 'results'))
 
 
 def outputpath():
-    return abspath(join(_rootpath(), 'tmp', 'evaluation-results'))
+    return abspath(join(inputcfgpath(), 'results'))
 
 
 class OcsvmEvaluator(Evaluator):
