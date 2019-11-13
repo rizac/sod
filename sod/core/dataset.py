@@ -96,12 +96,15 @@ def open_dataset(filename, normalize=True, verbose=True):
     return dfr
 
 
+#################
+# Functions mapped to specific datasets in 'datasets' and performing
+# custom dataframe operations
+#################
+
+
 def pgapgv(dataframe):
-    '''Custom operations to be performed on the pgapgv HDF dataset. Note that
-    (see decorator) the actual signature of this function is:
-    ```
-    pgapgv(filename, normalize=True, verbose=True)
-    ```
+    '''Custom operations to be performed on the pgapgv dataset
+    (sod/datasets/pgapgv.hdf)
     '''
     # setting up columns:
     dataframe['pga'] = np.log10(dataframe['pga_observed'].abs())
@@ -135,11 +138,8 @@ def pgapgv(dataframe):
 
 
 def oneminutewindows(dataframe):
-    '''Custom operations to be performed on the oneminutewindows HDF dataset.
-    Note that (see decorator) the actual signature of this function is:
-    ```
-    oneminutewindows(filename, normalize=True, verbose=True)
-    ```
+    '''Custom operations to be performed on the oneminutewindows dataset
+    (sod/datasets/oneminutewindows.hdf)
     '''
     # save space:
     dataframe['modified'] = dataframe['modified'].astype('category')
@@ -148,11 +148,8 @@ def oneminutewindows(dataframe):
 
 
 def magnitudeenergy(dataframe):
-    '''Custom operations to be performed on the magnitudeenergy HDF dataset.
-    Note that (see decorator) the actual signature of this function is:
-    ```
-    magnitudeenergy(filename, normalize=True, verbose=True)
-    ```
+    '''Custom operations to be performed on the magnitudeenergy dataset
+    (sod/datasets/magnitudeenergy.hdf)
     '''
     # save space:
     dataframe['modified'] = dataframe['modified'].astype('category')

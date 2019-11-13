@@ -1,7 +1,7 @@
 # configuration for training a classifier
 
 # the input HDF5 file path
-input: 'pgapgv.hdf'
+input: 'pgapgv.hdf_'
 
 # The classifier. See `execute.EVALUATORS` for a list of possible strings
 # mapped to a subclass of the base `Evaluator` class (defined in `evaluation.__init__`)
