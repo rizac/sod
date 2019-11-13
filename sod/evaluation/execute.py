@@ -5,7 +5,8 @@ Created on 28 Oct 2019
 '''
 import click
 
-from os.path import isabs, abspath, isdir, isfile, dirname, join, basename, splitext
+from os.path import (isabs, abspath, isdir, isfile, dirname, join, basename,
+                     splitext)
 from yaml import safe_load
 from sod.evaluation import Evaluator, is_outlier, datasets
 from sklearn.svm.classes import OneClassSVM
@@ -22,14 +23,6 @@ def load_cfg(fname):
 
 def inputcfgpath():
     return abspath(join(dirname(__file__), 'executions'))
-
-
-def _rootpath():
-    return abspath(join(dirname(__file__), '..', '..'))
-
-
-def inputpath():
-    return abspath(join(dirname(__file__), '..', 'datasets', 'results'))
 
 
 def outputpath():
@@ -87,22 +80,25 @@ EVALUATORS = {
 
 
 @click.command()
-@click.option('-c', '--config', help='configuration YAML file NAME', required=True)
+@click.option(
+    '-c', '--config',
+    help='configuration YAML file name (in "sod/sod/evaluation/execution")',
+    required=True
+)
 def run(config):
     cfg_dict = load_cfg(config)
-    open_dataset = getattr(datasets, splitext(cfg_dict['input'])[0])
 
     evaluator_class = EVALUATORS.get(cfg_dict['clf'], None)
     if evaluator_class is None:
         raise ValueError('%s in the config is invalid, please specify: %s' %
                          ('clf', str(" ".join(EVALUATORS.keys()))))
 
-    infile = join(inputpath(), cfg_dict['input'])
-    print('Reading from: %s' % str(infile))
+    print('Reading from: %s' % str(datasets.dataset_path(cfg_dict['input'])))
     outdir = join(outputpath(), basename(config))
     print('Saving to: %s' % str(outdir))
     evl = evaluator_class(cfg_dict['parameters'], n_folds=5)
-    evl.run(open_dataset(infile, normalize=cfg_dict['input_normalize']),
+    evl.run(datasets.open_dataset(cfg_dict['input'],
+                                  normalize=cfg_dict['input_normalize']),
             columns=cfg_dict['features'], output=outdir)
     return 0
 
