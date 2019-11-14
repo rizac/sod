@@ -299,98 +299,97 @@ def params_from_filename(filepath):
     return ret
 
 
-def predict_from_files(test_df, classifier_paths, normalizer_df=None,
-                       destdir=None):
-    if len(set(basename(_) for _ in classifier_paths)) != \
-            len(classifier_paths):
-        raise ValueError('You need to pass a list of **unique file names**')
+class Predictor:
+    
+    def __init__(self, test_df, classifier_paths, normalizer_df=None,
+                 destdir=None):
+        if len(set(basename(_) for _ in classifier_paths)) != \
+                len(classifier_paths):
+            raise ValueError('You need to pass a list of **unique file names**')
 
-    if not all('features' in params_from_filename(_)
-               for _ in classifier_paths):
-        raise ValueError("'features=' not found in all classifiers names")
+        if not all('features' in params_from_filename(_)
+                   for _ in classifier_paths):
+            raise ValueError("'features=' not found in all classifiers names")
 
-    try:
-        clfs = {basename(_): load(_) for _ in classifier_paths}
-    except Exception as exc:
-        raise ValueError('Error reading classifier(s): %s' % str(exc))
+        try:
+            self.clfs = {basename(_): load(_) for _ in classifier_paths}
+        except Exception as exc:
+            raise ValueError('Error reading classifier(s): %s' % str(exc))
 
-    # check if normalizer_df is provided and get min and max for all features:
-    bounds = None
-    if normalizer_df is not None:
-        bounds = {}
-        for _ in classifier_paths:
-            for feat in params_from_filename(_)['features']:
-                bounds[feat] = (None, None)
-        normalizer_df_columns = set(normalizer_df.columns)
-        ndf = normalizer_df[~is_outlier(normalizer_df)]
-        for feat in list(bounds.keys()):
-            if feat not in normalizer_df_columns:
-                raise ValueError('"%s" not in normalizer dataframe' % feat)
-            bounds[feat] = np.nanmin(ndf[feat]), np.nanmax(ndf[feat])
+        # check if normalizer_df is provided and get min and max for all features:
+        bounds = None
+        if normalizer_df is not None:
+            bounds = {}
+            for _ in classifier_paths:
+                for feat in params_from_filename(_)['features']:
+                    bounds[feat] = (None, None)
+            normalizer_df_columns = set(normalizer_df.columns)
+            ndf = normalizer_df[~is_outlier(normalizer_df)]
+            for feat in list(bounds.keys()):
+                if feat not in normalizer_df_columns:
+                    raise ValueError('"%s" not in normalizer dataframe' % feat)
+                bounds[feat] = np.nanmin(ndf[feat]), np.nanmax(ndf[feat])
+        self.bounds = bounds
 
-    # define our iterator for the imap unordered:
-    def iterator(dataframe):
-        for name, clf in clfs.items():
+    def run(self, test_df, destdir):
+        pool = Pool(processes=int(cpu_count()))
+        title = ''
+
+        with click.progressbar(
+            length=len(self.clfs),
+            fill_char='o', empty_char='.'
+        ) as pbar:
+
+            def kill_pool(err_msg):
+                print('ERROR:')
+                print(err_msg)
+                try:
+                    pool.terminate()
+                except ValueError:  # ignore ValueError('pool not running')
+                    pass
+
+            try:
+                cmatrix_dfs = {}
+                for clfname, predicted_df in pool.imap_unordered(
+                    lambda name, clf, df, ft: (name, predict(clf, df, *ft)),
+                    self.iterator(test_df)
+                ):
+                    pbar.update(1)
+                    if destdir is not None:
+                        save_df(predicted_df,
+                                join(destdir, clfname+'.predictions.hdf'),
+                                key='predictions')
+                    cmatrix_dfs[(('filename', clfname))] = \
+                        cmatrix_df(predicted_df)
+
+                    if not title:
+                        title = clfname
+                    else:
+                        title += ', ' + clfname
+
+                pool.close()
+                pool.join()
+
+            except Exception as exc:  # pylint: disable=broad-except
+                kill_pool(exc)
+
+            outfilepath = None if destdir is None else join(destdir,
+                                                            'predictreport.html')
+            return create_evel_report(cmatrix_dfs, outfilepath, title)
+
+    def iterator(self, dataframe):
+        for name, clf in self.clfs.items():
             features = params_from_filename(name)['features']
             dataframe_ = drop_duplicates(dataframe, features, 0, verbose=False)
             dataframe_ = keep_cols(dataframe_, features).copy()
             # normalize:
-            if bounds is not None:
+            if self.bounds is not None:
                 for feat in features:
-                    min_, max_ = bounds[feat]
+                    min_, max_ = self.bounds[feat]
                     dataframe_.loc[:, feat] = \
                         (dataframe_[feat] - min_) / (max_ - min_)
 
-            yield clf, dataframe_
-
-    pool = Pool(processes=int(cpu_count()))
-    title = ''
-
-    with click.progressbar(
-        length=len(classifier_paths),
-        fill_char='o', empty_char='.'
-    ) as pbar:
-
-        def _load_and_predict(name_clf_testdf):
-            name, clf, test_df = name_clf_testdf
-            return name, predict(clf, test_df)
-
-        def kill_pool(err_msg):
-            print('ERROR:')
-            print(err_msg)
-            try:
-                pool.terminate()
-            except ValueError:  # ignore ValueError('pool not running')
-                pass
-
-        try:
-            cmatrix_dfs = {}
-            for clfname, predicted_df in pool.imap_unordered(
-                _load_and_predict,
-                iterator(test_df)
-            ):
-                pbar.update(1)
-                if destdir is not None:
-                    save_df(predicted_df,
-                            join(destdir, clfname+'.predictions.hdf'),
-                            key='predictions')
-                cmatrix_dfs[(('filename', clfname))] = \
-                    cmatrix_df(predicted_df)
-
-                if not title:
-                    title = clfname
-                else:
-                    title += ', ' + clfname
-
-            pool.close()
-            pool.join()
-
-        except Exception as exc:  # pylint: disable=broad-except
-            kill_pool(exc)
-
-        outfilepath = None if destdir is None else join(destdir,
-                                                        'predictreport.html')
-        return create_evel_report(cmatrix_dfs, outfilepath, title)
+            yield name, clf, dataframe_, features
 
 
 def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
