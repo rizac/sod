@@ -299,7 +299,8 @@ def params_from_filename(filepath):
     return ret
 
 
-def predict_from_files(test_df, classifier_paths, destdir=None):
+def predict_from_files(test_df, classifier_paths, normalizer_df=None,
+                       destdir=None):
     if len(set(basename(_) for _ in classifier_paths)) != \
             len(classifier_paths):
         raise ValueError('You need to pass a list of **unique file names**')
@@ -313,11 +314,33 @@ def predict_from_files(test_df, classifier_paths, destdir=None):
     except Exception as exc:
         raise ValueError('Error reading classifier(s): %s' % str(exc))
 
+    # check if normalizer_df is provided and get min and max for all features:
+    bounds = None
+    if normalizer_df is not None:
+        bounds = {}
+        for _ in classifier_paths:
+            for feat in params_from_filename(_)['features']:
+                bounds[feat] = (None, None)
+        normalizer_df_columns = set(normalizer_df.columns)
+        ndf = normalizer_df[~is_outlier(normalizer_df)]
+        for feat in list(bounds.keys()):
+            if feat not in normalizer_df_columns:
+                raise ValueError('"%s" not in normalizer dataframe' % feat)
+            bounds[feat] = np.nanmin(ndf[feat]), np.nanmax(ndf[feat])
+
+    # define our iterator for the imap unordered:
     def iterator(dataframe):
         for name, clf in clfs.items():
             features = params_from_filename(name)['features']
             dataframe_ = drop_duplicates(dataframe, features, 0, verbose=False)
             dataframe_ = keep_cols(dataframe_, features).copy()
+            # normalize:
+            if bounds is not None:
+                for feat in features:
+                    min_, max_ = bounds[feat]
+                    dataframe_.loc[:, feat] = \
+                        (dataframe_[feat] - min_) / (max_ - min_)
+
             yield clf, dataframe_
 
     pool = Pool(processes=int(cpu_count()))
@@ -348,8 +371,9 @@ def predict_from_files(test_df, classifier_paths, destdir=None):
             ):
                 pbar.update(1)
                 if destdir is not None:
-                    save_df(predicted_df, join(destdir,
-                                               clfname+'.predictions.hdf'))
+                    save_df(predicted_df,
+                            join(destdir, clfname+'.predictions.hdf'),
+                            key='predictions')
                 cmatrix_dfs[(('filename', clfname))] = \
                     cmatrix_df(predicted_df)
 
@@ -409,11 +433,17 @@ def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
 
 
 def save_df(dataframe, filepath, **kwargs):
+    '''Saves the given dataframe as HDF file under `filepath`.
+
+    :param kwargs: additional arguments to be passed to pandas `to_df`,
+        EXCEPT 'format' and 'mode' that are set inside this function
+    '''
     dataframe.to_hdf(
         filepath,
         format='table', mode='w',
         **kwargs
     )
+
 
 def is_outlier(dataframe):
     '''pandas series of boolean telling where dataframe rows are outliers'''
@@ -756,11 +786,12 @@ class Evaluator:
         predicted_df = pdconcat(list(_ for _ in self._predictions[fpkey]
                                      if not getattr(_, 'empty', True)))
         fpath = self.basefilepath(*features, **params)
-        predicted_df.to_hdf(
-            fpath + '.predictions.hdf', 'predictions',
-            format='table', mode='w',
-            # min_itemsize={'modified': predicted_df.modified.str.len().max()}
-        )
+        save_df(predicted_df, fpath + '.predictions.hdf', key='predictions')
+#         predicted_df.to_hdf(
+#             fpath + '.predictions.hdf', 'predictions',
+#             format='table', mode='w',
+#             # min_itemsize={'modified': predicted_df.modified.str.len().max()}
+#         )
         if delete:
             # delete unused data (help gc?):
             del self._predictions[fpkey]

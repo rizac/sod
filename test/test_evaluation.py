@@ -25,12 +25,10 @@ from sklearn.metrics.scorer import brier_score_loss_scorer
 from sod.core.evaluation import (split, classifier, predict, _predict,
                                  Evaluator, train_test_split, drop_duplicates,
                                  keep_cols, drop_na, cmatrix_df)
-from sod.core.dataset import (open_dataset, groupby_stations,
-                              datasets_input_dir as dataset_datasets_input_dir)
+from sod.core.dataset import (open_dataset, groupby_stations)
 from sod.core.plot import plot, plot_calibration_curve
-from sod.evaluate import (OcsvmEvaluator, run,
-                          inputcfgpath as evaluate_inputcfgpath,
-                          outputpath as evaluate_outputpath)
+from sod.evaluate import (OcsvmEvaluator, run)
+from sod.core import paths
 
 
 class Tester:
@@ -237,66 +235,69 @@ class Tester:
         assert (res == res2).all()
 
     @patch('sod.core.dataset.dataset_path')
-    @patch('sod.evaluate.inputcfgpath')
-    @patch('sod.evaluate.outputpath')
     def test_evaluator(self,
                        # pytest fixutres:
                        #tmpdir
-                       mock_out_path,
-                       mock_inputcfgpath,
                        mock_dataset_in_path
                        ):
         if isdir(self.tmpdir):
             shutil.rmtree(self.tmpdir)
-        INPATH, OUTPATH = self.datadir, self.tmpdir
-        mock_out_path.return_value = OUTPATH
-        mock_inputcfgpath.return_value = INPATH
-        mock_dataset_in_path.side_effect = \
-            lambda filename, *a, **v: join(INPATH, filename)
 
-        for evalconfigpath in [self.evalconfig, self.evalconfig2]:
-            evalconfigname = basename(evalconfigpath)
-            runner = CliRunner()
-            result = runner.invoke(run, ["-c", evalconfigname])
-            assert not result.exception
-    
-            assert listdir(join(OUTPATH, evalconfigname))
-            # check prediction file:
-            html_file=None
-            prediction_file = None
-            model_file = None
-            for fle in listdir(join(OUTPATH, evalconfigname)):
-                if not model_file and splitext(fle)[1] == '.model':
-                    model_file = join(OUTPATH, evalconfigname, fle)
-                elif not prediction_file and splitext(fle)[1] == '.hdf':
-                    prediction_file = join(OUTPATH, evalconfigname, fle)
-                elif not html_file and splitext(fle)[1] == '.html':
-                    html_file = join(OUTPATH, evalconfigname, fle)
-            assert html_file and prediction_file and model_file
+        INPATH, OUTPATH = self.datadir, self.tmpdir
+
+        with patch('sod.evaluate.EVALUATIONS_CONFIGS_DIR', INPATH):
+            with patch('sod.evaluate.EVALUATIONS_RESULTS_DIR', OUTPATH):
+                
+                mock_dataset_in_path.side_effect = \
+                    lambda filename, *a, **v: join(INPATH, filename)
+        
+                for evalconfigpath in [self.evalconfig, self.evalconfig2]:
+                    evalconfigname = basename(evalconfigpath)
+                    runner = CliRunner()
+                    result = runner.invoke(run, ["-c", evalconfigname])
+                    assert not result.exception
             
-            if evalconfigpath == self.evalconfig:
-                cols = ['correctly_predicted', 'outlier', 'modified', 'id',
-                        'log_loss']
-            else:
-                cols = ['window_type', 'log_loss',
-                        'correctly_predicted', 'outlier', 'modified', 'id']
-            assert sorted(pd.read_hdf(prediction_file).columns) == \
-                sorted(cols)
-        
-        # shutil.rmtree(self.tmpdir)
-        
-        runner = CliRunner()
-        result = runner.invoke(run, ["-c", basename(self.evalconfig2)])
+                    assert listdir(join(OUTPATH, evalconfigname))
+                    # check prediction file:
+                    html_file=None
+                    prediction_file = None
+                    model_file = None
+                    for fle in listdir(join(OUTPATH, evalconfigname)):
+                        if not model_file and splitext(fle)[1] == '.model':
+                            model_file = join(OUTPATH, evalconfigname, fle)
+                        elif not prediction_file and splitext(fle)[1] == '.hdf':
+                            prediction_file = join(OUTPATH, evalconfigname, fle)
+                        elif not html_file and splitext(fle)[1] == '.html':
+                            html_file = join(OUTPATH, evalconfigname, fle)
+                    assert html_file and prediction_file and model_file
+                    
+                    if evalconfigpath == self.evalconfig:
+                        cols = ['correctly_predicted', 'outlier', 'modified', 'id',
+                                'log_loss']
+                    else:
+                        cols = ['window_type', 'log_loss',
+                                'correctly_predicted', 'outlier', 'modified', 'id']
+                    assert sorted(pd.read_hdf(prediction_file).columns) == \
+                        sorted(cols)
+                
+                # shutil.rmtree(self.tmpdir)
+                
+                runner = CliRunner()
+                result = runner.invoke(run, ["-c", basename(self.evalconfig2)])
 
     def test_dirs_exist(self):
         '''these tests MIGHT FAIL IF DIRECTORIES ARE NOT YET INITIALIZED
         (no evaluation or stream2segment run)
         JUST CREATE THEM IN CASE
         '''
-        for _ in [dataset_datasets_input_dir,
-                  evaluate_inputcfgpath,
-                  evaluate_outputpath]:
-            assert isdir(_())
+        filepaths = []
+        for _ in dir(paths):
+            if not _.startswith('_'):
+                val = getattr(paths, _)
+                if isinstance(val, (str, bytes)):
+                    filepaths.append(val)
+        assert len(filepaths) == 3
+        assert all(isdir(_) for _ in filepaths)
 
     def test_drop_cols(self):
         d = pd.DataFrame({

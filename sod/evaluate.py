@@ -12,26 +12,15 @@ from sod.core.dataset import dataset_path, open_dataset
 from sod.core.evaluation import Evaluator, is_outlier
 from sklearn.svm.classes import OneClassSVM
 from sklearn.ensemble.iforest import IsolationForest
+from sod.core.paths import EVALUATIONS_CONFIGS_DIR, EVALUATIONS_RESULTS_DIR
 
 
 def load_cfg(fname):
     if not isabs(fname):
-        fname = join(inputcfgpath(), fname)
+        fname = join(EVALUATIONS_CONFIGS_DIR, fname)
     fname = abspath(fname)
     with open(fname) as stream:
         return safe_load(stream)
-
-
-def _output_root():
-    return abspath(join(dirname(__file__), 'evaluations'))
-
-
-def inputcfgpath():
-    return abspath(join(_output_root(), 'configs'))
-
-
-def outputpath():
-    return abspath(join(_output_root(), 'results'))
 
 
 class OcsvmEvaluator(Evaluator):
@@ -100,7 +89,7 @@ def run(config):
 
     dataframe = open_dataset(cfg_dict['input'],
                              normalize=cfg_dict['input_normalize'])
-    outdir = abspath(join(outputpath(), basename(config)))
+    outdir = abspath(join(EVALUATIONS_RESULTS_DIR, basename(config)))
     if isdir(outdir):
         raise ValueError("Output directory exists:\n"
                          "'%s'\n"
