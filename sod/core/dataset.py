@@ -35,17 +35,14 @@ import pandas as pd
 
 from sod.core.evaluation import (ID_COL, is_prediction_dataframe,
                                  is_outlier, CLASSES, pdconcat)
-
-
-def datasets_input_dir():
-    return abspath(join(dirname(__file__), '..', 'datasets'))
+from sod.core.paths import DATASETS_DIR
 
 
 def dataset_path(filename, assure_exist=True):
     keyname, ext = splitext(filename)
     if not ext:
         filename += '.hdf'
-    filepath = join(datasets_input_dir(), filename)
+    filepath = join(DATASETS_DIR, filename)
     if assure_exist and not isfile(filename):
         raise ValueError('Invalid dataset, no file found with name "%s"'
                          % keyname)
