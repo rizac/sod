@@ -31,6 +31,34 @@ from sod.evaluate import (OcsvmEvaluator, run)
 from sod.core import paths
 
 
+class PoolMocker:
+    
+    def apply_async(self, func, args=None, kwargs=None, callback=None,
+                    error_callback=None):
+        try:
+            if args[2] == ['psd@2sec'] and 'window_type' in args[1].columns:
+                asd = 9
+            result = func(*(args or []), **(kwargs or {}))
+            if callback:
+                callback(result)
+        except Exception as exc:
+            if error_callback:
+                error_callback(exc)
+    
+    def imap_unordered(self, func, iterable):
+        for arg in iterable:
+            yield func(arg)
+
+    def close(self):
+        pass
+    
+    def join(self):
+        pass
+    
+    def terminate(self):
+        pass
+
+
 class Tester:
 
     datadir = join(dirname(__file__), 'data')
@@ -235,9 +263,12 @@ class Tester:
         assert (res == res2).all()
 
     @patch('sod.core.dataset.dataset_path')
+    @patch('sod.core.evaluation.Pool',
+           side_effect=lambda *a, **v: PoolMocker())
     def test_evaluator(self,
                        # pytest fixutres:
                        #tmpdir
+                       mock_pool,
                        mock_dataset_in_path
                        ):
         if isdir(self.tmpdir):
@@ -284,6 +315,8 @@ class Tester:
                 
                 runner = CliRunner()
                 result = runner.invoke(run, ["-c", basename(self.evalconfig2)])
+                # directory exists:
+                assert result.exception
 
     def test_dirs_exist(self):
         '''these tests MIGHT FAIL IF DIRECTORIES ARE NOT YET INITIALIZED

@@ -46,9 +46,7 @@
 	     				<td rowspan="2" class='p-0 pr-3 align-top'>
 	     					<div class="bg-info p-2 rounded" style="max-width:15rem;overflow:auto">
 	     						<span><b>[{{ index0 + 1 }}]</b></span>
-	     						<span v-for='key in cm.key' class='ml-1'>
-	     							{{key[0]}}: {{key[1]}}
-	     						</span>
+	     						<span v-html='cm.key' class='ml-1'></span>
 	     					</div>
 	     				</td>
 	     				<td :colspan='2' class='text-right align-bottom pb-0 pt-2'>
