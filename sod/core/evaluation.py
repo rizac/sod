@@ -2,6 +2,10 @@
     Evaluation commmon utilities
 '''
 import sys
+if sys.version_info[0] < 3 or sys.version_info[1] < 7:
+    from collections import OrderedDict as odict
+else:
+    odict = dict
 import json
 from multiprocessing import Pool, cpu_count
 from os import makedirs
@@ -170,13 +174,22 @@ def log_loss(outliers, predictions, eps=1e-15, normalize_=True):
     :return: a numpy array the same length of `predictions` with the log loss
         scores
     '''
+    predictions_n = np.copy(predictions)
     if normalize_:
-        predictions_n = normalize_predictions(predictions)
-    else:
-        predictions_n = np.copy(predictions)
+        # normalize positives and then negatives separately, we might have
+        # unbalanced bounds (e.g. min ~= -1, max ~= +inf)
+        positives = predictions_n > 0
+        if np.nansum(positives):
+            predictions_n[positives] = \
+                predictions_n[positives] / np.nanmax(predictions_n[positives])
+        negatives = predictions_n < 0
+        if np.nansum(negatives):
+            predictions_n[negatives] = \
+                predictions_n[negatives] / -np.nanmin(predictions_n[negatives])
+
     not_outliers = ~outliers
     predictions_n[not_outliers] = (1 + predictions_n[not_outliers]) / 2.0
-    predictions_n[outliers] = (1 + -predictions_n[outliers]) / 2.0
+    predictions_n[outliers] = (1 - predictions_n[outliers]) / 2.0
     if eps is not None:
         predictions_n = np.clip(predictions_n, eps, 1 - eps)
     return -np.log10(predictions_n)  # http://wiki.fast.ai/index.php/Log_Loss
@@ -195,28 +208,28 @@ def correctly_predicted(outliers, predictions):
     return (outliers & (predictions < 0)) | ((~outliers) & (predictions >= 0))
 
 
-def normalize_predictions(predictions, inbounds=None, outbounds=(-1, 1)):
-    '''Returns predictions (numpy array of values where negative
-    values represent OUTLIERS and positive ones INLIERS) normalized in
-    [outbounds[0], outbounds[1]]
-
-    :param inbounds: the input bounds, if None, it will be inferred from
-        `predictions` min and max (ignoring NaNs)
-    :param predictions: the output of `_predict`: float array with positive
-        (inlier) or negative (outlier) scores
-
-    '''
-    if inbounds is None:
-        imin, imax = np.nanmin(predictions), np.nanmax(predictions)
-    else:
-        imin, imax = inbounds
-    omin, omax = outbounds
-    # map predictions to -1 1 and then to 0 1
-    ret = omin + (omax - omin) * (predictions - imin) / (imax - imin)
-    if inbounds is not None:
-        ret[ret < -1] = -1
-        ret[ret > 1] = 1
-    return ret
+# def normalize_predictions(predictions, inbounds=None, outbounds=(-1, 1)):
+#     '''Returns predictions (numpy array of values where negative
+#     values represent OUTLIERS and positive ones INLIERS) normalized in
+#     [outbounds[0], outbounds[1]]
+#
+#     :param inbounds: the input bounds, if None, it will be inferred from
+#         `predictions` min and max (ignoring NaNs)
+#     :param predictions: the output of `_predict`: float array with positive
+#         (inlier) or negative (outlier) scores
+#
+#     '''
+#     if inbounds is None:
+#         imin, imax = np.nanmin(predictions), np.nanmax(predictions)
+#     else:
+#         imin, imax = inbounds
+#     omin, omax = outbounds
+#     # map predictions to -1 1 and then to 0 1
+#     ret = omin + (omax - omin) * (predictions - imin) / (imax - imin)
+#     if inbounds is not None:
+#         ret[ret < -1] = -1
+#         ret[ret > 1] = 1
+#     return ret
 
 
 def _predict(clf, dataframe):
@@ -280,34 +293,14 @@ def _get_eval_report_html_template():
         return _.read()
 
 
-# def load_and_predict(classifier_path, test_dataframe, *columns):
-#     return predict(load(classifier_path), test_dataframe, *columns)
-
-
-def params_from_filename(filepath):
-    ret = {}
-    pth = splitext(basename(filepath))[0]
-    if '?' not in pth:
-        return ret
-    pth = pth[pth.find('?') + 1:]
-    splits = pth.split('&')
-    for s in splits:
-        param, values = s.split('=')
-        if ',' in values:
-            values = values.split(',')
-        ret[param] = values
-    return ret
-
-
 class Predictor:
-    
-    def __init__(self, test_df, classifier_paths, normalizer_df=None,
-                 destdir=None):
+
+    def __init__(self, classifier_paths, normalizer_df=None):
         if len(set(basename(_) for _ in classifier_paths)) != \
                 len(classifier_paths):
             raise ValueError('You need to pass a list of **unique file names**')
 
-        if not all('features' in params_from_filename(_)
+        if not all('features' in ParamsEncDec.todict(_)
                    for _ in classifier_paths):
             raise ValueError("'features=' not found in all classifiers names")
 
@@ -321,7 +314,7 @@ class Predictor:
         if normalizer_df is not None:
             bounds = {}
             for _ in classifier_paths:
-                for feat in params_from_filename(_)['features']:
+                for feat in ParamsEncDec.todict(_)['features']:
                     bounds[feat] = (None, None)
             normalizer_df_columns = set(normalizer_df.columns)
             ndf = normalizer_df[~is_outlier(normalizer_df)]
@@ -359,7 +352,7 @@ class Predictor:
                         save_df(predicted_df,
                                 join(destdir, clfname+'.predictions.hdf'),
                                 key='predictions')
-                    cmatrix_dfs[(('filename', clfname))] = \
+                    cmatrix_dfs['clf=%s' % clfname] = \
                         cmatrix_df(predicted_df)
 
                     if not title:
@@ -379,7 +372,7 @@ class Predictor:
 
     def iterator(self, dataframe):
         for name, clf in self.clfs.items():
-            features = params_from_filename(name)['features']
+            features = ParamsEncDec.todict(name)['features']
             dataframe_ = drop_duplicates(dataframe, features, 0, verbose=False)
             dataframe_ = keep_cols(dataframe_, features).copy()
             # normalize:
@@ -395,10 +388,8 @@ class Predictor:
 def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
     '''Saves the given confusion matrices dataframe to html
 
-    :param cmatrix_df: a dict of unique keys (whatever is json serializable)
-        mapped to dataframe as returned from the function `cmatrix_df`.
-        Typically, it is a list of lists: [[paramname, paramvalue], ... ]
-        as returned from `list(dict.items())`
+    :param cmatrix_df: a dict of string keys
+        mapped to dataframe as returned from the function `cmatrix_df`
     :param outfilepath: the output file path. The extension will be
         appended as 'html', if an extension is not set
     :param title: the HTML title page
@@ -613,7 +604,6 @@ class Evaluator:
             possible combinations of all parameters values
         '''
         assert n_folds >= 1
-        self._rootoutdir = None
         self.clf_class = clf_class
         self.n_folds = n_folds
         # setup self.parameters:
@@ -626,51 +616,39 @@ class Evaluator:
             __p.append(tuple((pname, v) for v in vals))
         self.parameters = tuple(dict(_) for _ in product(*__p))
         self._predictions, self._eval_reports = defaultdict(list), defaultdict(dict)
-        self._classes = tuple(_CLASSNAMES)
-        # open template file
-        with open(join(dirname(__file__), 'eval_report_template.html'), 'r') as _:
-            self.eval_report_html_template = _.read()
 
-    def basefilepath(self, *features, **params):
-        basepath = abspath(join(self._rootoutdir, self.clf_class.__name__))
-        feats, pars = self.tonormtuple(*features), self.tonormtuple(**params)
-        suffix = '?' if feats or pars else ''
-        if feats:
-            suffix += 'features='
-            suffix += ','.join(feats)
-            if pars:
-                suffix += '&'
-        if pars:
-            suffix += '&'.join('%s=%s' % (k, v) for (k, v) in pars)
+    def uniquefilepath(self, destdir, *features, **params):
+        '''Returns an unique file path from the given features and params'''
+        # build an orderd dict
+        paramz = odict()
+        # add features:
+        if features:
+            paramz['features'] = features
+        # add parameters:
+        # 1. make params sorted first by iteration params then default ones,
+        pr1 = sorted(k for k in params if k not in self.default_clf_params)
+        pr2 = sorted(k for k in params if k in self.default_clf_params)
+        # add them to paramz:
+        for k in pr1 + pr2:
+            paramz[k] = params[k]
+        # build a base file path with the current classifier class name:
+        basepath = join(destdir, self.clf_class.__name__)
+        # add the URLquery-like string with ParamsEncDec.tostr:
+        return basepath + ParamsEncDec.tostr(paramz)
 
-        return basepath + suffix
-
-    @classmethod
-    def tonormtuple(cls, *features, **params):
-        '''Normalizes features and params into a tuple that is sorted and hashable, so
-        that it can be used to uniquely identify the same features and params couple
-        '''
-        lst = sorted(str(_) for _ in features)
-        # make params sorted first by iteration params then default ones,
-        pr1 = sorted(k for k in params if k not in cls.default_clf_params)
-        pr2 = sorted(k for k in params if k in cls.default_clf_params)
-        prs = pr1 + pr2
-        lst.extend((str(k), str(params[k])) for k in prs)
-        return tuple(lst)
-
-    def run(self, dataframe, columns, remove_na, output):
+    def run(self, dataframe, columns, remove_na, destdir):
         '''Runs the model evaluation using the data in `dataframe` under the specified
         columns and for all provided parameters
         '''
-        self._rootoutdir = abspath(output)
-        if not isdir(self._rootoutdir):
-            makedirs(self._rootoutdir)
-        if not isdir(self._rootoutdir):
-            raise ValueError('Could not create %s' % self._rootoutdir)
+        if not isdir(destdir):
+            makedirs(destdir)
+        if not isdir(destdir):
+            raise ValueError('Could not create %s' % destdir)
 
+        basepath = self.uniquefilepath(destdir)
         print('Running evaluator. All files will be stored in:\n%s' %
-              dirname(self.basefilepath()))
-        print('with file names prefixed with "%s"' % basename(self.basefilepath()))
+              dirname(basepath))
+        print('with file names prefixed with "%s"' % basename(basepath))
 
         if remove_na:
             print('')
@@ -699,7 +677,7 @@ class Evaluator:
         ) as pbar:
 
             def aasync_callback(result):
-                self._applyasync_callback(pbar, result)
+                self._applyasync_callback(pbar, result, destdir)
 
             def kill_pool(err_msg):
                 print('ERROR:')
@@ -719,11 +697,12 @@ class Evaluator:
                 for params in self.parameters:
                     _traindf, _testdf = self.train_test_split_model(dataframe_)
                     prms = {**self.default_clf_params, **dict(params)}
-                    fname = self.basefilepath(*cols, **prms) + '.model'
+                    fpath = \
+                        self.uniquefilepath(destdir, *cols, **prms) + '.model'
                     pool.apply_async(
                         fit_and_predict,
                         (self.clf_class, cpy(_traindf), cols, prms,
-                         cpy(_testdf), fname),
+                         cpy(_testdf), fpath),
                         callback=aasync_callback,
                         error_callback=kill_pool
                     )
@@ -757,13 +736,15 @@ class Evaluator:
         '''
         return dataframe, None
 
-    def _applyasync_callback(self, pbar, eval_result):
+    def _applyasync_callback(self, pbar, eval_result, destdir):
         pbar.update(1)
 
-        # make three hashable and sortable objects:
-        pkey = self.tonormtuple(**eval_result.params)
-        fkey = self.tonormtuple(*eval_result.features)
-        fpkey = self.tonormtuple(*eval_result.features, **eval_result.params)
+        # make three hashable and sortable objects using unique file path
+        # (destdir = '' because it's useless)
+        pkey = self.uniquefilepath(destdir, **eval_result.params)
+        fkey = self.uniquefilepath(destdir, *eval_result.features)
+        fpkey = self.uniquefilepath(destdir, *eval_result.features,
+                                    **eval_result.params)
 
         self._predictions[fpkey].append(eval_result.predictions)  # might be None
 
@@ -771,66 +752,109 @@ class Evaluator:
             # finished with predictions of current parameters for the current features,
             # safe as hdf5 and store the summary dataframe of the predicted segments
             # just saved:
-            self._eval_reports[fkey][pkey] = \
-                self.save_predictions(eval_result.features, eval_result.params)
+            self._eval_reports[fkey][pkey] = self.save_predictions(fpkey)
 
         sum_dfs = self._eval_reports.get(fkey, {})
         if 0 < len(sum_dfs) == len(self.parameters):  # pylint: disable=len-as-condition
             # finished with the current eval report for the current features,
             # save as csv:
-            self.save_evel_report(eval_result.features)
+            self.save_evel_report(fkey)
 
-    def save_predictions(self, features, params, delete=True):
-        fpkey = self.tonormtuple(*features, **params)
+    def save_predictions(self, fpkey, delete=True):
+        '''saves the predictions dataframe to HDF and returns a cmatrix_df
+        holding prediction's confusion matrix
+        '''
         predicted_df = pdconcat(list(_ for _ in self._predictions[fpkey]
                                      if not getattr(_, 'empty', True)))
-        fpath = self.basefilepath(*features, **params)
-        save_df(predicted_df, fpath + '.predictions.hdf', key='predictions')
-#         predicted_df.to_hdf(
-#             fpath + '.predictions.hdf', 'predictions',
-#             format='table', mode='w',
-#             # min_itemsize={'modified': predicted_df.modified.str.len().max()}
-#         )
+        # fpkey is also the unique file path associated to the data, so:
+        save_df(predicted_df, fpkey + '.predictions.hdf', key='predictions')
         if delete:
             # delete unused data (help gc?):
             del self._predictions[fpkey]
         # now save the summary dataframe of the predicted segments just saved:
         return cmatrix_df(predicted_df)
 
-    def save_evel_report(self, features, delete=True):
-        fkey = self.tonormtuple(*features)
+    def save_evel_report(self, fkey, delete=True):
+        features = ParamsEncDec.todict(fkey)['features'].replace(',', ', ')
         title = \
-            self.clf_class.__name__ + " (features: " + ", ".join(fkey) + ")"
-        outfilepath = self.basefilepath(*features) + '.evalreport.html'
+            self.clf_class.__name__ + " (features: %s)" % features
         sum_dfs = self._eval_reports[fkey]
-        create_evel_report(sum_dfs, outfilepath, title)
+        # Each sum_df key is the filename of the predictions_df.
+        # Make that key readable by showing parameters only and separating them
+        # via space (not '&'):
+        sum_dfs = {
+            basename(key)[basename(key).index('?')+1:].replace('&', ' '): val
+            for key, val in sum_dfs.items()
+        }
+        # fkey is also the unique file path associated to the data
+        create_evel_report(sum_dfs, fkey + '.evalreport.html', title)
         if delete:
             del self._eval_reports[fkey]
 
-#         fkey = self.tonormtuple(*features)
-#         sum_dfs = self._eval_reports[fkey]
-# 
-#         # score columns: list of 'asc', 'desc' or None relative to each element of
-#         # CMATRIX_COLUMNS
-#         score_columns = {
-#             CMATRIX_COLUMNS[-2]: 'desc',  # '% rec.'
-#             CMATRIX_COLUMNS[-1]: 'asc'  # 'Mean %s' % LOGLOSS_COL
-#         }
-# 
-#         content = self.eval_report_html_template % {
-#             'title': self.clf_class.__name__ + " (features: " + ", ".join(fkey) + ")",
-#             'evaluations': json.dumps([{'key': params,
-#                                         'data': sumdf.values.tolist()}
-#                                        for (params, sumdf) in sum_dfs.items()]),
-#             'columns': json.dumps(CMATRIX_COLUMNS),
-#             'scoreColumns': json.dumps(score_columns),
-#             'currentScoreColumn': json.dumps(CMATRIX_COLUMNS[-1]),
-#             'weights': json.dumps([WEIGHTS[_] for _ in self._classes]),
-#             'classes': json.dumps(self._classes)
-#         }
-# 
-#         fpath = self.basefilepath(*features)
-#         with open(fpath + '.evalreport.html', 'w') as opn_:
-#             opn_.write(content)
-#         if delete:
-#             del self._eval_reports[fkey]
+
+class ParamsEncDec:
+
+    @staticmethod
+    def _tostr(value):
+        '''converts value to string. This is equal to `str(value)` with one
+        exception: iterables neither strings nor bytes (lists, tuples) are
+        returned sorting its elements and joining them with the comma,
+        basically sorting them and returning the `str(value)` without square
+        brackets. E.g.:
+        [3, 1] = "1,3"
+        ['a', 2, 3] = "2,3,a"
+        '''
+        if hasattr(value, '__iter__') and not isinstance(value, (str, bytes)):
+            try:
+                value = sorted(value)
+            except TypeError:
+                # list/tuple with mixed types. Convert to string and then sort:
+                value = sorted(str(_) for _ in value)
+            return ",".join(value)
+        return str(value)
+
+    @staticmethod
+    def tostr(params):
+        '''Encodes params dict to string in a URL query fashion:
+        ?param1=value&param2=value2...
+        Each value is converted using `ParamsEncDec._tostr` (which is the
+        same as Python __str__ method excepts that for iterables, where it
+        firsts sort them and then returns the elements joined with comma)
+
+        :param params: dict of string params mapped to values (pass OrederdDict
+            if you want to preserve insertion order and Python < 3.7)
+        '''
+        chunks = []
+        prefix = '?'
+        for key, val in params.items():
+            chunks.append('%s%s=%s' %
+                          (prefix, str(key), ParamsEncDec._tostr(val)))
+            prefix = '&'
+
+        return ''.join(chunks)
+
+    @staticmethod
+    def todict(string):
+        '''Decodes string encoded parameters to dict
+
+        :param string: string including a query string denoting parameters
+            used (encoded with `tostr` above). E.g., it can be
+            a full file path:
+            /user/me/file?a=8,9,10&b=gamma
+            a file name:
+            file?a=8,9,10&b=gamma
+            or simply its query string portion:
+            ?a=8,9,10&b=gamma
+        '''
+        ret = odict()  # ordered dict
+        pth = splitext(basename(string))[0]
+        if '?' not in pth:
+            return ret
+        pth = pth[pth.find('?') + 1:]
+        splits = pth.split('&')
+        for chunk in splits:
+            param, values = chunk.split('=')
+            if ',' in values:
+                values = tuple(values.split(','))
+            ret[param] = values
+        return ret

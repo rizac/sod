@@ -53,8 +53,9 @@ class OcsvmEvaluator(Evaluator):
         return dataframe[~is_outl], dataframe[is_outl]
 
     def run(self, dataframe, columns,  # pylint: disable=arguments-differ
-            output):
-        Evaluator.run(self, dataframe, columns, remove_na=True, output=output)
+            destdir):
+        Evaluator.run(self, dataframe, columns, remove_na=True,
+                      destdir=destdir)
 
 
 class IsolationForestEvaluator(OcsvmEvaluator):
@@ -96,7 +97,7 @@ def run(config):
                          "Rename yaml file or remove directory" % outdir)
     print('Saving to: %s' % str(outdir))
     evl = evaluator_class(cfg_dict['parameters'], n_folds=5)
-    evl.run(dataframe, columns=cfg_dict['features'], output=outdir)
+    evl.run(dataframe, columns=cfg_dict['features'], destdir=outdir)
     return 0
 
 
