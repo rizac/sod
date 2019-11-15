@@ -176,8 +176,9 @@ def log_loss(outliers, predictions, eps=1e-15, normalize_=True):
     '''
     predictions_n = np.copy(predictions)
     if normalize_:
-        # normalize positives and then negatives separately, we might have
-        # unbalanced bounds (e.g. min ~= -1, max ~= +inf)
+        # normalize bounds to have all predictions in [-1, 1]. But
+        # normalize positives and then negatives separately, as we might have
+        # unbalanced bounds (e.g. negatives in [-1, 0], positives in [0, 1200]
         positives = predictions_n > 0
         if np.nansum(positives):
             predictions_n[positives] = \
