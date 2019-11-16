@@ -23,7 +23,8 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics.scorer import brier_score_loss_scorer
 
 from sod.core.evaluation import (split, classifier, predict, _predict,
-                                 Evaluator, train_test_split, drop_duplicates,
+                                 CVEvaluator, train_test_split,
+                                 drop_duplicates,
                                  keep_cols, drop_na, cmatrix_df)
 from sod.core.dataset import (open_dataset, groupby_stations)
 from sod.core.plot import plot, plot_calibration_curve

@@ -9,7 +9,7 @@ from os.path import (isabs, abspath, isdir, isfile, dirname, join, basename,
                      splitext)
 from yaml import safe_load
 from sod.core.dataset import dataset_path, open_dataset
-from sod.core.evaluation import Evaluator, is_outlier
+from sod.core.evaluation import CVEvaluator, is_outlier
 from sklearn.svm.classes import OneClassSVM
 from sklearn.ensemble.iforest import IsolationForest
 from sod.core.paths import EVALUATIONS_CONFIGS_DIR, EVALUATIONS_RESULTS_DIR
@@ -23,21 +23,21 @@ def load_cfg(fname):
         return safe_load(stream)
 
 
-class OcsvmEvaluator(Evaluator):
+class OcsvmEvaluator(CVEvaluator):
 
     # A dict of default params for the classifier. In principle, put here what
     # should not be iterated over, but applied to any classifier during cv:
     default_clf_params = {'cache_size': 1500}
 
     def __init__(self, parameters, n_folds=5):
-        Evaluator.__init__(self, OneClassSVM, parameters, n_folds)
+        CVEvaluator.__init__(self, OneClassSVM, parameters, n_folds)
 
     def train_test_split_cv(self, dataframe):
         '''Returns an iterable yielding (train_df, test_df) elements for
         cross-validation. Both DataFrames in each yielded elements are subset
         of `dataframe`
         '''
-        return Evaluator.train_test_split_cv(
+        return CVEvaluator.train_test_split_cv(
             self, dataframe[~is_outlier(dataframe)]
         )
 
@@ -54,7 +54,7 @@ class OcsvmEvaluator(Evaluator):
 
     def run(self, dataframe, columns,  # pylint: disable=arguments-differ
             destdir):
-        Evaluator.run(self, dataframe, columns, remove_na=True,
+        CVEvaluator.run(self, dataframe, columns, remove_na=True,
                       destdir=destdir)
 
 
@@ -65,7 +65,7 @@ class IsolationForestEvaluator(OcsvmEvaluator):
     default_clf_params = {'behaviour': 'new'}  # , 'contamination': 0}
 
     def __init__(self, parameters, n_folds=5):
-        Evaluator.__init__(self, IsolationForest, parameters, n_folds)
+        CVEvaluator.__init__(self, IsolationForest, parameters, n_folds)
 
 
 EVALUATORS = {

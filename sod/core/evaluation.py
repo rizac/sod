@@ -1,11 +1,6 @@
 '''
     Evaluation commmon utilities
 '''
-import sys
-if sys.version_info[0] < 3 or sys.version_info[1] < 7:
-    from collections import OrderedDict as odict
-else:
-    odict = dict
 import json
 from multiprocessing import Pool, cpu_count
 from os import makedirs
@@ -24,21 +19,16 @@ from joblib import dump, load
 from sklearn.metrics.classification import (confusion_matrix,
                                             log_loss as scikit_log_loss)
 
+from sod.core import pdconcat, odict
+from sod.core.dataset import is_outlier, CLASSES, CLASSNAMES, ID_COL
 
-ID_COL = 'id'
+
 CORRECTLY_PREDICTED_COL = 'correctly_predicted'
 LOGLOSS_COL = 'log_loss'
 OUTLIER_COL = 'outlier'
 MODIFIED_COL = 'modified'
 WINDOW_TYPE_COL = 'window_type'
 UNIQUE_ID_COLUMNS = [ID_COL, OUTLIER_COL, MODIFIED_COL, WINDOW_TYPE_COL]
-
-
-def is_prediction_dataframe(dataframe):
-    '''Returns whether the given dataframe is the result of predictions
-    on a trained classifier
-    '''
-    return CORRECTLY_PREDICTED_COL in dataframe.columns
 
 
 def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
@@ -209,30 +199,6 @@ def correctly_predicted(outliers, predictions):
     return (outliers & (predictions < 0)) | ((~outliers) & (predictions >= 0))
 
 
-# def normalize_predictions(predictions, inbounds=None, outbounds=(-1, 1)):
-#     '''Returns predictions (numpy array of values where negative
-#     values represent OUTLIERS and positive ones INLIERS) normalized in
-#     [outbounds[0], outbounds[1]]
-#
-#     :param inbounds: the input bounds, if None, it will be inferred from
-#         `predictions` min and max (ignoring NaNs)
-#     :param predictions: the output of `_predict`: float array with positive
-#         (inlier) or negative (outlier) scores
-#
-#     '''
-#     if inbounds is None:
-#         imin, imax = np.nanmin(predictions), np.nanmax(predictions)
-#     else:
-#         imin, imax = inbounds
-#     omin, omax = outbounds
-#     # map predictions to -1 1 and then to 0 1
-#     ret = omin + (omax - omin) * (predictions - imin) / (imax - imin)
-#     if inbounds is not None:
-#         ret[ret < -1] = -1
-#         ret[ret > 1] = 1
-#     return ret
-
-
 def _predict(clf, dataframe):
     '''Returns a numpy array of len(dataframe) integers where:
     negative values represent samples classified as OUTLIER (the lower, the
@@ -264,8 +230,8 @@ def cmatrix_df(predicted_df):
     # NOTE: IF YOU WANT TO CHANGE 'ok' or 'outlier' THEN CONSIDER CHANGING
     # ALSO THE ROWS (SEE `_CLASSNAMES`)
     sum_df_cols = CMATRIX_COLUMNS
-    sum_df = pd.DataFrame(index=_CLASSNAMES,
-                          data=[[0] * len(sum_df_cols)] * len(_CLASSNAMES),
+    sum_df = pd.DataFrame(index=CLASSNAMES,
+                          data=[[0] * len(sum_df_cols)] * len(CLASSNAMES),
                           columns=sum_df_cols,
                           dtype=int)
 
@@ -278,7 +244,7 @@ def cmatrix_df(predicted_df):
         # map any class defined here to the index of the column above which denotes
         # 'correctly classified'. Basically, map 'ok' to zero and any other class
         # to 1:
-        col_idx = 0 if typ == _CLASSNAMES[0] else 1
+        col_idx = 0 if typ == CLASSNAMES[0] else 1
         # assign value and caluclate percentage recognition:
         sum_df.loc[typ, sum_df_cols[col_idx]] += correctly_pred
         sum_df.loc[typ, sum_df_cols[1-col_idx]] += len(cls_df) - correctly_pred
@@ -386,6 +352,16 @@ class Predictor:
             yield name, clf, dataframe_, features
 
 
+CLASSWEIGHTS = {
+    CLASSNAMES[0]: 100,
+    CLASSNAMES[1]: 100,
+    CLASSNAMES[2]: 10,
+    CLASSNAMES[3]: 50,
+    CLASSNAMES[4]: 5,
+    CLASSNAMES[5]: 1
+}
+
+
 def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
     '''Saves the given confusion matrices dataframe to html
 
@@ -411,8 +387,8 @@ def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
         'columns': json.dumps(CMATRIX_COLUMNS),
         'scoreColumns': json.dumps(score_columns),
         'currentScoreColumn': json.dumps(CMATRIX_COLUMNS[-1]),
-        'weights': json.dumps([WEIGHTS[_] for _ in _CLASSNAMES]),
-        'classes': json.dumps(_CLASSNAMES)
+        'weights': json.dumps([CLASSWEIGHTS[_] for _ in CLASSNAMES]),
+        'classes': json.dumps(CLASSNAMES)
     }
     if outfilepath is not None:
         if splitext(outfilepath)[1].lower() not in ('.htm', '.html'):
@@ -434,56 +410,6 @@ def save_df(dataframe, filepath, **kwargs):
         format='table', mode='w',
         **kwargs
     )
-
-
-def is_outlier(dataframe):
-    '''pandas series of boolean telling where dataframe rows are outliers'''
-    return dataframe['outlier']  # simply return the column
-
-
-def is_out_wrong_inv(dataframe):
-    '''pandas series of boolean telling where dataframe rows are outliers
-    due to wrong inventory
-    '''
-    return dataframe['modified'].str.contains('INVFILE:')
-
-
-def is_out_swap_acc_vel(dataframe):
-    '''pandas series of boolean telling where dataframe rows are outliers
-    generated by swapping the accelerometer and velocimeter
-    response in the inventory (when the segment's inventory has both
-    accelerometers and velocimeters)
-    '''
-    return dataframe['modified'].str.contains('CHARESP:')
-
-
-def is_out_gain_x10(dataframe):
-    '''pandas series of boolean telling where dataframe rows are outliers
-    generated by multiplying the trace by a factor of 100 (or 0.01)
-    '''
-    return dataframe['modified'].str.contains('STAGEGAIN:X10.0') | \
-        dataframe['modified'].str.contains('STAGEGAIN:X0.1')
-
-
-def is_out_gain_x100(dataframe):
-    '''pandas series of boolean telling where dataframe rows are outliers
-    generated by multiplying the trace by a factor of 10 (or 0.1)
-    '''
-    return dataframe['modified'].str.contains('STAGEGAIN:X100.0') | \
-        dataframe['modified'].str.contains('STAGEGAIN:X0.01')
-
-
-def is_out_gain_x2(dataframe):
-    '''pandas series of boolean telling where dataframe rows are outliers
-    generated by multiplying the trace by a factor of 2 (or 0.5)
-    '''
-    return dataframe['modified'].str.contains('STAGEGAIN:X2.0') | \
-        dataframe['modified'].str.contains('STAGEGAIN:X0.5')
-
-
-def pdconcat(dataframes, **kwargs):
-    '''forwards to pandas concat with standard arguments'''
-    return pd.concat(dataframes, sort=False, axis=0, copy=True, **kwargs)
 
 
 def split(size, n_folds):
@@ -524,34 +450,6 @@ def train_test_split(dataframe, n_folds=5):
             dataframe.loc[samples, :]
 
 
-_CLASSNAMES = (
-    'ok',
-    'outl. (wrong inv. file)',
-    'outl. (cha. resp. acc <-> vel)',
-    'outl. (gain X100 or X0.01)',
-    'outl. (gain X10 or X0.1)',
-    'outl. (gain X2 or X0.5)'
-)
-
-CLASSES = {
-    _CLASSNAMES[0]: lambda dfr: ~is_outlier(dfr),
-    _CLASSNAMES[1]: is_out_wrong_inv,
-    _CLASSNAMES[2]: is_out_swap_acc_vel,
-    _CLASSNAMES[3]: is_out_gain_x100,
-    _CLASSNAMES[4]: is_out_gain_x10,
-    _CLASSNAMES[5]: is_out_gain_x2
-}
-
-WEIGHTS = {
-    _CLASSNAMES[0]: 100,
-    _CLASSNAMES[1]: 100,
-    _CLASSNAMES[2]: 10,
-    _CLASSNAMES[3]: 50,
-    _CLASSNAMES[4]: 5,
-    _CLASSNAMES[5]: 1
-}
-
-
 class EvalResult:
 
     __slots__ = ['clf', 'predictions', 'params', 'features']
@@ -588,7 +486,7 @@ def fit_and_predict(clf_class, train_df, columns, params, test_df=None,
     return evres
 
 
-class Evaluator:
+class CVEvaluator:
     '''Creates (and saves) a statisical ML model for outlier detection,
     and launches in parallel a CV
     evaluation, saving all predictions in HDF file, and a summary report in a
@@ -859,3 +757,34 @@ class ParamsEncDec:
                 values = tuple(values.split(','))
             ret[param] = values
         return ret
+
+
+# def is_prediction_dataframe(dataframe):
+#     '''Returns whether the given dataframe is the result of predictions
+#     on a trained classifier
+#     '''
+#     return CORRECTLY_PREDICTED_COL in dataframe.columns
+
+
+# def normalize_predictions(predictions, inbounds=None, outbounds=(-1, 1)):
+#     '''Returns predictions (numpy array of values where negative
+#     values represent OUTLIERS and positive ones INLIERS) normalized in
+#     [outbounds[0], outbounds[1]]
+#
+#     :param inbounds: the input bounds, if None, it will be inferred from
+#         `predictions` min and max (ignoring NaNs)
+#     :param predictions: the output of `_predict`: float array with positive
+#         (inlier) or negative (outlier) scores
+#
+#     '''
+#     if inbounds is None:
+#         imin, imax = np.nanmin(predictions), np.nanmax(predictions)
+#     else:
+#         imin, imax = inbounds
+#     omin, omax = outbounds
+#     # map predictions to -1 1 and then to 0 1
+#     ret = omin + (omax - omin) * (predictions - imin) / (imax - imin)
+#     if inbounds is not None:
+#         ret[ret < -1] = -1
+#         ret[ret > 1] = 1
+#     return ret
