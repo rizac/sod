@@ -25,7 +25,7 @@ from sklearn.metrics.scorer import brier_score_loss_scorer
 from sod.core.evaluation import (split, classifier, predict, _predict,
                                  CVEvaluator, train_test_split,
                                  drop_duplicates,
-                                 keep_cols, drop_na, cmatrix_df)
+                                 keep_cols, drop_na, cmatrix_df, ParamsEncDec)
 from sod.core.dataset import (open_dataset, groupby_stations)
 from sod.core.plot import plot, plot_calibration_curve
 from sod.evaluate import (OcsvmEvaluator, run)
@@ -367,3 +367,28 @@ class Tester:
         for col in ['d', 'e', 'f']:
             with pytest.raises(Exception):
                 drop_na(d, [col])
+
+    def test_paramencdec(self):
+        strs = ['bla/asd?f=1,2&c=ert',
+                'asd?f=1,2&c=ert',
+                '?f=1,2&c=ert',
+                'f=1,2&c=ert']
+        for _ in list(strs):
+            strs.append(_+'.extension')
+        for str_ in strs:
+            for comma_sep in [True, False]:
+                dic = ParamsEncDec.todict(str_, comma_sep)
+                if '?' not in str_:
+                    assert not dic
+                    continue
+                assert sorted(dic.keys()) == ['c', 'f']
+                assert dic['f'] == '1,2' if not comma_sep else ['1', '2']
+                assert dic['c'] == 'ert'
+                expected = splitext(basename(str_))[0]
+                if '?' in expected:
+                    expected = expected[expected.index('?'):]
+                if not comma_sep:
+                    expected = expected.replace(',', '%2C')
+                assert ParamsEncDec.tostr(dic) == expected
+            
+        

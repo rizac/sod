@@ -7,13 +7,9 @@ Created on 1 Nov 2019
 '''
 import json
 from multiprocessing import Pool, cpu_count
-from os import makedirs
-from os.path import abspath, join, dirname, isfile, isdir, basename, splitext
-from itertools import repeat, product, chain, cycle
-import warnings
+from os.path import join, dirname, isfile, basename, splitext
+from itertools import product, chain
 from collections import defaultdict
-from datetime import timedelta
-import time
 
 import click
 import numpy as np
@@ -487,7 +483,8 @@ class CVEvaluator:
         ) as pbar:
 
             def aasync_callback(result):
-                self._applyasync_callback(pbar, result, destdir)
+                pbar.update(1)
+                self._applyasync_callback(result, destdir)
 
             def kill_pool(err_msg):
                 print('ERROR:')
@@ -552,9 +549,7 @@ class CVEvaluator:
         '''
         return dataframe, None
 
-    def _applyasync_callback(self, pbar, eval_result, destdir):
-        pbar.update(1)
-
+    def _applyasync_callback(self, eval_result, destdir):
         # make three hashable and sortable objects using unique file path
         # (destdir = '' because it's useless)
         pkey = self.uniquefilepath(destdir, **eval_result.params)
@@ -610,25 +605,22 @@ class CVEvaluator:
 
 
 class ParamsEncDec:
+    '''This class converts to and from dicts of parameters and
+    query strings, in a fashion very similar to GET and POST requests data
 
-    @staticmethod
-    def _tostr(value):
-        '''converts value to string. This is equal to `str(value)` with one
-        exception: iterables neither strings nor bytes (lists, tuples) are
-        returned sorting its elements and joining them with the comma,
-        basically sorting them and returning the `str(value)` without square
-        brackets. E.g.:
-        [3, 1] = "1,3"
-        ['a', 2, 3] = "2,3,a"
-        '''
-        if hasattr(value, '__iter__') and not isinstance(value, (str, bytes)):
-            try:
-                value = sorted(value)
-            except TypeError:
-                # list/tuple with mixed types. Convert to string and then sort:
-                value = sorted(str(_) for _ in value)
-            return ",".join(value)
-        return str(value)
+    THIS CLASS IS ONLY INTENDED TO GENERATE UNIQUE STRINGS FROM DICTS OF
+    PARAMETERS: WHEN GETTING THE DICT BACK FROM THOSE STRINGS, REMEMBER THAT
+    VALUES ARE ALL STRINGS, THUS IN THE CONVERSION DICT -> STR ->DICT,
+    DICT VALUE TYPES ARE NOT PRESERVED
+
+    ParamsEncDec.tostr(dict) -> produces query string: "?p1=v1&p2=v2&.."
+    ParamsEncDec.todict(str) -> produces dict: {'a': '1,2,3', 'b', 'r', ...}
+
+    '''
+    # define two dict for percent encode. This is done also by urllib.quote
+    # does the same but we skip it as we want to encode only few characters:
+    _chr2encode = {k: v for k, v in zip('/&?=,',
+                                        ['%2F', '%26', '%3F', '%3D', '%2C'])}
 
     @staticmethod
     def tostr(params):
@@ -641,11 +633,27 @@ class ParamsEncDec:
         :param params: dict of string params mapped to values (pass OrederdDict
             if you want to preserve insertion order and Python < 3.7)
         '''
+
+        def quote(string):
+            '''percent encodes some characters only'''
+            return ''.join(ParamsEncDec._chr2encode.get(c, c) for c in string)
+
         chunks = []
         prefix = '?'
         for key, val in params.items():
-            chunks.append('%s%s=%s' %
-                          (prefix, str(key), ParamsEncDec._tostr(val)))
+            # get if val is iterable (strings and bytes are not considered
+            # iterables):
+            if hasattr(val, '__iter__') and not isinstance(val, (str, bytes)):
+                try:
+                    val = sorted(val)
+                except TypeError:
+                    # list/tuple with mixed types. Convert to string and then sort:
+                    val = sorted(str(_) for _ in val)
+                # now convert
+                val = ",".join(quote(_) for _ in val)
+            else:
+                val = quote(str(val))
+            chunks.append('%s%s=%s' % (prefix, quote(str(key)), val))
             prefix = '&'
 
         return ''.join(chunks)
@@ -666,6 +674,13 @@ class ParamsEncDec:
             commas should be parsed back as tuples. False will leave every
             dict value as string
         '''
+
+        def unquote(string):
+            '''decodes percent encodeed characters, but only few cases only'''
+            for char, percentenc_str in ParamsEncDec._chr2encode.items():
+                string = string.replace(percentenc_str, char)
+            return string
+
         ret = odict()  # ordered dict
         pth = splitext(basename(string))[0]
         if '?' not in pth:
@@ -675,13 +690,15 @@ class ParamsEncDec:
         for chunk in splits:
             param, value = chunk.split('=')
             if comma_sep and ',' in value:
-                value = tuple(value.split(','))
-            ret[param] = value
+                value = tuple(unquote(_) for _ in value.split(','))
+            else:
+                value = unquote(value)
+            ret[unquote(param)] = value
         return ret
 
 
 class Evaluator:
-    '''Class for evaluating a pre-fitted and saved model(s) (ususally obtained
+    '''Class for evaluating pre-fitted and saved model(s) (ususally obtained
     via `CVEvaluator`) against a
     dataset of instances, saving to file the predictions and an html report
     of the classifiers performances
@@ -778,8 +795,6 @@ class Evaluator:
                         (dataframe_[feat] - min_) / (max_ - min_)
 
             yield name, clf, dataframe_, features
-
-
 
 
 # def is_prediction_dataframe(dataframe):
