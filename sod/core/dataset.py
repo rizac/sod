@@ -6,10 +6,10 @@ Created on 1 Nov 2019
 @author: riccardo
 '''
 import sys
-from os.path import splitext, dirname, join, basename
+from os.path import (splitext, dirname, join, basename, isfile, isdir, isabs,
+                     abspath)
 from io import StringIO
 from contextlib import contextmanager
-from os.path import isfile, isdir, isabs, abspath
 import numpy as np
 import pandas as pd
 
