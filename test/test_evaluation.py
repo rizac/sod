@@ -69,8 +69,9 @@ class Tester:
 
     clf = classifier(OneClassSVM, dfr.iloc[:5, :][['delta_pga', 'delta_pgv']])
 
-    evalconfig = join(dirname(__file__), 'data', 'pgapgv.ocsvm.yaml')
-    evalconfig2 = join(dirname(__file__), 'data', 'oneminutewindows.ocsvm.yaml')
+    cv_evalconfig = join(dirname(__file__), 'data', 'cv.pgapgv.ocsvm.yaml')
+    cv_evalconfig2 = join(dirname(__file__), 'data', 'cv.oneminutewindows.ocsvm.yaml')
+    evalconfig = join(dirname(__file__), 'data', 'eval.oneminutewindows.yaml')
 
     tmpdir = join(dirname(__file__), 'tmp')
 
@@ -126,11 +127,16 @@ class Tester:
         (10, 9),
         (10, 10),
         (10, 1),
+        (10, 2),
         (14534, 7),
         (14534, 10),
-        (3914534, 10),
+        # (391453, 10),
     ])
     def test_split(self, size, n_folds):
+        if n_folds > size or n_folds < 2:
+            with pytest.raises(ValueError):
+                list(split(size, n_folds))
+            return
         a = list(split(size, n_folds))
         assert a[0][0] == 0
         assert a[-1][1] == size
@@ -140,6 +146,17 @@ class Tester:
             assert elm[0] == a[i-1][1]
             assert np.abs(np.abs(elm[1] - elm[0]) -
                           np.abs(a[i-1][1] - a[i-1][0])) <= 1
+
+        indices = np.arange(size).tolist()
+        dfr = pd.DataFrame(index=np.arange(size))
+        all_trn = []
+        all_tst = []
+        for trn, tst in train_test_split(dfr, n_folds):
+            assert sorted(set(trn.index) | set(tst.index)) == indices
+            all_trn.extend(trn.index)
+            all_tst.extend(tst.index)
+        assert sorted(set(all_trn)) == indices
+        assert sorted(set(all_tst)) == indices
 
     @patch('sod.core.evaluation._predict')
     def test_get_scores(self, mock_predict):
@@ -211,45 +228,6 @@ class Tester:
         assert cm_low_logloss['Mean log_loss'].sum() < \
             cm_high_logloss['Mean log_loss'].sum()
 
-#         assert (cm_outlier_row == [0, 1]).all()
-# 
-#         dfr = pd.DataFrame([{'outlier': False, 'modified': '', 'id': 1},
-#                             {'outlier': False, 'modified': '', 'id': 1},
-#                             {'outlier': True, 'modified': 'invchanged', 'id': 1}])
-#         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
-#         pred_df = predict(None, dfr)
-#         assert pred_df['correctly_predicted'].sum() == 2
-#         cm_ = cmatrix_df(pred_df)
-#         cm_ok_row = cm_.loc['ok', :]
-#         cm_outlier_row = cm_.loc['outlier', :]
-#         assert (cm_ok_row == [1, 1]).all()
-#         assert (cm_outlier_row == [0, 1]).all()
-# 
-#         dfr = pd.DataFrame([{'outlier': False, 'modified': '', 'id': 1},
-#                             {'outlier': False, 'modified': '', 'id': 1},
-#                             {'outlier': True, 'modified': 'invchanged', 'Segment.db.id': 3}])
-#         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
-#         pred_df = predict(None, dfr)
-#         assert pred_df['correctly_predicted'].sum() == 2
-#         cm_ = cmatrix_df(pred_df)
-#         cm_ok_row = cm_.loc['ok', :]
-#         cm_outlier_row = cm_.loc['outlier', :]
-#         assert (cm_ok_row == [1, 1]).all()
-#         assert (cm_outlier_row == [0, 1]).all()
-
-#         # test that we do not need Segment.db.id:
-#         dfr = pd.DataFrame([{'outlier': False, 'modified': ''},
-#                             {'outlier': False, 'modified': ''},
-#                             {'outlier': True, 'modified': 'invchanged'}])
-#         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1])
-#         pred_df = predict(None, dfr)
-#         assert pred_df['correctly_predicted'].sum() == 2
-#         cm_ = cmatrix(pred_df)
-#         cm_ok_row = cm_.loc['ok', :]
-#         cm_outlier_row = cm_.loc['outlier', :]
-#         assert (cm_ok_row == [1, 1]).all()
-#         assert (cm_outlier_row == [0, 1]).all()
-
     def test_get_scores_order(self):
         '''test that scikit predcit preserves oreder, i.e.:
         predict(x1, x2 ...]) == [predict(x1), predict(x2), ...]
@@ -279,19 +257,19 @@ class Tester:
 
         with patch('sod.evaluate.EVALUATIONS_CONFIGS_DIR', INPATH):
             with patch('sod.evaluate.EVALUATIONS_RESULTS_DIR', OUTPATH):
-                
+
                 mock_dataset_in_path.side_effect = \
                     lambda filename, *a, **v: join(INPATH, filename)
-        
-                for evalconfigpath in [self.evalconfig, self.evalconfig2]:
+
+                for evalconfigpath in [self.cv_evalconfig, self.cv_evalconfig2]:
                     evalconfigname = basename(evalconfigpath)
                     runner = CliRunner()
                     result = runner.invoke(run, ["-c", evalconfigname])
                     assert not result.exception
-            
+
                     assert listdir(join(OUTPATH, evalconfigname))
                     # check prediction file:
-                    html_file=None
+                    html_file= None
                     prediction_file = None
                     model_file = None
                     for fle in listdir(join(OUTPATH, evalconfigname)):
@@ -302,8 +280,8 @@ class Tester:
                         elif not html_file and splitext(fle)[1] == '.html':
                             html_file = join(OUTPATH, evalconfigname, fle)
                     assert html_file and prediction_file and model_file
-                    
-                    if evalconfigpath == self.evalconfig:
+
+                    if evalconfigpath == self.cv_evalconfig:
                         cols = ['correctly_predicted', 'outlier', 'modified', 'id',
                                 'log_loss']
                     else:
@@ -311,13 +289,16 @@ class Tester:
                                 'correctly_predicted', 'outlier', 'modified', 'id']
                     assert sorted(pd.read_hdf(prediction_file).columns) == \
                         sorted(cols)
-                
-                # shutil.rmtree(self.tmpdir)
-                
+
                 runner = CliRunner()
-                result = runner.invoke(run, ["-c", basename(self.evalconfig2)])
+                result = runner.invoke(run, ["-c", basename(self.cv_evalconfig2)])
                 # directory exists:
                 assert result.exception
+
+                # now run evaluations with the generated files:
+                runner = CliRunner()
+                result = runner.invoke(run, ["-c", basename(self.evalconfig)])
+                assert not result.exception
 
     def test_dirs_exist(self):
         '''these tests MIGHT FAIL IF DIRECTORIES ARE NOT YET INITIALIZED

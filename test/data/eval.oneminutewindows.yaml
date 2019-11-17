@@ -2,28 +2,18 @@
 
 # the input HDF5 file path (TEST dataset)
 # it must be in sod/sod/dataset/executions/results
-input: 'magnitudeenergy.hdf'
+input: 'oneminutewindows.hdf_'
 
 # The classifiers. Provide a list of model files (ending with '.model') with
 # path relative to sod/sod/evaluation/executions/results
 clf:
-  - 'cv.oneminutewindows.iforest.yaml/IsolationForest?features=psd@2sec,psd@3sec,psd@5sec&contamination=0.05&max_samples=8192&n_estimators=100&behaviour=new.model'
-  - 'cv.oneminutewindows.iforest.yaml/IsolationForest?features=psd@2sec,psd@3sec,psd@5sec&contamination=0.05&max_samples=16384&n_estimators=100&behaviour=new.model'
-  - 'cv.oneminutewindows.iforest.yaml/IsolationForest?features=psd@2sec,psd@3sec,psd@5sec&contamination=0.05&max_samples=8192&n_estimators=200&behaviour=new.model'
-  - 'cv.oneminutewindows.iforest.yaml/IsolationForest?features=psd@2sec,psd@3sec,psd@5sec&contamination=0.05&max_samples=16384&n_estimators=200&behaviour=new.model'
-  - 'cv.oneminutewindows.iforest.yaml/IsolationForest?features=psd@2sec,psd@5sec&contamination=0.05&max_samples=8192&n_estimators=100&behaviour=new.model'
-  - 'cv.oneminutewindows.iforest.yaml/IsolationForest?features=psd@2sec,psd@5sec&contamination=0.05&max_samples=16384&n_estimators=100&behaviour=new.model'
-  - 'cv.oneminutewindows.iforest.yaml/IsolationForest?features=psd@2sec,psd@5sec&contamination=0.05&max_samples=8192&n_estimators=200&behaviour=new.model'
-  - 'cv.oneminutewindows.iforest.yaml/IsolationForest?features=psd@2sec,psd@5sec&contamination=0.05&max_samples=16384&n_estimators=200&behaviour=new.model'
+  - 'cv.oneminutewindows.ocsvm.yaml/OneClassSVM?features=psd@2sec,psd@5sec&gamma=50&kernel=rbf&nu=0.1&cache_size=1500.model'
+  - 'cv.oneminutewindows.ocsvm.yaml/OneClassSVM?features=psd@2sec,psd@5sec&gamma=50&kernel=rbf&nu=0.2&cache_size=1500.model'
 
 # These are regexp mapped to a dict of <feature>: <bounds> items.
 # When any of the classifiers path above matches (using re.find, not re.match),
 # then the corresponding features are normalized (if present in the classifier file name, see above)
-input_normalize:
-  ocsvm.yaml:
-    psd@2sec: [-3,076.53, -12.55]
-    psd@3sec: [-3,076.53,  -6.06]
-    psd@5sec: [-3,076.53,   8.21]
+input_normalize: 'oneminutewindows.hdf_'
   
 # these are the bounds of oneminutewindows.hdf (pre normalization)
 # Use a juopyter notebook and open the dataset with `verbose` and `normalize`
