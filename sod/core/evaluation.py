@@ -474,11 +474,6 @@ class CVEvaluator:
                                 set(_ for lst in columns for _ in lst),
                                 verbose=True).copy()
 
-        # first check: all dataframes are non-empty. This might be due to a set of
-        # n-folds for which ...
-        for _1, _2 in self.train_test_split_cv(dataframe):
-            pass
-
         def cpy(dfr):
             return dfr if dfr is None else dfr.copy()
 
@@ -502,37 +497,43 @@ class CVEvaluator:
                 except ValueError:  # ignore ValueError('pool not running')
                     pass
 
-            for cols in columns:
-                # purge the dataframe from duplicates (drop_duplicates)
-                # and unnecessary columns (keep_cols). Return a copy at the end
-                # of the process. This helps memory mamagement in
-                # sub-processes (especialy keep_cols + copy)
-                dataframe_ = drop_duplicates(dataframe, cols, 0, verbose=False)
-                dataframe_ = keep_cols(dataframe_, cols).copy()
-                for params in self.parameters:
-                    _traindf, _testdf = self.train_test_split_model(dataframe_)
-                    prms = {**self.default_clf_params, **dict(params)}
-                    fpath = \
-                        self.uniquefilepath(destdir, *cols, **prms) + '.model'
-                    pool.apply_async(
-                        fit_and_predict,
-                        (self.clf_class, cpy(_traindf), cols, prms,
-                         cpy(_testdf), fpath),
-                        callback=aasync_callback,
-                        error_callback=kill_pool
-                    )
-                    for train_df, test_df in \
-                            self.train_test_split_cv(dataframe_):
+            try:
+                for cols in columns:
+                    # purge the dataframe from duplicates (drop_duplicates)
+                    # and unnecessary columns (keep_cols). Return a copy at the end
+                    # of the process. This helps memory mamagement in
+                    # sub-processes (especialy keep_cols + copy)
+                    dataframe_ = drop_duplicates(dataframe, cols, 0,
+                                                 verbose=False)
+                    dataframe_ = keep_cols(dataframe_, cols).copy()
+                    for params in self.parameters:
+                        _traindf, _testdf = \
+                            self.train_test_split_model(dataframe_)
+                        prms = {**self.default_clf_params, **dict(params)}
+                        fpath = self.uniquefilepath(destdir, *cols, **prms)
+                        fpath += '.model'
                         pool.apply_async(
                             fit_and_predict,
-                            (self.clf_class, cpy(train_df), cols, prms,
-                             cpy(test_df), None),
+                            (self.clf_class, cpy(_traindf), cols, prms,
+                             cpy(_testdf), fpath),
                             callback=aasync_callback,
                             error_callback=kill_pool
                         )
+                        for train_df, test_df in \
+                                self.train_test_split_cv(dataframe_):
+                            pool.apply_async(
+                                fit_and_predict,
+                                (self.clf_class, cpy(train_df), cols, prms,
+                                 cpy(test_df), None),
+                                callback=aasync_callback,
+                                error_callback=kill_pool
+                            )
 
-            pool.close()
-            pool.join()
+                pool.close()
+                pool.join()
+
+            except Exception as exc:  # pylint: disable=broad-except
+                kill_pool(str(exc))
 
     def train_test_split_cv(self, dataframe):
         '''Returns an iterable yielding (train_df, test_df) elements for
