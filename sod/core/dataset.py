@@ -1,25 +1,5 @@
 '''
-Implement here an openeer for each dataset created.
-
-Datasets are created via scripts implemented in
-`sod.sod.executions`
-and saved usually to
-`sod.tmp.datasets`
-
-Each file in `sod.tmp.datasets` is usually different, thus we need a way to
-open it in such a way. Therefore, after creating a dataset file, you should
-usually write here a function **with the same name as the hdf file**,
-performing the operations on the input dataframe.
-
-The method **must be decorated** with `open_dataset`, making the decorated
-function with signature:
-`func(filename=None, normalize_=True, verbose=True)`
-
-The decorated function must be
-implemented with a different signature:
-`func(dataframe)`
-and will be called by the decorator after reading the hdf file and prior
-to normalization (if the function will be called with normalize_ = True)
+Datasets (hdf files) module with IO operations, classes definition and more
 
 Created on 1 Nov 2019
 
@@ -273,7 +253,8 @@ def dfinfo(dataframe, perclass=True):
         data = [oks_count, len(dataframe)-oks_count, len(dataframe)]
         index = ['oks', 'outliers', 'total']
     else:
-        data = [_(dataframe).sum() for _ in CLASSES.values()] + [len(dataframe)]
+        data = [_(dataframe).sum() for _ in CLASSES.values()] + \
+            [len(dataframe)]
         index = list(CLASSES.keys()) + ['total']
 
     return df2str(pd.DataFrame(data, columns=columns, index=index))
@@ -435,5 +416,3 @@ def groupby_stations(dataframe, verbose=True):
             print('Summary of the new dataset (instances = stations)')
             print(dfinfo(ret))
         return ret
-
-

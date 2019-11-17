@@ -5,11 +5,12 @@ Created on 28 Oct 2019
 '''
 import click
 
+from os import makedirs
 from os.path import (isabs, abspath, isdir, isfile, dirname, join, basename,
                      splitext)
 from yaml import safe_load
 from sod.core.dataset import dataset_path, open_dataset
-from sod.core.evaluation import CVEvaluator, is_outlier
+from sod.core.evaluation import CVEvaluator, is_outlier, Evaluator
 from sklearn.svm.classes import OneClassSVM
 from sklearn.ensemble.iforest import IsolationForest
 from sod.core.paths import EVALUATIONS_CONFIGS_DIR, EVALUATIONS_RESULTS_DIR
@@ -55,7 +56,7 @@ class OcsvmEvaluator(CVEvaluator):
     def run(self, dataframe, columns,  # pylint: disable=arguments-differ
             destdir):
         CVEvaluator.run(self, dataframe, columns, remove_na=True,
-                      destdir=destdir)
+                        destdir=destdir)
 
 
 class IsolationForestEvaluator(OcsvmEvaluator):
@@ -83,21 +84,51 @@ EVALUATORS = {
 def run(config):
     cfg_dict = load_cfg(config)
 
-    evaluator_class = EVALUATORS.get(cfg_dict['clf'], None)
-    if evaluator_class is None:
-        raise ValueError('%s in the config is invalid, please specify: %s' %
-                         ('clf', str(" ".join(EVALUATORS.keys()))))
+    is_cv_eval = ('features' in cfg_dict) + ('parameters' in cfg_dict)
+    if is_cv_eval == 2:
+        print('Running Cross validation evaluation and creating classifiers ')
+    elif is_cv_eval == 0:
+        print('Running evaluation of provided classifier path(s) ')
+    else:
+        raise ValueError('Config file does not seem neither a cv-evaluation'
+                         'nor an evaluation config file')
 
-    dataframe = open_dataset(cfg_dict['input'],
-                             normalize=cfg_dict['input_normalize'])
-    outdir = abspath(join(EVALUATIONS_RESULTS_DIR, basename(config)))
-    if isdir(outdir):
+    # get destdir:
+    destdir = abspath(join(EVALUATIONS_RESULTS_DIR, basename(config)))
+    if not isdir(destdir):
+        makedirs(destdir)
+        if not isdir(destdir):
+            raise ValueError('Could not create %s' % destdir)
+    elif isdir(destdir):
         raise ValueError("Output directory exists:\n"
                          "'%s'\n"
-                         "Rename yaml file or remove directory" % outdir)
-    print('Saving to: %s' % str(outdir))
-    evl = evaluator_class(cfg_dict['parameters'], n_folds=5)
-    evl.run(dataframe, columns=cfg_dict['features'], destdir=outdir)
+                         "Rename yaml file or remove directory" % destdir)
+    print('Saving results (HDF, HTML files) to: %s' % str(destdir))
+
+    if is_cv_eval:
+        evaluator_class = EVALUATORS.get(cfg_dict['clf'], None)
+        if evaluator_class is None:
+            raise ValueError('%s in the config is invalid, please specify: %s'
+                             % ('clf', str(" ".join(EVALUATORS.keys()))))
+
+        dataframe = open_dataset(cfg_dict['input'],
+                                 normalize=cfg_dict['input_normalize'])
+
+        evl = evaluator_class(cfg_dict['parameters'], n_folds=5)
+        evl.run(dataframe, columns=cfg_dict['features'], destdir=destdir)
+    else:
+        classifier_paths = [abspath(join(EVALUATIONS_RESULTS_DIR, _))
+                            for _ in cfg_dict['clf']]
+
+        dataframe = open_dataset(cfg_dict['input'], False)
+
+        nrm_df = None
+        if cfg_dict.get('input_normalize', None):
+            nrm_df = open_dataset(cfg_dict['input_normalize'], False)
+
+        evl = Evaluator(classifier_paths, normalizer_df=nrm_df)
+        evl.run(dataframe, destdir)
+
     return 0
 
 
