@@ -376,19 +376,22 @@ class Tester:
         for _ in list(strs):
             strs.append(_+'.extension')
         for str_ in strs:
-            for comma_sep in [True, False]:
-                dic = ParamsEncDec.todict(str_, comma_sep)
-                if '?' not in str_:
-                    assert not dic
-                    continue
-                assert sorted(dic.keys()) == ['c', 'f']
-                assert dic['f'] == '1,2' if not comma_sep else ['1', '2']
-                assert dic['c'] == 'ert'
-                expected = splitext(basename(str_))[0]
-                if '?' in expected:
-                    expected = expected[expected.index('?'):]
-                if not comma_sep:
-                    expected = expected.replace(',', '%2C')
-                assert ParamsEncDec.tostr(dic) == expected
-            
-        
+            dic = ParamsEncDec.todict(str_)
+            if '?' not in str_:
+                assert not dic
+                continue
+            assert sorted(dic.keys()) == ['c', 'f']
+            assert dic['f'] == ('1', '2')
+            assert dic['c'] == 'ert'
+            expected = splitext(basename(str_))[0]
+            if '?' in expected:
+                expected = expected[expected.index('?'):]
+            assert ParamsEncDec.tostr(dic) == expected
+
+        # try with a string containing a comma percent encoded (%2C):
+        str_ = 'bla/asd?f=1%2C2&c=ert'
+        dic = ParamsEncDec.todict(str_)
+        assert sorted(dic.keys()) == ['c', 'f']
+        assert dic['f'] == ('1,2')
+        assert dic['c'] == 'ert'
+        assert ParamsEncDec.tostr(dic) == str_[str_.index('?'):]

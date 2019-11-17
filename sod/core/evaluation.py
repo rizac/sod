@@ -558,9 +558,9 @@ class CVEvaluator:
         return cmatrix_df(predicted_df)
 
     def save_evel_report(self, fkey, delete=True):
-        features = ParamsEncDec.todict(fkey)['features'].replace(',', ', ')
+        features = ParamsEncDec.todict(fkey)['features']
         title = \
-            self.clf_class.__name__ + " (features: %s)" % features
+            self.clf_class.__name__ + " (features: %s)" % ", ".join(features)
         sum_dfs = self._eval_reports[fkey]
         # Each sum_df key is the filename of the predictions_df.
         # Make that key readable by showing parameters only and separating them
@@ -603,12 +603,12 @@ class Evaluator:
     of the classifiers performances
     '''
     def __init__(self, classifier_paths, normalizer_df=None):
-        if len(set(basename(_) for _ in classifier_paths)) != \
+        if len(set(basename(clfpath) for clfpath in classifier_paths)) != \
                 len(classifier_paths):
             raise ValueError('You need to pass a list of unique file names')
 
-        if not all('features' in ParamsEncDec.todict(_)
-                   for _ in classifier_paths):
+        if not all('features' in ParamsEncDec.todict(clfpath)
+                   for clfpath in classifier_paths):
             raise ValueError("'features=' not found in all classifiers names")
 
         self.clfs = {}
@@ -624,8 +624,8 @@ class Evaluator:
         bounds = None
         if normalizer_df is not None:
             bounds = {}
-            for _ in classifier_paths:
-                for feat in ParamsEncDec.todict(_)['features'].split(','):
+            for clfpath in classifier_paths:
+                for feat in ParamsEncDec.todict(clfpath)['features']:
                     bounds[feat] = (None, None)
             normalizer_df_columns = set(normalizer_df.columns)
             ndf = normalizer_df[~is_outlier(normalizer_df)]
@@ -684,7 +684,7 @@ class Evaluator:
         classifiers of this class
         '''
         for name, clf in self.clfs.items():
-            features = ParamsEncDec.todict(name)['features'].split(',')
+            features = ParamsEncDec.todict(name)['features']
             dataframe_ = drop_duplicates(dataframe, features, 0, verbose=False)
             dataframe_ = keep_cols(dataframe_, features).copy()
             # normalize:
@@ -760,7 +760,7 @@ class ParamsEncDec:
         return ''.join(chunks)
 
     @staticmethod
-    def todict(string, comma_sep=False):
+    def todict(string):
         '''Decodes string encoded parameters to dict
 
         :param string: string including a query string denoting parameters
@@ -792,11 +792,7 @@ class ParamsEncDec:
             param, value = chunk.split('=')
             if ',' in value:
                 value = tuple(unquote(_) for _ in value.split(','))
-                if not comma_sep:
-                    value = ",".join(value)
-#             if comma_sep and ',' in value:
-#                 value = tuple(unquote(_) for _ in value.split(','))
-#             else:
-#                 value = unquote(value)
+            else:
+                value = unquote(value)
             ret[unquote(param)] = value
         return ret
