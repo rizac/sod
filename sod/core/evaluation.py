@@ -228,7 +228,7 @@ def cmatrix_df(predicted_df):
     the columns 'ok' (inlier), 'outlier' '%rec', 'Mean log loss'.
     '''
     # NOTE: IF YOU WANT TO CHANGE 'ok' or 'outlier' THEN CONSIDER CHANGING
-    # ALSO THE ROWS (SEE `_CLASSNAMES`)
+    # ALSO THE ROWS (SEE `CLASSNAMES`)
     sum_df_cols = CMATRIX_COLUMNS
     sum_df = pd.DataFrame(index=CLASSNAMES,
                           data=[[0] * len(sum_df_cols)] * len(CLASSNAMES),
@@ -271,13 +271,17 @@ CLASSWEIGHTS = {
 
 
 def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
-    '''Saves the given confusion matrices dataframe to html
+    '''Creates and optionally saves the given confusion matrices dataframe
+    to html
 
     :param cmatrix_df: a dict of string keys
         mapped to dataframe as returned from the function `cmatrix_df`
     :param outfilepath: the output file path. The extension will be
-        appended as 'html', if an extension is not set
+        appended as 'html', if an extension is not set. If None, nothing is
+        saved
     :param title: the HTML title page
+
+    :return: the HTML formatted string containing the evaluation report
     '''
     # score columns: list of 'asc', 'desc' or None relative to each element of
     # CMATRIX_COLUMNS
@@ -361,48 +365,12 @@ def train_test_split(dataframe, n_folds=5):
             samples = indices
         train = dataframe.loc[~dataframe.index.isin(samples), :]
         # dataframe.empty returns true also if no columns, so:
-        if not len(train.index):
+        if not len(train.index):  # pylint: disable=len-as-condition
             raise ValueError('Training set empty during train_test_split')
         test = dataframe.loc[samples, :]
-        if not len(test.index):
+        if not len(test.index):  # pylint: disable=len-as-condition
             raise ValueError('Test set empty during train_test_split')
         yield train, test
-
-
-class EvalResult:
-
-    __slots__ = ['clf', 'predictions', 'params', 'features']
-
-    def __init__(self, clf, params, features):
-        self.clf = clf
-        self.params = params
-        self.predictions = None
-        self.features = features
-
-    def predict(self, dataframe):
-        self.predictions = None if dataframe.empty else \
-            predict(self.clf, dataframe, *self.features)
-
-
-def fit_and_predict(clf_class, train_df, columns, params, test_df=None,
-                    filepath=None):
-    '''Fits a model with `train_df[columns]` and returns an
-    `EvalResult` with predictions derived from `test_df[columns]`
-
-    :param params: dict of the classifier parameters. It can also be an
-        iterable of (key, value) tuples or lists (which will be converted to
-        the {key:value ... } corresponding dict)
-    '''
-    if filepath is not None and isfile(filepath):
-        clf = load(filepath)
-    else:
-        clf = classifier(clf_class, train_df[list(columns)], **params)
-    evres = EvalResult(clf, params, columns)
-    if test_df is not None:
-        evres.predict(test_df)
-    if filepath is not None and not isfile(filepath):
-        dump(clf, filepath)
-    return evres
 
 
 class CVEvaluator:
@@ -484,7 +452,9 @@ class CVEvaluator:
 
             def aasync_callback(result):
                 pbar.update(1)
-                self._applyasync_callback(result, destdir)
+                clf, params, features, predictions = result
+                self._applyasync_callback(clf, params, features, predictions,
+                                          destdir)
 
             def kill_pool(err_msg):
                 print('ERROR:')
@@ -510,7 +480,7 @@ class CVEvaluator:
                         fpath = self.uniquefilepath(destdir, *cols, **prms)
                         fpath += '.model'
                         pool.apply_async(
-                            fit_and_predict,
+                            _fit_and_predict,
                             (self.clf_class, cpy(_traindf), cols, prms,
                              cpy(_testdf), fpath),
                             callback=aasync_callback,
@@ -519,7 +489,7 @@ class CVEvaluator:
                         for train_df, test_df in \
                                 self.train_test_split_cv(dataframe_):
                             pool.apply_async(
-                                fit_and_predict,
+                                _fit_and_predict,
                                 (self.clf_class, cpy(train_df), cols, prms,
                                  cpy(test_df), None),
                                 callback=aasync_callback,
@@ -549,15 +519,16 @@ class CVEvaluator:
         '''
         return dataframe, None
 
-    def _applyasync_callback(self, eval_result, destdir):
+    def _applyasync_callback(self, clf, params, features, predictions,
+                             destdir):
+        '''Callback executed from the apply_async above'''
         # make three hashable and sortable objects using unique file path
         # (destdir = '' because it's useless)
-        pkey = self.uniquefilepath(destdir, **eval_result.params)
-        fkey = self.uniquefilepath(destdir, *eval_result.features)
-        fpkey = self.uniquefilepath(destdir, *eval_result.features,
-                                    **eval_result.params)
+        pkey = self.uniquefilepath(destdir, **params)
+        fkey = self.uniquefilepath(destdir, *features)
+        fpkey = self.uniquefilepath(destdir, *features, **params)
 
-        self._predictions[fpkey].append(eval_result.predictions)
+        self._predictions[fpkey].append(predictions)
         # (eval_result.predictions might be None)
 
         if len(self._predictions[fpkey]) == self.n_folds + 1:
@@ -602,6 +573,136 @@ class CVEvaluator:
         create_evel_report(sum_dfs, fkey + '.evalreport.html', title)
         if delete:
             del self._eval_reports[fkey]
+
+
+def _fit_and_predict(clf_class, train_df, columns, params, test_df=None,
+                     filepath=None):
+    '''Fits a model with `train_df[columns]` and returns the tuple
+    clf, params, columns, predictions. Called from within apply_async
+    in CVEvaluator
+
+    :param params: dict of the classifier parameters
+    '''
+    if filepath is not None and isfile(filepath):
+        clf = load(filepath)
+    else:
+        clf = classifier(clf_class, train_df[list(columns)], **params)
+    predictions = None
+    if test_df is not None and not test_df.empty:
+        # evres.predict(test_df)
+        predictions = predict(clf, test_df, *columns)
+    if filepath is not None and not isfile(filepath):
+        dump(clf, filepath)
+    return clf, params, columns, predictions
+
+
+class Evaluator:
+    '''Class for evaluating pre-fitted and saved model(s) (ususally obtained
+    via `CVEvaluator`) against a
+    dataset of instances, saving to file the predictions and an html report
+    of the classifiers performances
+    '''
+    def __init__(self, classifier_paths, normalizer_df=None):
+        if len(set(basename(_) for _ in classifier_paths)) != \
+                len(classifier_paths):
+            raise ValueError('You need to pass a list of unique file names')
+
+        if not all('features' in ParamsEncDec.todict(_)
+                   for _ in classifier_paths):
+            raise ValueError("'features=' not found in all classifiers names")
+
+        self.clfs = {}
+        for _ in classifier_paths:
+            try:
+                if not isfile(_):
+                    raise FileNotFoundError('File not found: "%s"' % _)
+                self.clfs[basename(_)] = load(_)
+            except Exception as exc:
+                raise ValueError('Error reading "%s": %s' % (_, str(exc)))
+
+        # if normalizer_df is provided get min and max for all features:
+        bounds = None
+        if normalizer_df is not None:
+            bounds = {}
+            for _ in classifier_paths:
+                for feat in ParamsEncDec.todict(_)['features'].split(','):
+                    bounds[feat] = (None, None)
+            normalizer_df_columns = set(normalizer_df.columns)
+            ndf = normalizer_df[~is_outlier(normalizer_df)]
+            for feat in list(bounds.keys()):
+                if feat not in normalizer_df_columns:
+                    raise ValueError('"%s" not in normalizer dataframe' % feat)
+                bounds[feat] = np.nanmin(ndf[feat]), np.nanmax(ndf[feat])
+        self.bounds = bounds
+
+    def run(self, test_df, destdir):
+        pool = Pool(processes=int(cpu_count()))
+
+        print('Running Evaluator (%d classifiers supplied)' % len(self.clfs))
+
+        with click.progressbar(
+            length=len(self.clfs),
+            fill_char='o', empty_char='.'
+        ) as pbar:
+
+            def kill_pool(err_msg):
+                print('ERROR:')
+                print(err_msg)
+                try:
+                    pool.terminate()
+                except ValueError:  # ignore ValueError('pool not running')
+                    pass
+
+            try:
+                cmatrix_dfs = {}
+                for clfname, predicted_df in \
+                        pool.imap_unordered(_imap_predict,
+                                            self.iterator(test_df)):
+                    pbar.update(1)
+                    if destdir is not None:
+                        save_df(predicted_df,
+                                join(destdir, clfname+'.predictions.hdf'),
+                                key='predictions')
+                    key = splitext(clfname)[0].replace('?', ' ').\
+                        replace('&', ' ')
+                    cmatrix_dfs['clf=%s' % key] = cmatrix_df(predicted_df)
+
+                pool.close()
+                pool.join()
+
+            except Exception as exc:  # pylint: disable=broad-except
+                kill_pool(exc)
+
+            outfilepath = None if destdir is None else \
+                join(destdir, 'evalreport.html')
+            title = ('Evalation results comparing '
+                     '%d classifiers') % len(self.clfs)
+            return create_evel_report(cmatrix_dfs, outfilepath, title=title)
+
+    def iterator(self, dataframe):
+        '''Yields tuples of (name, clf, dataframe, features) for all
+        classifiers of this class
+        '''
+        for name, clf in self.clfs.items():
+            features = ParamsEncDec.todict(name)['features'].split(',')
+            dataframe_ = drop_duplicates(dataframe, features, 0, verbose=False)
+            dataframe_ = keep_cols(dataframe_, features).copy()
+            # normalize:
+            if self.bounds is not None:
+                for feat in features:
+                    min_, max_ = self.bounds[feat]
+                    dataframe_.loc[:, feat] = \
+                        (dataframe_[feat] - min_) / (max_ - min_)
+
+            yield name, clf, dataframe_, features
+
+
+def _imap_predict(arg):
+    '''Predicts teh given classifier and returns the classifier name and
+    the prediction dataframe. Called from within imap in Evaluator
+    '''
+    name, clf, dfr, feats = arg
+    return name, predict(clf, dfr, *feats)
 
 
 class ParamsEncDec:
@@ -689,140 +790,13 @@ class ParamsEncDec:
         splits = pth.split('&')
         for chunk in splits:
             param, value = chunk.split('=')
-            if comma_sep and ',' in value:
+            if ',' in value:
                 value = tuple(unquote(_) for _ in value.split(','))
-            else:
-                value = unquote(value)
+                if not comma_sep:
+                    value = ",".join(value)
+#             if comma_sep and ',' in value:
+#                 value = tuple(unquote(_) for _ in value.split(','))
+#             else:
+#                 value = unquote(value)
             ret[unquote(param)] = value
         return ret
-
-
-class Evaluator:
-    '''Class for evaluating pre-fitted and saved model(s) (ususally obtained
-    via `CVEvaluator`) against a
-    dataset of instances, saving to file the predictions and an html report
-    of the classifiers performances
-    '''
-    def __init__(self, classifier_paths, normalizer_df=None):
-        if len(set(basename(_) for _ in classifier_paths)) != \
-                len(classifier_paths):
-            raise ValueError('You need to pass a list of unique file names')
-
-        if not all('features' in ParamsEncDec.todict(_)
-                   for _ in classifier_paths):
-            raise ValueError("'features=' not found in all classifiers names")
-
-        self.clfs = {}
-        for _ in classifier_paths:
-            try:
-                if not isfile(_):
-                    raise FileNotFoundError('File not found: "%s"' % _)
-                self.clfs[basename(_)] = load(_)
-            except Exception as exc:
-                raise ValueError('Error reading "%s": %s' % (_, str(exc)))
-
-        # if normalizer_df is provided get min and max for all features:
-        bounds = None
-        if normalizer_df is not None:
-            bounds = {}
-            for _ in classifier_paths:
-                for feat in ParamsEncDec.todict(_)['features'].split(','):
-                    bounds[feat] = (None, None)
-            normalizer_df_columns = set(normalizer_df.columns)
-            ndf = normalizer_df[~is_outlier(normalizer_df)]
-            for feat in list(bounds.keys()):
-                if feat not in normalizer_df_columns:
-                    raise ValueError('"%s" not in normalizer dataframe' % feat)
-                bounds[feat] = np.nanmin(ndf[feat]), np.nanmax(ndf[feat])
-        self.bounds = bounds
-
-    def run(self, test_df, destdir):
-        pool = Pool(processes=int(cpu_count()))
-
-        print('Running Evaluator (%d classifiers supplied)' % len(self.clfs))
-
-        with click.progressbar(
-            length=len(self.clfs),
-            fill_char='o', empty_char='.'
-        ) as pbar:
-
-            def imap_func(arg):
-                name, clf, dfr, feats = arg
-                return name, predict(clf, dfr, *feats)
-
-            def kill_pool(err_msg):
-                print('ERROR:')
-                print(err_msg)
-                try:
-                    pool.terminate()
-                except ValueError:  # ignore ValueError('pool not running')
-                    pass
-
-            try:
-                cmatrix_dfs = {}
-                for clfname, predicted_df in \
-                        pool.imap_unordered(imap_func, self.iterator(test_df)):
-                    pbar.update(1)
-                    if destdir is not None:
-                        save_df(predicted_df,
-                                join(destdir, clfname+'.predictions.hdf'),
-                                key='predictions')
-                    key = splitext(clfname)[0].replace('?', ' ').replace('&', ' ')
-                    cmatrix_dfs['clf=%s' % key] = cmatrix_df(predicted_df)
-
-                pool.close()
-                pool.join()
-
-            except Exception as exc:  # pylint: disable=broad-except
-                kill_pool(exc)
-
-            outfilepath = None if destdir is None else \
-                join(destdir, 'evalreport.html')
-            title = ('Evalation results comparing '
-                     '%d classifiers') % len(self.clfs)
-            return create_evel_report(cmatrix_dfs, outfilepath, title=title)
-
-    def iterator(self, dataframe):
-        for name, clf in self.clfs.items():
-            features = ParamsEncDec.todict(name)['features'].split(',')
-            dataframe_ = drop_duplicates(dataframe, features, 0, verbose=False)
-            dataframe_ = keep_cols(dataframe_, features).copy()
-            # normalize:
-            if self.bounds is not None:
-                for feat in features:
-                    min_, max_ = self.bounds[feat]
-                    dataframe_.loc[:, feat] = \
-                        (dataframe_[feat] - min_) / (max_ - min_)
-
-            yield name, clf, dataframe_, features
-
-
-# def is_prediction_dataframe(dataframe):
-#     '''Returns whether the given dataframe is the result of predictions
-#     on a trained classifier
-#     '''
-#     return CORRECTLY_PREDICTED_COL in dataframe.columns
-
-
-# def normalize_predictions(predictions, inbounds=None, outbounds=(-1, 1)):
-#     '''Returns predictions (numpy array of values where negative
-#     values represent OUTLIERS and positive ones INLIERS) normalized in
-#     [outbounds[0], outbounds[1]]
-#
-#     :param inbounds: the input bounds, if None, it will be inferred from
-#         `predictions` min and max (ignoring NaNs)
-#     :param predictions: the output of `_predict`: float array with positive
-#         (inlier) or negative (outlier) scores
-#
-#     '''
-#     if inbounds is None:
-#         imin, imax = np.nanmin(predictions), np.nanmax(predictions)
-#     else:
-#         imin, imax = inbounds
-#     omin, omax = outbounds
-#     # map predictions to -1 1 and then to 0 1
-#     ret = omin + (omax - omin) * (predictions - imin) / (imax - imin)
-#     if inbounds is not None:
-#         ret[ret < -1] = -1
-#         ret[ret > 1] = 1
-#     return ret
