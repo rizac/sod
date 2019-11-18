@@ -186,10 +186,11 @@
 # ============================= ================================================
 #
 segment_select:
+  station.id: "1980 1990 1993 1997 1412 1421 3258 1014 1016 1017 1018 1019 1020 1021 1022 1023 1024 1025 1026 1027 1028 1029 1030 10 2772 2785 2786 2787 2788 2789 2790 2791 2792 2793 2794 2795 2796 2797 2798 2799 2800 2801 2802 2803 2804 2805 767 768 764 765 769 770 771 773 774 776 777 778 780 775 781 783 782 784 785 786 787 788 791 792 789 793 790 794 795 798 799 800 796 801 797 803 804 805 807 806 810 811 812 809 814 818 819 820 817 816 821 822 823 825 827 828 829 826 824 815 831 832 833 835 836 837 838 844 845 839 840 846 848 847 850 851 852 2390  9 7 2 8 5 3 4 215 229 2883 2886 2889 2894 2897 2900 2901  523 525 528 529 530 532 531 535 537 539 2455 2456 2458 2460 2461 2465 2466 2469 2476 2482 2483 2484 2485 2486 2487 2489 2490 2491 2492 2493 2502 2503 2504 2505 2512 2515 2516 2518 2519 2522 2524  1295 1296 1297 1298 1303 1304 1306 1308 1305 1311 1313 1314 1316 1315 1319 1320 1321 1323 1325 1326 1327 1328 1329 1330 1333 1334 1331  549 550 551 554 552 555 557 558 559 2617 2618 2620 2621 2622 2624 2627 2629 2630 2631 2632 2633 2634 2635 2636 2639 2641 2642 2643 2644 2647 2648 2649 2650 2651 2652 2654 2658 2660 2575 2577 2580 2582 2585 2586 2587 2589 2591 2592 2599 2600 2602 2603 2604 2609 2611 2612 2613 2614 2615 2616 2661 2663 2664 2665 2666 2668 2669 2670 2672 2674 2677 2678 2679 2680 2681 2682 2684 2685 2688 2690 2691 2692 2694 2699 2700 2701 2702 1157 1158 1160 1163 1164 1165 1166 1167 1169 1174 1175 1176 1177 1178 1179 1180 1181 1182 1183 1184 1185 1186 1187 1188 1191 1193 1199 1200 1201 1202 1203 1204 1205 1206 1207 1208 3225 3242 3246 2410 2893 538 110 434 734 1116 1126 1210 1686 2713 3047 3211 3506"
   has_data: 'true'
   maxgap_numsamples: '[-0.5, 0.5]'
   download_code: '!=-2'
-  data_seed_id: '"AC.PUK..HHN" "BS.BLKB..HNN" "BS.VETAM..HNN" "CH.DIX..HGN" "CH.FUSIO..HGN" "CH.FUSIO..HHN" "CH.GRIMS..HHE" "CH.GRIMS..HHE" "CH.GRIMS..HHN" "CH.GRIMS..HHN" "CH.GRIMS..HHZ" "CH.GRIMS..HHZ" "CH.MMK..HGN" "CH.MUGIO..HHN" "CH.NALPS..HHN" "CL.ROD3.01.EHN" "CQ.OSC2.01.HHN" "FR.ESCA.00.HNN" "FR.ESCA.01.HHN" "FR.MON.00.HNN" "FR.MVIF.00.HHN" "FR.OGDI.00.HHN" "FR.PYLO.00.HNE" "FR.PYLO.00.HNN" "FR.PYLO.00.HNZ" "FR.SAOF.00.HNN" "GE.GVD..HHN" "GE.KARP..HHN" "GE.KARP..HNN" "GE.MATE..HHN" "GE.SANT..HHN" "GE.TIRR..HHN" "GU.ENR..HHN" "GU.FIVI..HNN" "GU.GORR..HHN" "GU.PZZ..HHN" "GU.SATI..HHN" "GU.SC2M..HHN" "HA.EPID..HHN" "HA.EREA..HHN" "HA.KARY..HHN" "HA.LOUT..HHN" "HA.MAKR..HHN" "HA.PROD..HHN" "HA.SNT1..HHN" "HC.FRMA..HHN" "HC.GVDS..HHN" "HC.KNDR..HHN" "HC.KSTL..HHN" "HI.KRI1..HNN" "HL.AMGA..HHN" "HL.ARG..HHN" "HL.ATH..HHN" "HL.DION..HHN" "HL.DION..HNN" "HL.GVD..HHN" "HL.GVD.00.HNN" "HL.JAN..HHN" "HL.KARP..HHN" "HL.KARP..HNN" "HL.KASA.00.HNN" "HL.KEK..HHN" "HL.LIA..HHN" "HL.LKR..HHN" "HL.MGNA.00.HNN" "HL.NEO..HHN" "HL.NOAC.00.HNN" "HL.PATC.00.HNN" "HL.PRK..HHN" "HL.PRK..HNN" "HL.SANT..HHN" "HL.SMG..HHN" "HL.VAM..HHN" "HL.YDRA.00.HNN" "HP.AMT.00.HHN" "HP.ANX..HHN" "HP.ANX..HNN" "HP.DRO..HHN" "HP.FSK..HNN" "HP.GUR..HHN" "HP.LTHK..HHN" "HP.PDO..HHN" "HP.PVO..HHN" "HP.SERG..HHN" "HT.CMBO..HHN" "HT.LKD2..HHN" "HT.NIS1..HHN" "HT.SOH..HHN" "HT.TSLK..HHN" "IV.ACER..HHN" "IV.AIO..HHN" "IV.APEC..HHN" "IV.ATCC..EHN" "IV.ATPC..HHN" "IV.ATPC..HNN" "IV.ATVO..HNN" "IV.BORM..HNN" "IV.BRMO..HHN" "IV.CAFE..HNN" "IV.CAFR..HHN" "IV.CAR1..HHN" "IV.DOI..HHN" "IV.FAGN..HHN" "IV.FIU..EHN" "IV.FNVD..HHN" "IV.FOSV..HNN" "IV.FRON..EHN" "IV.HCRL..HHN" "IV.IMI..HHN" "IV.LNSS..HHN" "IV.LTRZ..HNN" "IV.MABI..HHN" "IV.MCEL..HNN" "IV.MCRV..HHN" "IV.MGAB..HNN" "IV.MOMA..HHN" "IV.MRB1..HHN" "IV.MSAG..HHN" "IV.MSRU..HHN" "IV.MTCR..EHN" "IV.NOCI..HHN" "IV.NOV..HHN" "IV.NOVE..EHN" "IV.ORI..HHN" "IV.PALZ..HHN" "IV.PII..HHN" "IV.PIO1..HNN" "IV.PIPA..HHN" "IV.PR02..HHN" "IV.RCAV..EHN" "IV.RM05..HNN" "IV.RM10..EHN" "IV.RM10..HNN" "IV.RM28..EHN" "IV.ROVR..HHN" "IV.SCTE..HHN" "IV.SFI..HNN" "IV.SGRT..HHN" "IV.SIRI..HNN" "IV.SMA1..EHN" "IV.T0502..EHN" "IV.T0502..HNN" "IV.T0503..EHN" "IV.T0702..EHN" "IV.T0711..EHN" "IV.T0711..HNN" "IV.VARE..HHN" "IV.VITU..HHN" "IV.ZEN8..HNN" "KO.ARMT..HHN" "KO.BALB..HHN" "KO.BGKT..HHN" "KO.CAVI..HHN" "KO.CRLT..HHN" "KO.CTKS..HHN" "KO.CTYL..HHN" "KO.ERIK..HHN" "KO.EZN..HHN" "KO.GEMT..HHN" "KO.GULA..HHN" "KO.GURO..HHN" "KO.HRTX..HHN" "KO.KAVV..HHN" "KO.KCTX..HHN" "KO.KRBG..HHN" "KO.KURC..HHN" "KO.LAP..HHN" "KO.PHSR..HHN" "KO.RKY..HHN" "KO.SAUV..HHN" "KO.SLVT..HHN" "KO.YLV..HHN" "ME.KOME..HHN" "MN.BLY..HHN" "MN.BLY..HLN" "MN.PDG..HHN" "MN.PDG..HLN" "MN.TUE..HHN" "MN.TUE..HLN" "NI.AGOR..BHN" "NI.AGOR..HHN" "OT.TAR1..HHN" "OX.CGRP..HNN" "PZ.BRGZ..EHN" "PZ.EASY..EHN" "PZ.HYBL..EHN" "PZ.PIER..EHN" "PZ.SCRP..EHN" "RA.BELV.00.HNN" "SI.KOSI..HHN" "SK.MODS..HHE" "SK.MODS..HHN" "SK.MODS..HHZ" "SK.ZST..HHE" "SK.ZST..HHN" "SK.ZST..HHZ" "TU.BORA..HHN" "TV.A001..EHN" "TV.AT01..EHN" "TV.CCN3..EHN" "XW.W02.00.BHN" "XW.W03.00.HHN" "XW.W04.00.BHN" "XW.W04.00.HHN" "XW.W05.00.BHN" "XW.W05.00.HHN" "XW.W08.00.BHN" "XW.W12.00.HHN" "XW.W13.00.BHN" "XW.W14.00.HHN" "XW.W16.00.HHN" "XY.ERE.00.HHN" "XY.KOY.00.HHN" "XY.UMT.00.HHN" "YI.E01.00.BHN" "YI.E02.00.BHN" "YI.E05.00.BHN" "YI.E12.00.BHN" "YI.E20.00.BHN" "Z3.AMOE..HHN" "ZZ.AMOE..HHN" "ZZ.PARO..HHN" "ZZ.SIFN..HHN"'
+  # data_seed_id: '"AC.PUK..HHN" "BS.BLKB..HNN" "BS.VETAM..HNN" "CH.DIX..HGN" "CH.FUSIO..HGN" "CH.FUSIO..HHN" "CH.GRIMS..HHE" "CH.GRIMS..HHE" "CH.GRIMS..HHN" "CH.GRIMS..HHN" "CH.GRIMS..HHZ" "CH.GRIMS..HHZ" "CH.MMK..HGN" "CH.MUGIO..HHN" "CH.NALPS..HHN" "CL.ROD3.01.EHN" "CQ.OSC2.01.HHN" "FR.ESCA.00.HNN" "FR.ESCA.01.HHN" "FR.MON.00.HNN" "FR.MVIF.00.HHN" "FR.OGDI.00.HHN" "FR.PYLO.00.HNE" "FR.PYLO.00.HNN" "FR.PYLO.00.HNZ" "FR.SAOF.00.HNN" "GE.GVD..HHN" "GE.KARP..HHN" "GE.KARP..HNN" "GE.MATE..HHN" "GE.SANT..HHN" "GE.TIRR..HHN" "GU.ENR..HHN" "GU.FIVI..HNN" "GU.GORR..HHN" "GU.PZZ..HHN" "GU.SATI..HHN" "GU.SC2M..HHN" "HA.EPID..HHN" "HA.EREA..HHN" "HA.KARY..HHN" "HA.LOUT..HHN" "HA.MAKR..HHN" "HA.PROD..HHN" "HA.SNT1..HHN" "HC.FRMA..HHN" "HC.GVDS..HHN" "HC.KNDR..HHN" "HC.KSTL..HHN" "HI.KRI1..HNN" "HL.AMGA..HHN" "HL.ARG..HHN" "HL.ATH..HHN" "HL.DION..HHN" "HL.DION..HNN" "HL.GVD..HHN" "HL.GVD.00.HNN" "HL.JAN..HHN" "HL.KARP..HHN" "HL.KARP..HNN" "HL.KASA.00.HNN" "HL.KEK..HHN" "HL.LIA..HHN" "HL.LKR..HHN" "HL.MGNA.00.HNN" "HL.NEO..HHN" "HL.NOAC.00.HNN" "HL.PATC.00.HNN" "HL.PRK..HHN" "HL.PRK..HNN" "HL.SANT..HHN" "HL.SMG..HHN" "HL.VAM..HHN" "HL.YDRA.00.HNN" "HP.AMT.00.HHN" "HP.ANX..HHN" "HP.ANX..HNN" "HP.DRO..HHN" "HP.FSK..HNN" "HP.GUR..HHN" "HP.LTHK..HHN" "HP.PDO..HHN" "HP.PVO..HHN" "HP.SERG..HHN" "HT.CMBO..HHN" "HT.LKD2..HHN" "HT.NIS1..HHN" "HT.SOH..HHN" "HT.TSLK..HHN" "IV.ACER..HHN" "IV.AIO..HHN" "IV.APEC..HHN" "IV.ATCC..EHN" "IV.ATPC..HHN" "IV.ATPC..HNN" "IV.ATVO..HNN" "IV.BORM..HNN" "IV.BRMO..HHN" "IV.CAFE..HNN" "IV.CAFR..HHN" "IV.CAR1..HHN" "IV.DOI..HHN" "IV.FAGN..HHN" "IV.FIU..EHN" "IV.FNVD..HHN" "IV.FOSV..HNN" "IV.FRON..EHN" "IV.HCRL..HHN" "IV.IMI..HHN" "IV.LNSS..HHN" "IV.LTRZ..HNN" "IV.MABI..HHN" "IV.MCEL..HNN" "IV.MCRV..HHN" "IV.MGAB..HNN" "IV.MOMA..HHN" "IV.MRB1..HHN" "IV.MSAG..HHN" "IV.MSRU..HHN" "IV.MTCR..EHN" "IV.NOCI..HHN" "IV.NOV..HHN" "IV.NOVE..EHN" "IV.ORI..HHN" "IV.PALZ..HHN" "IV.PII..HHN" "IV.PIO1..HNN" "IV.PIPA..HHN" "IV.PR02..HHN" "IV.RCAV..EHN" "IV.RM05..HNN" "IV.RM10..EHN" "IV.RM10..HNN" "IV.RM28..EHN" "IV.ROVR..HHN" "IV.SCTE..HHN" "IV.SFI..HNN" "IV.SGRT..HHN" "IV.SIRI..HNN" "IV.SMA1..EHN" "IV.T0502..EHN" "IV.T0502..HNN" "IV.T0503..EHN" "IV.T0702..EHN" "IV.T0711..EHN" "IV.T0711..HNN" "IV.VARE..HHN" "IV.VITU..HHN" "IV.ZEN8..HNN" "KO.ARMT..HHN" "KO.BALB..HHN" "KO.BGKT..HHN" "KO.CAVI..HHN" "KO.CRLT..HHN" "KO.CTKS..HHN" "KO.CTYL..HHN" "KO.ERIK..HHN" "KO.EZN..HHN" "KO.GEMT..HHN" "KO.GULA..HHN" "KO.GURO..HHN" "KO.HRTX..HHN" "KO.KAVV..HHN" "KO.KCTX..HHN" "KO.KRBG..HHN" "KO.KURC..HHN" "KO.LAP..HHN" "KO.PHSR..HHN" "KO.RKY..HHN" "KO.SAUV..HHN" "KO.SLVT..HHN" "KO.YLV..HHN" "ME.KOME..HHN" "MN.BLY..HHN" "MN.BLY..HLN" "MN.PDG..HHN" "MN.PDG..HLN" "MN.TUE..HHN" "MN.TUE..HLN" "NI.AGOR..BHN" "NI.AGOR..HHN" "OT.TAR1..HHN" "OX.CGRP..HNN" "PZ.BRGZ..EHN" "PZ.EASY..EHN" "PZ.HYBL..EHN" "PZ.PIER..EHN" "PZ.SCRP..EHN" "RA.BELV.00.HNN" "SI.KOSI..HHN" "SK.MODS..HHE" "SK.MODS..HHN" "SK.MODS..HHZ" "SK.ZST..HHE" "SK.ZST..HHN" "SK.ZST..HHZ" "TU.BORA..HHN" "TV.A001..EHN" "TV.AT01..EHN" "TV.CCN3..EHN" "XW.W02.00.BHN" "XW.W03.00.HHN" "XW.W04.00.BHN" "XW.W04.00.HHN" "XW.W05.00.BHN" "XW.W05.00.HHN" "XW.W08.00.BHN" "XW.W12.00.HHN" "XW.W13.00.BHN" "XW.W14.00.HHN" "XW.W16.00.HHN" "XY.ERE.00.HHN" "XY.KOY.00.HHN" "XY.UMT.00.HHN" "YI.E01.00.BHN" "YI.E02.00.BHN" "YI.E05.00.BHN" "YI.E12.00.BHN" "YI.E20.00.BHN" "Z3.AMOE..HHN" "ZZ.AMOE..HHN" "ZZ.PARO..HHN" "ZZ.SIFN..HHN"'
   station.has_inventory: 'true'
   missing_data_sec: '<60'
   # id: '<300'
@@ -197,106 +198,375 @@ segment_select:
   # event.latitude: "[24, 70]"
   # event.longitude: "[-11, 24]"
 
-# List of station ids whose inventory has both accel. and veloc. (use a dict for faster search, dict values are supposed to be ignored)
 
-station_ids_both_accel_veloc:
-  3937:  "BS.BLKB.2012-11-20T00:00:00"
-  5795:  "CH.DIX.1999-08-04T00:00:00"
-  5796:  "CH.DIX.2010-06-24T00:00:00"
-  5797:  "CH.DIX.2016-11-03T17:20:00"
-  5824:  "CH.FUSIO.2005-12-01T00:00:00"
-  5825:  "CH.FUSIO.2008-10-21T00:00:00"
-  5826:  "CH.FUSIO.2017-08-16T19:00:00"
-  5860:  "CH.MMK.2017-10-12T16:00:00"
-  5861:  "CH.MMK.2018-07-02T13:00:00"
-  5878:  "CH.NALPS.2017-08-24T10:00:00"
-  516:  "CL.ROD3.2014-03-14T14:00:00"
-  3502:  "CQ.OSC2.2015-07-17T00:00:00"
-  674:  "FR.ESCA.2008-06-11T11:30:00"
-  678:  "FR.ESCA.2012-03-28T10:10:00"
-  681:  "FR.ESCA.2014-07-30T12:30:00"
-  759:  "FR.MON.2008-08-13T10:30:00"
-  760:  "FR.MON.2008-12-18T08:30:00"
-  761:  "FR.MON.2010-01-07T10:30:00"
-  707:  "FR.MON.2010-01-22T09:15:00"
-  762:  "FR.MON.2016-06-27T12:00:00"
-  814:  "FR.OGDI.2010-02-21T00:00:00"
-  966:  "FR.SAOF.2008-02-01T10:51:00"
-  967:  "FR.SAOF.2010-09-16T11:06:00"
-  968:  "FR.SAOF.2018-09-12T10:32:00"
-  969:  "FR.SAOF.2018-12-17T12:05:00"
-  9811:  "GE.KARP.2009-11-25T00:00:00"
-  9921:  "GE.TIRR.2003-10-13T00:00:00"
-  3620:  "HL.AMGA.2012-05-30T00:00:00"
-  3642:  "HL.GVD.2010-09-21T00:00:00"
-  3655:  "HL.KARP.2009-11-24T00:00:00"
-  3707:  "HL.PRK.2012-12-29T00:00:00"
-  4199:  "IV.ACER.2007-07-05T12:00:00"
-  4214:  "IV.APEC.2014-02-06T12:00:00"
-  4249:  "IV.ATPC.2009-01-26T15:00:00"
-  4300:  "IV.CAFE.2010-02-03T14:00:00"
-  4664:  "IV.MOMA.2011-08-08T14:00:00"
-  4674:  "IV.MRB1.2004-01-29T00:00:00"
-  4675:  "IV.MRB1.2010-01-25T16:00:00"
-  4686:  "IV.MSAG.2006-05-25T17:00:00"
-  4831:  "IV.RM10.2009-04-07T00:00:00"
-  4849:  "IV.RM28.2009-06-19T00:00:00"
-  4867:  "IV.ROVR.2008-10-08T00:00:00"
-  4919:  "IV.SGRT.2006-05-24T17:00:00"
-  4978:  "IV.T0502.2011-05-25T00:00:00"
-  4979:  "IV.T0503.2011-05-25T00:00:00"
-  5097:  "IV.VITU.2014-03-21T17:00:00"
-  5169:  "MN.BLY.2009-05-21T08:00:00"
-  5170:  "MN.BLY.2017-12-13T12:00:00"
-  5225:  "MN.TUE.2010-08-20T11:50:00"
-  5226:  "MN.TUE.2017-07-26T09:02:00"
-  5267:  "OX.CGRP.2016-01-01T00:00:00"
+# list of good, bad and suspect
+# stations (network name mapped to station id)
+# bad is a dict, for faster search (the value 'null' is meaningless)
+bad:
+  1980: null # CB
+  1990: null
+  1993: null
+  1997: null
+  1412: null # AF
+  1421: null
+  3258: null # S1
+  1014: null # IS
+  1016: null
+  1017: null
+  1018: null
+  1019: null
+  1020: null
+  1021: null
+  1022: null
+  1023: null
+  1024: null
+  1025: null
+  1026: null
+  1027: null
+  1028: null
+  1029: null
+  1030: null
+  10: null # BW
+  2772: null # KZ:
+  2785: null
+  2786: null
+  2787: null
+  2788: null
+  2789: null
+  2790: null
+  2791: null
+  2792: null
+  2793: null
+  2794: null
+  2795: null
+  2796: null
+  2797: null
+  2798: null
+  2799: null
+  2800: null
+  2801: null
+  2802: null
+  2803: null
+  2804: null
+  2805: null
+  718: null # CZ
+  722: null
+  723: null
+  727: null
+  728: null
+  729: null
 
-# List of station ids with a wrong inventory saved locally. Each id is mapped to a channel mapped in turn to the relative file name
+# suspicious stations ids (dict, for faster search. The value 'null' is meaningless)
+suspect:
+  3225: null # S1
+  3242: null
+  3246: null
+  2410: null # GE
+  2893: null # MN
+  538: null # II
+  110: null # - VARIOUS NETWORKS:
+  434: null
+  734: null
+  1116: null
+  1126: null
+  1210: null
+  1686: null
+  2713: null
+  3047: null
+  3211: null
+  3506: null
 
-station_ids_with_wrong_local_inventory:
-  5831:
-    CH.GRIMS..HHE: "CH.GRIMS.2011-11-09T00:00:00.xml"
-    CH.GRIMS..HHN: "CH.GRIMS.2011-11-09T00:00:00.xml"
-    CH.GRIMS..HHZ: "CH.GRIMS.2011-11-09T00:00:00.xml"
-  5833:
-    CH.GRIMS..HHE: "CH.GRIMS.2015-10-30T10:50:00.xml"
-    CH.GRIMS..HHN: "CH.GRIMS.2015-10-30T10:50:00.xml"
-    CH.GRIMS..HHZ: "CH.GRIMS.2015-10-30T10:50:00.xml"
-  10179:
-    SK.MODS..HHE: "SK.MODS.2004-03-17T00:00:00.xml"
-    SK.MODS..HHN: "SK.MODS.2004-03-17T00:00:00.xml"
-    SK.MODS..HHZ: "SK.MODS.2004-03-17T00:00:00.xml"
-  10186:
-    SK.ZST..HHE: "SK.ZST.2004-03-17T00:00:00.xml"
-    SK.ZST..HHN: "SK.ZST.2004-03-17T00:00:00.xml"
-    SK.ZST..HHZ: "SK.ZST.2004-03-17T00:00:00.xml"
-  890:
-    FR.PYLO.00.HNE: "FR.PYLO.2010-01-17T10:00:00.xml"
-    FR.PYLO.00.HNN: "FR.PYLO.2010-01-17T10:00:00.xml"
-    FR.PYLO.00.HNZ: "FR.PYLO.2010-01-17T10:00:00.xml"
-
-# path to the local inventory files listed above (relative to the path the processing is executed)
-inventories_dir: 'sod/dataset/inventories/s2s_2017_10'
-
-# stage gains factors for programmatically creating "wrong" inventory responses by
-# increasing / decreasing stage gain:
-stage_gain_factors:
-  - 0.01
-  - 0.1
-  - 0.5
-  - 2.0
-  - 10.0
-  - 100.0
-
-# frequencies interpolation values (Hz) ... Not used here
-freqs_interp:
- - 0.5
- - 1
- - 2
- - 5
- - 10
- - 20
+# good is not used (too long list) but we anyway print the list here for debug in case:
+good:
+  - 717 # CZ
+  - 721
+  - 720
+  - 731
+  - 767 # GE
+  - 768
+  - 764
+  - 765
+  - 769
+  - 770
+  - 771
+  - 773
+  - 774
+  - 776
+  - 777
+  - 778
+  - 780
+  - 775
+  - 781
+  - 783
+  - 782
+  - 784
+  - 785
+  - 786
+  - 787
+  - 788
+  - 791
+  - 792
+  - 789
+  - 793
+  - 790
+  - 794
+  - 795
+  - 798
+  - 799
+  - 800
+  - 796
+  - 801
+  - 797
+  - 803
+  - 804
+  - 805
+  - 807
+  - 806
+  - 810
+  - 811
+  - 812
+  - 809
+  - 814
+  - 818
+  - 819
+  - 820
+  - 817
+  - 816
+  - 821
+  - 822
+  - 823
+  - 825
+  - 827
+  - 828
+  - 829
+  - 826
+  - 824
+  - 815
+  - 831
+  - 832
+  - 833
+  - 835
+  - 836
+  - 837
+  - 838
+  - 844
+  - 845
+  - 839
+  - 840
+  - 846
+  - 848
+  - 847
+  - 850
+  - 851
+  - 852
+  - 2390 
+  - 9 # BW
+  - 7
+  - 2
+  - 8
+  - 5
+  - 3
+  - 4
+  - 215 # MN
+  - 229
+  - 2883
+  - 2886
+  - 2889
+  - 2894
+  - 2897
+  - 2900
+  - 2901 
+  - 523 # II
+  - 525
+  - 528
+  - 529
+  - 530
+  - 532
+  - 531
+  - 535
+  - 537
+  - 539
+  - 2455 
+  - 2456
+  - 2458
+  - 2460
+  - 2461
+  - 2465
+  - 2466
+  - 2469
+  - 2476
+  - 2482
+  - 2483
+  - 2484
+  - 2485
+  - 2486
+  - 2487
+  - 2489
+  - 2490
+  - 2491
+  - 2492
+  - 2493
+  - 2502
+  - 2503
+  - 2504
+  - 2505
+  - 2512
+  - 2515
+  - 2516
+  - 2518
+  - 2519
+  - 2522
+  - 2524 
+  - 1295 # G
+  - 1296
+  - 1297
+  - 1298
+  - 1303
+  - 1304
+  - 1306
+  - 1308
+  - 1305
+  - 1311
+  - 1313
+  - 1314
+  - 1316
+  - 1315
+  - 1319
+  - 1320
+  - 1321
+  - 1323
+  - 1325
+  - 1326
+  - 1327
+  - 1328
+  - 1329
+  - 1330
+  - 1333
+  - 1334
+  - 1331 
+  - 549 # IU
+  - 550
+  - 551
+  - 554
+  - 552
+  - 555
+  - 557
+  - 558
+  - 559
+  - 2617
+  - 2618
+  - 2620
+  - 2621
+  - 2622
+  - 2624
+  - 2627
+  - 2629
+  - 2630
+  - 2631
+  - 2632
+  - 2633
+  - 2634
+  - 2635
+  - 2636
+  - 2639
+  - 2641
+  - 2642
+  - 2643
+  - 2644
+  - 2647
+  - 2648
+  - 2649
+  - 2650
+  - 2651
+  - 2652
+  - 2654
+  - 2658
+  - 2660
+  - 2575
+  - 2577
+  - 2580
+  - 2582
+  - 2585
+  - 2586
+  - 2587
+  - 2589
+  - 2591
+  - 2592
+  - 2599
+  - 2600
+  - 2602
+  - 2603
+  - 2604
+  - 2609
+  - 2611
+  - 2612
+  - 2613
+  - 2614
+  - 2615
+  - 2616
+  - 2661
+  - 2663
+  - 2664
+  - 2665
+  - 2666
+  - 2668
+  - 2669
+  - 2670
+  - 2672
+  - 2674
+  - 2677
+  - 2678
+  - 2679
+  - 2680
+  - 2681
+  - 2682
+  - 2684
+  - 2685
+  - 2688
+  - 2690
+  - 2691
+  - 2692
+  - 2694
+  - 2699
+  - 2700
+  - 2701
+  - 2702
+  - 1157 # GR
+  - 1158
+  - 1160
+  - 1163
+  - 1164
+  - 1165
+  - 1166
+  - 1167
+  - 1169
+  - 1174
+  - 1175
+  - 1176
+  - 1177
+  - 1178
+  - 1179
+  - 1180
+  - 1181
+  - 1182
+  - 1183
+  - 1184
+  - 1185
+  - 1186
+  - 1187
+  - 1188
+  - 1191
+  - 1193
+  - 1199
+  - 1200
+  - 1201
+  - 1202
+  - 1203
+  - 1204
+  - 1205
+  - 1206
+  - 1207
+  - 1208
 
 # psd interpolation values (in seconds):
 psd_periods:
@@ -380,8 +650,8 @@ advanced_settings:
     # E.g., if you have two string columns 'col1' and 'col2' and you assume to store
     # at most 10 ASCII characters in 'col1' and 20 in 'col2', then:
     min_itemsize:
-      modified: 45
-      window_type: 3
+      # modified: 45
+      # window_type: 3
       channel_code: 3
     #   col2: 20
 
