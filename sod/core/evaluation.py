@@ -20,13 +20,12 @@ from sklearn.metrics.classification import (confusion_matrix,
                                             log_loss as scikit_log_loss)
 
 from sod.core import pdconcat, odict
-from sod.core.dataset import is_outlier, CLASSES, CLASSNAMES, ID_COL
+from sod.core.dataset import (is_outlier, classes_of, ID_COL, OUTLIER_COL,
+                              MODIFIED_COL, class_weight)
 
 
 CORRECTLY_PREDICTED_COL = 'correctly_predicted'
 LOGLOSS_COL = 'log_loss'
-OUTLIER_COL = 'outlier'
-MODIFIED_COL = 'modified'
 WINDOW_TYPE_COL = 'window_type'
 UNIQUE_ID_COLUMNS = [ID_COL, OUTLIER_COL, MODIFIED_COL, WINDOW_TYPE_COL]
 
@@ -42,7 +41,7 @@ def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
     dataframe = keep_cols(o_dataframe, columns).copy()
 
     class_index = np.zeros(len(o_dataframe))
-    for i, selector in enumerate(CLASSES.values(), 1):
+    for i, selector in enumerate(classes_of(dataframe).values(), 1):
         class_index[selector(dataframe)] = i
     dataframe['_t'] = class_index
 
@@ -227,15 +226,17 @@ def cmatrix_df(predicted_df):
     The rows of the dataframe will be the keys of `CLASSES` (== `CLASSNAMES`),
     the columns 'ok' (inlier), 'outlier' '%rec', 'Mean log loss'.
     '''
+    classes = classes_of(predicted_df)
+    classnames = list(classes.keys())
     # NOTE: IF YOU WANT TO CHANGE 'ok' or 'outlier' THEN CONSIDER CHANGING
     # ALSO THE ROWS (SEE `CLASSNAMES`)
     sum_df_cols = CMATRIX_COLUMNS
-    sum_df = pd.DataFrame(index=CLASSNAMES,
-                          data=[[0] * len(sum_df_cols)] * len(CLASSNAMES),
+    sum_df = pd.DataFrame(index=classnames,
+                          data=[[0] * len(sum_df_cols)] * len(classnames),
                           columns=sum_df_cols,
                           dtype=int)
 
-    for typ, selectorfunc in CLASSES.items():
+    for typ, selectorfunc in classes.items():
         cls_df = predicted_df[selectorfunc(predicted_df)]
         if cls_df.empty:
             continue
@@ -244,7 +245,7 @@ def cmatrix_df(predicted_df):
         # map any class defined here to the index of the column above which denotes
         # 'correctly classified'. Basically, map 'ok' to zero and any other class
         # to 1:
-        col_idx = 0 if typ == CLASSNAMES[0] else 1
+        col_idx = 0 if typ == classnames[0] else 1
         # assign value and caluclate percentage recognition:
         sum_df.loc[typ, sum_df_cols[col_idx]] += correctly_pred
         sum_df.loc[typ, sum_df_cols[1-col_idx]] += len(cls_df) - correctly_pred
@@ -258,16 +259,6 @@ def cmatrix_df(predicted_df):
 def _get_eval_report_html_template():
     with open(join(dirname(__file__), 'eval_report_template.html'), 'r') as _:
         return _.read()
-
-
-CLASSWEIGHTS = {
-    CLASSNAMES[0]: 100,
-    CLASSNAMES[1]: 100,
-    CLASSNAMES[2]: 10,
-    CLASSNAMES[3]: 50,
-    CLASSNAMES[4]: 5,
-    CLASSNAMES[5]: 1
-}
 
 
 def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
@@ -293,14 +284,15 @@ def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
         {'key': params, 'data': sumdf.values.tolist()}
         for (params, sumdf) in cmatrix_dfs.items()
     ]
+    classnames = next(iter(cmatrix_dfs.values())).index.tolist()
     content = _get_eval_report_html_template() % {
         'title': title,
         'evaluations': json.dumps(evl),
         'columns': json.dumps(CMATRIX_COLUMNS),
         'scoreColumns': json.dumps(score_columns),
         'currentScoreColumn': json.dumps(CMATRIX_COLUMNS[-1]),
-        'weights': json.dumps([CLASSWEIGHTS[_] for _ in CLASSNAMES]),
-        'classes': json.dumps(CLASSNAMES)
+        'weights': json.dumps([class_weight(_) for _ in classnames]),
+        'classes': json.dumps(classnames)
     }
     if outfilepath is not None:
         if splitext(outfilepath)[1].lower() not in ('.htm', '.html'):
