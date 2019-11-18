@@ -64,8 +64,10 @@ class Tester:
 
     datadir = join(dirname(__file__), 'data')
 
-    dfr = open_dataset(join(datadir, 'pgapgv.hdf_'), False)
-    dfr2 = open_dataset(join(datadir, 'oneminutewindows.hdf_'), False)
+    with patch('sod.core.dataset.DATASETS_DIR', datadir):
+        dfr = open_dataset(join(datadir, 'pgapgv.hdf_'), False)
+        dfr2 = open_dataset(join(datadir, 'oneminutewindows.hdf_'), False)
+    # dfr3 = open_dataset('magnitudeenergy.hdf', normalize=False)
 
     clf = classifier(OneClassSVM, dfr.iloc[:5, :][['delta_pga', 'delta_pgv']])
 
