@@ -259,7 +259,9 @@ def _main(segment, config, raw_trace, inventory_used):
         ret['psd@%ssec' % str(period)] = float(psdval)
 
     ret['outlier'] = segment.station.id in config['bad']
-    ret['suspect'] = segment.station.id in config['suspect']
+    # ret['suspect'] = segment.station.id in config['suspect']
+    ret['subclass'] = 'may.be.outlier' if segment.station.id in config['suspect'] \
+        else 'unlabeled' if segment.station.id not in config['good'] else ''
         # ret['modified'] = ''
         # ret['window_type'] = window_type
         # ret['start_time'] = raw_trace.stats.starttime.datetime
