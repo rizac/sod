@@ -287,15 +287,6 @@ def oneminutewindows(dataframe):
     dataframe['window_type'] = dataframe['window_type'].astype('category')
     return dataframe
 
-# def magnitudeenergy_old(dataframe):
-#     '''Custom operations to be performed on the magnitudeenergy_old dataset
-#     (sod/datasets/magnitudeenergy_old.hdf)
-#     '''
-#     # set the outlier where suspect is True as True:
-#     dataframe.loc[is_unlabeled_subclass_suspicious_outlier(dataframe),
-#                   OUTLIER_COL] = True
-#     return dataframe
-
 
 def magnitudeenergy(dataframe):
     '''Custom operations to be performed on the magnitudeenergy dataset

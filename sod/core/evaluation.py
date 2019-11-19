@@ -21,12 +21,12 @@ from sklearn.metrics.classification import (confusion_matrix,
 
 from sod.core import pdconcat, odict
 from sod.core.dataset import (is_outlier, classes_of, UNIQUE_ID_COLUMNS,
-                              class_weight, is_class_outlier,
-    OUTLIER_COL)
+                              class_weight, is_class_outlier, OUTLIER_COL)
 
 
 CORRECTLY_PREDICTED_COL = 'correctly_predicted'
 LOGLOSS_COL = 'log_loss'
+PREDICT_COL = 'decision_function'
 
 
 def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
@@ -145,6 +145,7 @@ def predict(clf, dataframe, *columns):
     data = {
         CORRECTLY_PREDICTED_COL: cpred_,
         LOGLOSS_COL: logloss_,
+        PREDICT_COL: predicted,
         **{k: dataframe[k] for k in UNIQUE_ID_COLUMNS if k in dfcols}
     }
     return pd.DataFrame(data, index=dataframe.index)
