@@ -20,14 +20,13 @@ from sklearn.metrics.classification import (confusion_matrix,
                                             log_loss as scikit_log_loss)
 
 from sod.core import pdconcat, odict
-from sod.core.dataset import (is_outlier, classes_of, ID_COL, OUTLIER_COL,
-                              MODIFIED_COL, class_weight)
+from sod.core.dataset import (is_outlier, classes_of, UNIQUE_ID_COLUMNS,
+                              class_weight, is_class_outlier,
+    OUTLIER_COL)
 
 
 CORRECTLY_PREDICTED_COL = 'correctly_predicted'
 LOGLOSS_COL = 'log_loss'
-WINDOW_TYPE_COL = 'window_type'
-UNIQUE_ID_COLUMNS = [ID_COL, OUTLIER_COL, MODIFIED_COL, WINDOW_TYPE_COL]
 
 
 def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
@@ -236,7 +235,7 @@ def cmatrix_df(predicted_df):
                           columns=sum_df_cols,
                           dtype=int)
 
-    for typ, selectorfunc in classes.items():
+    for cname, selectorfunc in classes.items():
         cls_df = predicted_df[selectorfunc(predicted_df)]
         if cls_df.empty:
             continue
@@ -245,13 +244,14 @@ def cmatrix_df(predicted_df):
         # map any class defined here to the index of the column above which denotes
         # 'correctly classified'. Basically, map 'ok' to zero and any other class
         # to 1:
-        col_idx = 0 if typ == classnames[0] else 1
+        col_idx = 1 if is_class_outlier(cname) else 0
         # assign value and caluclate percentage recognition:
-        sum_df.loc[typ, sum_df_cols[col_idx]] += correctly_pred
-        sum_df.loc[typ, sum_df_cols[1-col_idx]] += len(cls_df) - correctly_pred
-        sum_df.loc[typ, sum_df_cols[2]] = \
+        sum_df.loc[cname, sum_df_cols[col_idx]] += correctly_pred
+        sum_df.loc[cname, sum_df_cols[1-col_idx]] += \
+            len(cls_df) - correctly_pred
+        sum_df.loc[cname, sum_df_cols[2]] = \
             np.around(100 * np.true_divide(correctly_pred, len(cls_df)), 3)
-        sum_df.loc[typ, sum_df_cols[3]] = np.around(avg_log_loss, 5)
+        sum_df.loc[cname, sum_df_cols[3]] = np.around(avg_log_loss, 5)
 
     return sum_df
 
