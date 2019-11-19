@@ -16,52 +16,111 @@ import pandas as pd
 from sod.core import pdconcat, odict
 from sod.core.paths import DATASETS_DIR
 
-
 #####################
 # CLASSES DEFINITIONS
 #####################
 
+# FOR ANY NEW DATASET:
+# 1. IMPLEMENT THE YAML, AND PY, LAUNCH S2S AND SAVE THE DATAFRAME WITH A
+#    NEW UNIQUE NAME <NAME>.HDF
+# 2. IF IT HAS DIFFERENT UNIQUE COLUMNS THAN THE PREVIOUSLY DEFINED DATASETS,
+#    ADDS THE UNIQUE COLUMNS BELOW (THIS WILL BE USEFUL TO GET VIA SCRIPTS
+#    WHICH SEGMENT CORRESPOND TO A PREDICTION IN A PREDICTION DATAFRAME)
+# 3. IF IT HAS DIFFERENT CLASSES DEFINITIONS, ADD THEM TO _CLASSES AND THEN
+#    DEFINE THE RELATIVE if BRANCH IN `classes_of` (THIS WILL BE USEFUL WHEN
+#    CORRECTLY DISPLAYING CONFUSION MATRICES)
 
-ID_COL = 'id'
-OUTLIER_COL = 'outlier'
-MODIFIED_COL = 'modified'
+# column names definition
+ID_COL = 'id'  # every read operation will convert 'Segment.db.id' into this
+OUTLIER_COL = 'outlier'  # MUST be defined in all datasets
+MODIFIED_COL = 'modified'  # defined in pgapgv.hdf and oneminutewindows.hdf
+SUBCLASS_COL = 'subclass'  # defined in magnitudeenergy.hdf
+WINDOW_TYPE_COL = 'window_type'  # defined in oneminiutewindows.hdf
+
+# defining unique id columns: in evaluation.predict, all dataframe
+# passed will save the values of the following columns (those present in
+# the dataframe). Also look at keep_cols in the same module:
+UNIQUE_ID_COLUMNS = [ID_COL, OUTLIER_COL, MODIFIED_COL, WINDOW_TYPE_COL,
+                     SUBCLASS_COL]
+
+
+_CLS = (
+    # this is the class names definition. Each element is
+    # 1. the class name (string) WHICH MUST BE UNIQUE
+    # 2. whether it has to be considered a class mapped to 'outlier' (e.g.,
+    #  set it to True if an instance of this class is correctly classified
+    #  when it's classified as outlier. Set to False otherwise - i.e. inlier)
+    # 3. The weight, used for calculating scores in the evaluation reports html
+    ('ok', False, 100),
+    ('outl. (wrong inv. file)', True, 100),
+    ('outl. (cha. resp. acc <-> vel)', True, 10),
+    ('outl. (gain X100 or X0.01)', True, 50),
+    ('outl. (gain X10 or X0.1)', True, 5),
+    ('outl. (gain X2 or X0.5)', True, 1),
+    ('outlier', True, 100),
+    ('unlabeled (suspicious outl.)', True, 5),
+    ('unlabeled (unknown)', False, 1)
+)
+
+
+# test that we have unique class names:
+if len(set(_[0] for _ in _CLS)) != len(_CLS):
+    raise ValueError('No unique class names provided in _CLS')
+
 
 def classes_of(dataframe):
-    if MODIFIED_COL in dataframe.columns:
+    '''Returns a dictionary of class names (strings) mapped to a function:
+    `f(dataframe)` which, applied to any dataframe, returns the dataframe
+    filtered with only rows of that class
+
+    The classes of each dataframe are dataset dependent.
+
+    For usages of this method, see `sod.core.plot` or
+    `sod.core.evaluation.cmatrix_df`
+    '''
+    if MODIFIED_COL in dataframe.columns:  # e.g., oneminutewindows.hdf
         return odict([
-            ('ok', lambda dfr: ~is_outlier(dfr)),
-            ('outl. (wrong inv. file)', is_out_wrong_inv),
-            ('outl. (cha. resp. acc <-> vel)', is_out_swap_acc_vel),
-            ('outl. (gain X100 or X0.01)', is_out_gain_x100),
-            ('outl. (gain X10 or X0.1)', is_out_gain_x10),
-            ('outl. (gain X2 or X0.5)', is_out_gain_x2)
+            (_CLS[0][0], lambda dfr:~is_outlier(dfr)),
+            (_CLS[1][0], is_out_wrong_inv),
+            (_CLS[2][0], is_out_swap_acc_vel),
+            (_CLS[3][0], is_out_gain_x100),
+            (_CLS[4][0], is_out_gain_x10),
+            (_CLS[5][0], is_out_gain_x2)
         ])
-    return odict([
-        ('ok', lambda dfr: ~is_outlier(dfr)),
-        ('outlier', lambda dfr: is_outlier(dfr))
-    ])
+
+    if SUBCLASS_COL in dataframe.columns:  # e.g. magnitudeenergy.hdf
+
+        return odict([
+            (_CLS[0][0], lambda dfr:~is_outlier(dfr) & is_subclass_empty(dfr)),
+            (_CLS[6][0], lambda dfr: is_outlier(dfr) & is_subclass_empty(dfr)),
+            (_CLS[7][0], is_subclass_suspicious_outlier),
+            (_CLS[8][0], is_subclass_unlabeled)
+        ])
+
+    raise ValueError('Dataset classes seem not to be defined')
+
+
+_CLSW = {_[0]: _[2] for _ in _CLS}
 
 
 def class_weight(classname):
-    if classname in ['ok', 'outlier', 'outl. (wrong inv. file)']:
-        return 100
-    if classname == 'outl. (cha. resp. acc <-> vel)':
-        return 10
-    if classname == 'outl. (gain X100 or X0.01)':
-        return 50
-    if classname == 'outl. (gain X10 or X0.1)':
-        return 5
-    if classname == 'outl. (gain X2 or X0.5)':
-        return 1
-    
-    # CLASSWEIGHTS = {
-#     CLASSNAMES[0]: 100,
-#     CLASSNAMES[1]: 100,
-#     CLASSNAMES[2]: 10,
-#     CLASSNAMES[3]: 50,
-#     CLASSNAMES[4]: 5,
-#     CLASSNAMES[5]: 1
-# }
+    '''Returns the class weight for the given class name'''
+    try:
+        return _CLSW[classname]
+    except KeyError:
+        raise ValueError('class "%s" not found' % classname)
+
+
+_CLSO = {_[0]: _[1] for _ in _CLS}
+
+
+def is_class_outlier(classname):
+    '''Returns the class weight for the given class name'''
+    try:
+        return _CLSO[classname]
+    except KeyError:
+        raise ValueError('class "%s" not found' % classname)
+
 
 def is_outlier(dataframe):
     '''pandas series of boolean telling where dataframe rows are outliers'''
@@ -108,6 +167,17 @@ def is_out_gain_x2(dataframe):
         dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X0.5')
 
 
+def is_subclass_suspicious_outlier(dataframe):
+    return dataframe[SUBCLASS_COL].str.contains('unlabeled.maybe.outlier')
+
+
+def is_subclass_unlabeled(dataframe):
+    return dataframe[SUBCLASS_COL].str.contains('unlabeled.unknown')
+
+
+def is_subclass_empty(dfr):
+    return dfr[SUBCLASS_COL].str.len() < 1
+
 ##########################
 # dataset IO function(s)
 ##########################
@@ -141,7 +211,7 @@ def open_dataset(filename, normalize=True, verbose=True):
         try:
             dfr = func(dfr)
         except Exception as exc:
-            raise ValueError('Check module function "%s", error: %s' %
+            raise ValueError('Check module function "%s", error: %s' % 
                              (func.__name__, str(exc)))
 
         if verbose:
@@ -166,7 +236,6 @@ def dataset_path(filename, assure_exist=True):
         raise ValueError('Invalid dataset, File not found: "%s"'
                          % filepath)
     return filepath
-
 
 #################
 # Functions mapped to specific datasets in 'datasets' and performing
@@ -195,14 +264,14 @@ def pgapgv(dataframe):
             # spec) but it's unnecessary as we will normalize few lines below
             dataframe[col] = np.log10(dataframe[col])
     # save space:
-    dataframe['modified'] = dataframe['modified'].astype('category')
+    dataframe[MODIFIED_COL] = dataframe[MODIFIED_COL].astype('category')
     # numpy int64 for just zeros and ones is waste of space: use bools
     # (int8). But first, let's be paranoid first (check later, see below)
-    _zum = dataframe['outlier'].sum()
+    _zum = dataframe[OUTLIER_COL].sum()
     # convert:
-    dataframe['outlier'] = dataframe['outlier'].astype(bool)
+    dataframe[OUTLIER_COL] = dataframe[OUTLIER_COL].astype(bool)
     # check:
-    if dataframe['outlier'].sum() != _zum:
+    if dataframe[OUTLIER_COL].sum() != _zum:
         raise ValueError('The column "outlier" is supposed to be '
                          'populated with zeros or ones, but conversion '
                          'to boolean failed. Check the column')
@@ -214,9 +283,18 @@ def oneminutewindows(dataframe):
     (sod/datasets/oneminutewindows.hdf)
     '''
     # save space:
-    dataframe['modified'] = dataframe['modified'].astype('category')
+    dataframe[MODIFIED_COL] = dataframe[MODIFIED_COL].astype('category')
     dataframe['window_type'] = dataframe['window_type'].astype('category')
     return dataframe
+
+# def magnitudeenergy_old(dataframe):
+#     '''Custom operations to be performed on the magnitudeenergy_old dataset
+#     (sod/datasets/magnitudeenergy_old.hdf)
+#     '''
+#     # set the outlier where suspect is True as True:
+#     dataframe.loc[is_unlabeled_subclass_suspicious_outlier(dataframe),
+#                   OUTLIER_COL] = True
+#     return dataframe
 
 
 def magnitudeenergy(dataframe):
@@ -224,9 +302,12 @@ def magnitudeenergy(dataframe):
     (sod/datasets/magnitudeenergy.hdf)
     '''
     # save space:
+    dataframe[SUBCLASS_COL] = dataframe[SUBCLASS_COL].astype('category')
+    # set the outlier where suspect is True as True:
+    dataframe.loc[is_subclass_suspicious_outlier(dataframe),
+                  OUTLIER_COL] = True
     # dataframe['modified'] = dataframe['modified'].astype('category')
     return dataframe
-
 
 ###########################
 # Other operations
@@ -276,7 +357,7 @@ def dfinfo(dataframe, perclass=True):
     if not perclass:
         oks = ~is_outlier(dataframe)
         oks_count = oks.sum()
-        data = [oks_count, len(dataframe)-oks_count, len(dataframe)]
+        data = [oks_count, len(dataframe) - oks_count, len(dataframe)]
         index = ['oks', 'outliers', 'total']
     else:
         classes = classes_of(dataframe)
@@ -365,7 +446,7 @@ def dfnormalize(dataframe, columns=None, verbose=True):
             print("Min and max might be outside [0, 1]: the normalization ")
             print("bounds are calculated on good segments (non outlier) only")
             print("%s: values which are NaN or Infinity" % infocols[5])
-            print("%s: good instances (not outliers) the given percentiles" %
+            print("%s: good instances (not outliers) the given percentiles" % 
                   infocols[6])
 
     return dataframe
