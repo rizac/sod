@@ -27,7 +27,6 @@ from sod.core.evaluation import (split, classifier, predict, _predict,
                                  drop_duplicates,
                                  keep_cols, drop_na, cmatrix_df, ParamsEncDec)
 from sod.core.dataset import (open_dataset, groupby_stations)
-from sod.core.plot import plot, plot_calibration_curve
 from sod.evaluate import (OcsvmEvaluator, run)
 from sod.core import paths
 
@@ -77,9 +76,9 @@ class Tester:
 
     tmpdir = join(dirname(__file__), 'tmp')
 
-    def test_groupby_stations(self):
-        df2 = groupby_stations(self.dfr)
-        assert len(df2) <= len(self.dfr)
+#     def test_groupby_stations(self):
+#         df2 = groupby_stations(self.dfr)
+#         assert len(df2) <= len(self.dfr)
 
     def test_to_matrix(self):
         val0 = self.dfr.loc[0, 'magnitude']
@@ -163,9 +162,11 @@ class Tester:
     @patch('sod.core.evaluation._predict')
     def test_get_scores(self, mock_predict):
         dfr = pd.DataFrame([
-            {'outlier': False, 'modified': '', 'id': 1},
-            {'outlier': True, 'modified': 'invchanged', 'id': 2}
+            {'outlier': False, 'modified': ''},
+            {'outlier': True, 'modified': 'invchanged'}
         ])
+        dfr.insert(0, 'pgapgv.id', [1, 2])
+
         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1])
         pred_df = predict(None, dfr)
         assert pred_df['correctly_predicted'].sum() == 2
@@ -182,9 +183,10 @@ class Tester:
         # why all other rows were zero?
         # Because 'invchanged' does not match any class. Let's rewrite it:
         dfr = pd.DataFrame([
-            {'outlier': False, 'modified': '', 'id': 1},
-            {'outlier': True, 'modified': 'INVFILE:', 'id': 2}
+            {'outlier': False, 'modified': ''},
+            {'outlier': True, 'modified': 'INVFILE:'}
         ])
+        dfr.insert(0, 'pgapgv.id', [1, 2])
         mock_predict.side_effect = lambda *a, **kw: np.array([1, -1])
         pred_df = predict(None, dfr)
         assert pred_df['correctly_predicted'].sum() == 2
@@ -207,11 +209,13 @@ class Tester:
         
         # test the mean_log_loss
         dfr = pd.DataFrame([
-            {'outlier': False, 'modified': '', 'id': 1},
-            {'outlier': False, 'modified': '', 'id': 2},
-            {'outlier': True, 'modified': 'INVFILE:', 'id': 3},
-            {'outlier': True, 'modified': 'INVFILE:', 'id': 4}
+            {'outlier': False, 'modified': ''},
+            {'outlier': False, 'modified': ''},
+            {'outlier': True, 'modified': 'INVFILE:'},
+            {'outlier': True, 'modified': 'INVFILE:'}
         ])
+        dfr.insert(0, 'pgapgv.id', [1, 2, 3, 4])
+
         # predictions are:
         # ok, slightly bad, slightly bad, ok
         mock_predict.side_effect = lambda *a, **kw: np.array([1, -.1, .1, -1])
@@ -283,12 +287,15 @@ class Tester:
                             html_file = join(OUTPATH, evalconfigname, fle)
                     assert html_file and prediction_file and model_file
 
+                    id = basename(evalconfigpath).split('.')[1] + '.id'
                     if evalconfigpath == self.cv_evalconfig:
-                        cols = ['correctly_predicted', 'outlier', 'modified', 'id',
+                        cols = ['correctly_predicted', 'outlier', 'modified',
+                                id, 'decision_function',
                                 'log_loss']
                     else:
-                        cols = ['window_type', 'log_loss',
-                                'correctly_predicted', 'outlier', 'modified', 'id']
+                        cols = ['window_type', 'log_loss', 'decision_function',
+                                'correctly_predicted', 'outlier', 'modified',
+                                id]
                     assert sorted(pd.read_hdf(prediction_file).columns) == \
                         sorted(cols)
 
@@ -321,27 +328,36 @@ class Tester:
             'a': [1, 4, 5],
             'b': [5, 7.7, 6]
         })
-        d_ = keep_cols(d, ['a'])
-        assert len(d_.columns) == 1 and len(d_) == len(d)
+        with pytest.raises(ValueError):
+            # dataframe not bound to a dataset
+            d_ = keep_cols(d, ['a'])
+        
         d['outlier'] = [True, False, False]
         d['modified'] = ['', '', 'inv changed']
-        d['id'] = [1, 1, 2]
+        d['pgapgv.id'] = [1, 1, 2]
 
+        with pytest.raises(ValueError):
+            # dataframe not bound to a dataset: id col not at first position
+            d_ = keep_cols(d, ['a'])
+
+        d.drop('pgapgv.id', axis=1, inplace=True)
+        d.insert(0, 'pgapgv.id', [1, 1, 2])
+        
         assert sorted(keep_cols(d, ['modified']).columns.tolist()) == \
-            sorted(['id', 'modified', 'outlier'])
+            sorted(['pgapgv.id', 'modified', 'outlier'])
         assert sorted(keep_cols(d, ['a', 'b']).columns.tolist()) == \
             sorted(d.columns.tolist())
         assert sorted(keep_cols(d, ['b']).columns.tolist()) == \
-            sorted(['id', 'b', 'modified', 'outlier'])
+            sorted(['pgapgv.id', 'b', 'modified', 'outlier'])
 
     def test_drop_duplicates(self):
         d = pd.DataFrame({
+            'pgapgv.id': [1, 2, 3, 4, 5],
             'a': [1, 4, 5, 5.6, -1],
             'b': [5.56, 5.56, 5.56, 5.56, 5.561],
             'c': [5, 7.7, 6, 6, 6],
             'modified': ['', '', 'INVFILE:', '', ''],
-            'outlier': [False, True, True, False, False],
-            'id': [1, 2, 3, 4, 5]
+            'outlier': [False, True, True, False, False]
         })
 
         pd.testing.assert_frame_equal(drop_duplicates(d, ['a']), d)
@@ -350,6 +366,7 @@ class Tester:
 
     def test_drop_na(self):
         d = pd.DataFrame({
+            'pgapgv.id': [1, 2, 3, 4, 5],
             'a': [1, np.inf, 4, 5.6, -1],
             'b': [5.56, 5.56, np.nan, 5.56, 5.561],
             'c': [5, 7.7, 6, 6, 6],
@@ -357,8 +374,7 @@ class Tester:
             'e': [-np.inf] * 5,
             'f': [np.nan] * 5,
             'modified': ['', '', 'INVFILE:', '', ''],
-            'outlier': [False, True, True, False, False],
-            'id': [1, 2, 3, 4, 5]
+            'outlier': [False, True, True, False, False]
         })
 
         pd.testing.assert_frame_equal(drop_na(d, ['c']), d)
