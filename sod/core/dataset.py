@@ -31,156 +31,128 @@ from sod.core.paths import DATASETS_DIR
 #    CORRECTLY DISPLAYING CONFUSION MATRICES)
 
 # column names definition
-ID_COL = 'id'  # every read operation will convert 'Segment.db.id' into this
+# ID_COL = 'id'  # every read operation will convert 'Segment.db.id' into this
 OUTLIER_COL = 'outlier'  # MUST be defined in all datasets
-MODIFIED_COL = 'modified'  # defined in pgapgv.hdf and oneminutewindows.hdf
-SUBCLASS_COL = 'subclass'  # defined in magnitudeenergy.hdf
-WINDOW_TYPE_COL = 'window_type'  # defined in oneminiutewindows.hdf
-
-# defining unique id columns: in evaluation.predict, all dataframe
-# passed will save the values of the following columns (those present in
-# the dataframe). Also look at keep_cols in the same module:
-UNIQUE_ID_COLUMNS = [ID_COL, OUTLIER_COL, MODIFIED_COL, WINDOW_TYPE_COL,
-                     SUBCLASS_COL]
 
 
-_CLS = (
-    # this is the class names definition. Each element is
-    # 1. the class name (string) WHICH MUST BE UNIQUE
-    # 2. whether it has to be considered a class mapped to 'outlier' (e.g.,
-    #  set it to True if an instance of this class is correctly classified
-    #  when it's classified as outlier. Set to False otherwise - i.e. inlier)
-    # 3. The weight, used for calculating scores in the evaluation reports html
-    ('ok', False, 100),
-    ('outl. (wrong inv. file)', True, 100),
-    ('outl. (cha. resp. acc <-> vel)', True, 10),
-    ('outl. (gain X100 or X0.01)', True, 50),
-    ('outl. (gain X10 or X0.1)', True, 5),
-    ('outl. (gain X2 or X0.5)', True, 1),
-    ('outlier', True, 100),
-    ('unlabeled (suspicious outl.)', True, 5),
-    ('unlabeled (unknown)', False, 1)
-)
+def dataset_info(dataframe):
+    col = dataframe.columns[0]
+    if col.endswith('.id'):
+        return globals()[col[:col.index('.id')]]
+    raise ValueError('DataFrame not bound to a known dataset')
 
 
-# test that we have unique class names:
-if len(set(_[0] for _ in _CLS)) != len(_CLS):
-    raise ValueError('No unique class names provided in _CLS')
+# def classes_of(dataframe):
+#     '''Returns a dictionary of class names (strings) mapped to a function:
+#     `f(dataframe)` which, applied to any dataframe, returns the dataframe
+#     filtered with only rows of that class
+# 
+#     The classes of each dataframe are dataset dependent.
+# 
+#     For usages of this method, see `sod.core.plot` or
+#     `sod.core.evaluation.cmatrix_df`
+#     '''
+#     
+#     datasetinfo = _get_dataset_info(dataframe)
+#     return odict([(_[0], {'is_outlier': _[1], 'weight': _[2], 'filter':_[3]})
+#                   for _ in datasetinfo.CLASSES])
 
 
-def classes_of(dataframe):
-    '''Returns a dictionary of class names (strings) mapped to a function:
-    `f(dataframe)` which, applied to any dataframe, returns the dataframe
-    filtered with only rows of that class
-
-    The classes of each dataframe are dataset dependent.
-
-    For usages of this method, see `sod.core.plot` or
-    `sod.core.evaluation.cmatrix_df`
-    '''
-    if MODIFIED_COL in dataframe.columns:  # e.g., oneminutewindows.hdf
-        return odict([
-            (_CLS[0][0], lambda dfr:~is_outlier(dfr)),
-            (_CLS[1][0], is_out_wrong_inv),
-            (_CLS[2][0], is_out_swap_acc_vel),
-            (_CLS[3][0], is_out_gain_x100),
-            (_CLS[4][0], is_out_gain_x10),
-            (_CLS[5][0], is_out_gain_x2)
-        ])
-
-    if SUBCLASS_COL in dataframe.columns:  # e.g. magnitudeenergy.hdf
-
-        return odict([
-            (_CLS[0][0], lambda dfr:~is_outlier(dfr) & is_subclass_empty(dfr)),
-            (_CLS[6][0], lambda dfr: is_outlier(dfr) & is_subclass_empty(dfr)),
-            (_CLS[7][0], is_subclass_suspicious_outlier),
-            (_CLS[8][0], is_subclass_unlabeled)
-        ])
-
-    raise ValueError('Dataset classes seem not to be defined')
-
-
-_CLSW = {_[0]: _[2] for _ in _CLS}
-
-
-def class_weight(classname):
-    '''Returns the class weight for the given class name'''
-    try:
-        return _CLSW[classname]
-    except KeyError:
-        raise ValueError('class "%s" not found' % classname)
-
-
-_CLSO = {_[0]: _[1] for _ in _CLS}
-
-
-def is_class_outlier(classname):
-    '''Returns the class weight for the given class name'''
-    try:
-        return _CLSO[classname]
-    except KeyError:
-        raise ValueError('class "%s" not found' % classname)
+# _CLSW = {_[0]: _[2] for _ in _CLS}
+# 
+# 
+# def class_weight(classname):
+#     '''Returns the class weight for the given class name'''
+#     try:
+#         return _CLSW[classname]
+#     except KeyError:
+#         raise ValueError('class "%s" not found' % classname)
+# 
+# 
+# _CLSO = {_[0]: _[1] for _ in _CLS}
+# 
+# 
+# def is_class_outlier(classname):
+#     '''Returns the class weight for the given class name'''
+#     try:
+#         return _CLSO[classname]
+#     except KeyError:
+#         raise ValueError('class "%s" not found' % classname)
 
 
 def is_outlier(dataframe):
     '''pandas series of boolean telling where dataframe rows are outliers'''
     return dataframe['outlier']  # simply return the column
 
+# functions for selecting pgapgv and oneminutewindows:
 
-def is_out_wrong_inv(dataframe):
-    '''pandas series of boolean telling where dataframe rows are outliers
-    due to wrong inventory
-    '''
-    return dataframe[MODIFIED_COL].str.contains('INVFILE:')
+# def _is_out_wrong_inv(dataframe):
+#     '''pandas series of boolean telling where dataframe rows are outliers
+#     due to wrong inventory
+#     '''
+#     return dataframe[MODIFIED_COL].str.contains('INVFILE:')
+# 
+# 
+# def _is_out_swap_acc_vel(dataframe):
+#     '''pandas series of boolean telling where dataframe rows are outliers
+#     generated by swapping the accelerometer and velocimeter
+#     response in the inventory (when the segment's inventory has both
+#     accelerometers and velocimeters)
+#     '''
+#     return dataframe[MODIFIED_COL].str.contains('CHARESP:')
+# 
+# 
+# def _is_out_gain_x10(dataframe):
+#     '''pandas series of boolean telling where dataframe rows are outliers
+#     generated by multiplying the trace by a factor of 100 (or 0.01)
+#     '''
+#     return dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X10.0') | \
+#         dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X0.1')
+# 
+# 
+# def _is_out_gain_x100(dataframe):
+#     '''pandas series of boolean telling where dataframe rows are outliers
+#     generated by multiplying the trace by a factor of 10 (or 0.1)
+#     '''
+#     return dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X100.0') | \
+#         dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X0.01')
+# 
+# 
+# def _is_out_gain_x2(dataframe):
+#     '''pandas series of boolean telling where dataframe rows are outliers
+#     generated by multiplying the trace by a factor of 2 (or 0.5)
+#     '''
+#     return dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X2.0') | \
+#         dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X0.5')
+# 
+# 
+# # functions for selecting magnitudeenergy:
+# 
+# def _me_is_suspicious_outlier(dataframe):
+#     return dataframe[SUBCLASS_COL].str.contains('unlabeled.maybe.outlier')
+# 
+# 
+# def _me_is_unlabeled(dataframe):
+#     return dataframe[SUBCLASS_COL].str.contains('unlabeled.unknown')
+# 
+# 
+# def _is_subclass_empty(dfr):
+#     return dfr[SUBCLASS_COL].str.len() < 1
+# 
+# 
+# def _me_is_ok(dataframe):
+#     return ~is_outlier(dataframe) & _is_subclass_empty(dataframe)
+# 
+# 
+# def _me_is_outlier(dataframe):
+#      return is_outlier(dataframe) & _is_subclass_empty(dataframe)
 
-
-def is_out_swap_acc_vel(dataframe):
-    '''pandas series of boolean telling where dataframe rows are outliers
-    generated by swapping the accelerometer and velocimeter
-    response in the inventory (when the segment's inventory has both
-    accelerometers and velocimeters)
-    '''
-    return dataframe[MODIFIED_COL].str.contains('CHARESP:')
-
-
-def is_out_gain_x10(dataframe):
-    '''pandas series of boolean telling where dataframe rows are outliers
-    generated by multiplying the trace by a factor of 100 (or 0.01)
-    '''
-    return dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X10.0') | \
-        dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X0.1')
-
-
-def is_out_gain_x100(dataframe):
-    '''pandas series of boolean telling where dataframe rows are outliers
-    generated by multiplying the trace by a factor of 10 (or 0.1)
-    '''
-    return dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X100.0') | \
-        dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X0.01')
-
-
-def is_out_gain_x2(dataframe):
-    '''pandas series of boolean telling where dataframe rows are outliers
-    generated by multiplying the trace by a factor of 2 (or 0.5)
-    '''
-    return dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X2.0') | \
-        dataframe[MODIFIED_COL].str.contains('STAGEGAIN:X0.5')
-
-
-def is_subclass_suspicious_outlier(dataframe):
-    return dataframe[SUBCLASS_COL].str.contains('unlabeled.maybe.outlier')
-
-
-def is_subclass_unlabeled(dataframe):
-    return dataframe[SUBCLASS_COL].str.contains('unlabeled.unknown')
-
-
-def is_subclass_empty(dfr):
-    return dfr[SUBCLASS_COL].str.len() < 1
 
 ##########################
 # dataset IO function(s)
 ##########################
+
+S2S_COL = 'Segment.db.id'
 
 
 def open_dataset(filename, normalize=True, verbose=True):
@@ -189,7 +161,7 @@ def open_dataset(filename, normalize=True, verbose=True):
     keyname = splitext(basename(filepath))[0]
 
     try:
-        func = globals()[keyname]
+        datasetinfo = globals()[keyname]
     except KeyError:
         raise ValueError('Invalid dataset, no function "%s" '
                          'implemented' % keyname)
@@ -201,22 +173,19 @@ def open_dataset(filename, normalize=True, verbose=True):
     with capture_stderr(verbose):
         dfr = pd.read_hdf(filepath)
 
-        if 'Segment.db.id' in dfr.columns:
-            if ID_COL in dfr.columns:
-                raise ValueError('The data frame already contains a '
-                                 'column named "%s"' % ID_COL)
-            # if it's a prediction dataframe, it's for backward compatib.
-            dfr.rename(columns={"Segment.db.id": ID_COL}, inplace=True)
+        idcol = datasetinfo.uid_columns[0]
+        dfr.insert(0, idcol, dfr[S2S_COL])
+        dfr.drop(S2S_COL, axis=1, inplace=True)
 
         try:
-            dfr = func(dfr)
+            dfr = datasetinfo.open(dfr)
         except Exception as exc:
-            raise ValueError('Check module function "%s", error: %s' % 
-                             (func.__name__, str(exc)))
+            raise ValueError('Check module function "%s", error: %s' %
+                             (datasetinfo.__name__, str(exc)))
 
         if verbose:
             print('')
-            print(dfinfo(dfr))
+            print(dfinfo(dfr).to_string())
 
         if normalize:
             print('')
@@ -242,63 +211,255 @@ def dataset_path(filename, assure_exist=True):
 # custom dataframe operations
 #################
 
-
-def pgapgv(dataframe):
-    '''Custom operations to be performed on the pgapgv dataset
-    (sod/datasets/pgapgv.hdf)
-    '''
-    # setting up columns:
-    dataframe['pga'] = np.log10(dataframe['pga_observed'].abs())
-    dataframe['pgv'] = np.log10(dataframe['pgv_observed'].abs())
-    dataframe['delta_pga'] = np.log10(dataframe['pga_observed'].abs()) - \
-        np.log10(dataframe['pga_predicted'].abs())
-    dataframe['delta_pgv'] = np.log10(dataframe['pgv_observed'].abs()) - \
-        np.log10(dataframe['pgv_predicted'].abs())
-    del dataframe['pga_observed']
-    del dataframe['pga_predicted']
-    del dataframe['pgv_observed']
-    del dataframe['pgv_predicted']
-    for col in dataframe.columns:
-        if col.startswith('amp@'):
-            # go to db. We should multuply log * 20 (amp spec) or * 10 (pow
-            # spec) but it's unnecessary as we will normalize few lines below
-            dataframe[col] = np.log10(dataframe[col])
-    # save space:
-    dataframe[MODIFIED_COL] = dataframe[MODIFIED_COL].astype('category')
-    # numpy int64 for just zeros and ones is waste of space: use bools
-    # (int8). But first, let's be paranoid first (check later, see below)
-    _zum = dataframe[OUTLIER_COL].sum()
-    # convert:
-    dataframe[OUTLIER_COL] = dataframe[OUTLIER_COL].astype(bool)
-    # check:
-    if dataframe[OUTLIER_COL].sum() != _zum:
-        raise ValueError('The column "outlier" is supposed to be '
-                         'populated with zeros or ones, but conversion '
-                         'to boolean failed. Check the column')
-    return dataframe
+# class DatasetInfo:
+# 
+#     UNIQUE_ID_COLUMNS = []
+# 
+#     CLASSES = (
+#         # this is the class names definition. Each element is
+#         # 1. the class name (string) WHICH MUST BE UNIQUE
+#         # 2. whether it has to be considered a class mapped to 'outlier' (e.g.,
+#         #  set it to True if an instance of this class is correctly classified
+#         #  when it's classified as outlier. Set to False otherwise - i.e. inlier)
+#         # 3. The weight, used for calculating scores in the evaluation reports html
+#     )
 
 
-def oneminutewindows(dataframe):
-    '''Custom operations to be performed on the oneminutewindows dataset
-    (sod/datasets/oneminutewindows.hdf)
-    '''
-    # save space:
-    dataframe[MODIFIED_COL] = dataframe[MODIFIED_COL].astype('category')
-    dataframe['window_type'] = dataframe['window_type'].astype('category')
-    return dataframe
+class pgapgv:
+
+    _MODIFIED_COL = 'modified'  # defined in pgapgv.hdf and oneminutewindows.hdf
+
+    # list of unique columns identifying an instance in this dataset
+    # OUTLIER_COL MUST be always present. Also:
+    # The first column will replace S2S_COL and will uniquely identify the
+    # DataFrame's dataset: it will always be the DataFrame FIRST column
+    # (see open_dataset). Set it to this class name + '.id'
+    uid_columns = ('pgapgv.id', _MODIFIED_COL, OUTLIER_COL)
+
+    # list of dataset (sub)classes:
+    classnames = (
+        'ok',
+        'outl. (wrong inv. file)',
+        'outl. (cha. resp. acc <-> vel)',
+        'outl. (gain X100 or X0.01)',
+        'outl. (gain X10 or X0.1)',
+        'outl. (gain X2 or X0.5)'
+    )
+
+    @classmethod
+    def class_selector(cls, classname):
+        modified_col = cls._MODIFIED_COL
+        if classname == cls.classnames[0]:
+            return lambda dataframe: ~is_outlier(dataframe)
+        if classname == cls.classnames[1]:
+            return lambda dataframe: \
+                dataframe[modified_col].str.contains('INVFILE:')
+        if classname == cls.classnames[2]:
+            return lambda dataframe: \
+                dataframe[modified_col].str.contains('CHARESP:')
+        if classname == cls.classnames[3]:
+            return lambda dataframe: \
+                dataframe[modified_col].str.contains('STAGEGAIN:X100.0') | \
+                dataframe[modified_col].str.contains('STAGEGAIN:X0.01')
+        if classname == cls.classnames[4]:
+            return lambda dataframe: \
+                dataframe[modified_col].str.contains('STAGEGAIN:X10.0') | \
+                dataframe[modified_col].str.contains('STAGEGAIN:X0.1')
+        if classname == cls.classnames[5]:
+            return lambda dataframe: \
+                dataframe[modified_col].str.contains('STAGEGAIN:X2.0') | \
+                dataframe[modified_col].str.contains('STAGEGAIN:X0.5')
+
+#     @classmethod
+#     def is_class_outlier(cls, classname):
+#         return classname != cls.classnames[0]
+
+    @classmethod
+    def class_weight(cls, classname):
+        if classname == cls.classnames[0]:
+            return 100
+        if classname == cls.classnames[1]:
+            return 100
+        if classname == cls.classnames[2]:
+            return 10
+        if classname == cls.classnames[3]:
+            return 50
+        if classname == cls.classnames[4]:
+            return 5
+        if classname == cls.classnames[5]:
+            return 1
+
+#     CLASSES = (
+#         # this is the class names definition. Each element is
+#         # 1. the class name (string) WHICH MUST BE UNIQUE
+#         # 2. whether it has to be considered a class mapped to 'outlier' (e.g.,
+#         #  set it to True if an instance of this class is correctly classified
+#         #  when it's classified as outlier. Set to False otherwise - i.e. inlier)
+#         # 3. The weight, used for calculating scores in the evaluation reports html
+#         ('ok', False, 100, lambda dfr: ~is_outlier(dfr)),
+#         ('outl. (wrong inv. file)', True, 100, _is_out_wrong_inv),
+#         ('outl. (cha. resp. acc <-> vel)', True, 10, _is_out_swap_acc_vel),
+#         ('outl. (gain X100 or X0.01)', True, 50, _is_out_gain_x100),
+#         ('outl. (gain X10 or X0.1)', True, 5, _is_out_gain_x10),
+#         ('outl. (gain X2 or X0.5)', True, 1, _is_out_gain_x2)
+#     )
+
+    @classmethod
+    def open(cls, dataframe):
+        '''Custom operations to be performed on the pgapgv dataset
+        (sod/datasets/pgapgv.hdf)
+        '''
+        modified_col = cls._MODIFIED_COL
+        # setting up columns:
+        dataframe['pga'] = np.log10(dataframe['pga_observed'].abs())
+        dataframe['pgv'] = np.log10(dataframe['pgv_observed'].abs())
+        dataframe['delta_pga'] = np.log10(dataframe['pga_observed'].abs()) - \
+            np.log10(dataframe['pga_predicted'].abs())
+        dataframe['delta_pgv'] = np.log10(dataframe['pgv_observed'].abs()) - \
+            np.log10(dataframe['pgv_predicted'].abs())
+        del dataframe['pga_observed']
+        del dataframe['pga_predicted']
+        del dataframe['pgv_observed']
+        del dataframe['pgv_predicted']
+        for col in dataframe.columns:
+            if col.startswith('amp@'):
+                # go to db. We should multuply log * 20 (amp spec) or * 10 (pow
+                # spec) but it's unnecessary as we will normalize few lines below
+                dataframe[col] = np.log10(dataframe[col])
+        # save space:
+        dataframe[modified_col] = dataframe[modified_col].astype('category')
+        # numpy int64 for just zeros and ones is waste of space: use bools
+        # (int8). But first, let's be paranoid first (check later, see below)
+        _zum = dataframe[OUTLIER_COL].sum()
+        # convert:
+        dataframe[OUTLIER_COL] = dataframe[OUTLIER_COL].astype(bool)
+        # check:
+        if dataframe[OUTLIER_COL].sum() != _zum:
+            raise ValueError('The column "outlier" is supposed to be '
+                             'populated with zeros or ones, but conversion '
+                             'to boolean failed. Check the column')
+        return dataframe
 
 
-def magnitudeenergy(dataframe):
-    '''Custom operations to be performed on the magnitudeenergy dataset
-    (sod/datasets/magnitudeenergy.hdf)
-    '''
-    # save space:
-    dataframe[SUBCLASS_COL] = dataframe[SUBCLASS_COL].astype('category')
-    # set the outlier where suspect is True as True:
-    dataframe.loc[is_subclass_suspicious_outlier(dataframe),
-                  OUTLIER_COL] = True
-    # dataframe['modified'] = dataframe['modified'].astype('category')
-    return dataframe
+class oneminutewindows:
+    _MODIFIED_COL = pgapgv._MODIFIED_COL
+    _WINDOW_TYPE_COL = 'window_type'  # defined in oneminiutewindows.hdf
+
+    # list of unique columns identifying an instance in this dataset
+    # OUTLIER_COL MUST be always present. Also:
+    # The first column will replace S2S_COL and will uniquely identify the
+    # DataFrame's dataset: it will always be the DataFrame FIRST column
+    # (see open_dataset). Set it to this class name + '.id'
+    uid_columns = ('oneminutewindows.id', _MODIFIED_COL, _WINDOW_TYPE_COL,
+                   OUTLIER_COL)
+
+    # list of dataset (sub)classes:
+    classnames = pgapgv.classnames
+
+    @classmethod
+    def class_selector(cls, classname):
+        return pgapgv.class_selector(classname)
+
+#     @classmethod
+#     def is_class_outlier(cls, classname):
+#         return pgapgv.is_class_outlier(classname)
+
+    @classmethod
+    def class_weight(cls, classname):
+        return pgapgv.class_weight(classname)
+
+    @classmethod
+    def open(cls, dataframe):
+        '''Custom operations to be performed on the oneminutewindows dataset
+        (sod/datasets/oneminutewindows.hdf)
+        '''
+        modified_col = cls._MODIFIED_COL
+        # save space:
+        dataframe[modified_col] = dataframe[modified_col].astype('category')
+        dataframe[cls._WINDOW_TYPE_COL] = \
+            dataframe[cls._WINDOW_TYPE_COL].astype('category')
+        return dataframe
+
+
+class magnitudeenergy:
+    
+    _SUBCLASS_COL = 'subclass'  # defined in magnitudeenergy.hdf
+    
+    # list of unique columns identifying an instance in this dataset
+    # OUTLIER_COL MUST be always present. Also:
+    # The first column will replace S2S_COL and will uniquely identify the
+    # DataFrame's dataset: it will always be the DataFrame FIRST column
+    # (see open_dataset). Set it to this class name + '.id'
+    uid_columns = ('magnitudeenergy.id', OUTLIER_COL)
+
+    classnames = (
+        'ok',
+        'outlier',
+        'unlabeled (suspicious outl.)',
+        'unlabeled (unknown)'
+    )
+
+    @classmethod
+    def class_selector(cls, classname):
+        subclass_col = cls._SUBCLASS_COL
+        if classname == cls.classnames[0]:
+            return lambda dataframe: \
+                ~is_outlier(dataframe) & \
+                dataframe[subclass_col].str.len() < 1
+        if classname == cls.classnames[1]:
+            return lambda dataframe: \
+                is_outlier(dataframe) & \
+                dataframe[subclass_col].str.len() < 1
+        if classname == cls.classnames[2]:
+            return lambda dataframe: \
+                dataframe[subclass_col].str.contains('unlabeled.maybe.outlier')
+        if classname == cls.classnames[3]:
+            return lambda dataframe: \
+                dataframe[subclass_col].str.contains('unlabeled.unknown')
+
+#     @classmethod
+#     def is_class_outlier(cls, classname):
+#         return classname in (cls.classnames[1], cls.classnames[2])
+
+    @classmethod
+    def class_weight(cls, classname):
+        if classname == cls.classnames[0]:
+            return 100
+        if classname == cls.classnames[1]:
+            return 100
+        if classname == cls.classnames[2]:
+            return 10
+        if classname == cls.classnames[3]:
+            return 1
+
+#     CLASSES = (
+#         # this is the class names definition. Each element is
+#         # 1. the class name (string) WHICH MUST BE UNIQUE
+#         # 2. whether it has to be considered a class mapped to 'outlier' (e.g.,
+#         #  set it to True if an instance of this class is correctly classified
+#         #  when it's classified as outlier. Set to False otherwise - i.e. inlier)
+#         # 3. The weight, used for calculating scores in the evaluation reports html
+#         ('ok', False, 100, _me_is_ok),
+#         ('outlier', True, 100, _me_is_outlier),
+#         ('unlabeled (suspicious outl.)', True, 5, _me_is_suspicious_outlier),
+#         ('unlabeled (unknown)', False, 1, _me_is_unlabeled)
+#     )
+
+    @classmethod
+    def open(cls, dataframe):
+        '''Custom operations to be performed on the magnitudeenergy dataset
+        (sod/datasets/magnitudeenergy.hdf)
+        '''
+        subclass_col = cls._SUBCLASS_COL
+        # save space:
+        dataframe[subclass_col] = dataframe[subclass_col].astype('category')
+        # set the outlier where suspect is True as True:
+        dataframe.loc[
+            dataframe[subclass_col].str.contains('unlabeled.maybe.outlier'),
+            OUTLIER_COL] = True
+        # dataframe['modified'] = dataframe['modified'].astype('category')
+        return dataframe
+
 
 ###########################
 # Other operations
@@ -340,30 +501,56 @@ def capture_stderr(verbose=False):
             sys.stderr = syserr
 
 
-def dfinfo(dataframe, perclass=True):
-    '''Returns a adataframe with info about the given `dataframe` representing
+def dfinfo(dataframe):
+    '''Returns a a dataframe with info about the given `dataframe` representing
     a given dataset
     '''
-    columns = ['instances']
-    if not perclass:
-        oks = ~is_outlier(dataframe)
-        oks_count = oks.sum()
-        data = [oks_count, len(dataframe) - oks_count, len(dataframe)]
-        index = ['oks', 'outliers', 'total']
-    else:
-        classes = classes_of(dataframe)
-        data = [_(dataframe).sum() for _ in classes.values()] + \
-            [len(dataframe)]
-        index = list(classes.keys()) + ['total']
+    dinfo = dataset_info(dataframe)
+    # FIXME: dict!
+    classes = {c: dinfo.class_selector(c) for c in dinfo.classnames}
+    cols2 = floatingcols(dataframe)
+    sum_dfs = odict()
+    empty_classes = set()
+    infocols = ['Min', 'Median', 'Max', '#NAs', '#<1Perc.', '#>99Perc.']
+    for classname, class_selector in classes.items():
+        sum_df = odict()
+        _dfr = dataframe[class_selector(dataframe)]
+        if _dfr.empty:
+            empty_classes.add(classname)
+            continue
+        # if _dfr.empty
+        for col in cols2:
+            q01 = np.nanquantile(_dfr[col], 0.01)
+            q99 = np.nanquantile(_dfr[col], 0.99)
+            df1, df99 = _dfr[(_dfr[col] < q01)], _dfr[(_dfr[col] > q99)]
+            # segs1 = len(pd.unique(df1[ID_COL]))
+            # segs99 = len(pd.unique(df99[ID_COL]))
+            # stas1 = len(pd.unique(df1['station_id']))
+            # stas99 = len(pd.unique(df99['station_id']))
 
-    return df2str(pd.DataFrame(data, columns=columns, index=index))
+            sum_df[col] = {
+                infocols[0]: np.nanmin(dataframe[col]),
+                infocols[1]: np.nanquantile(dataframe[col], 0.5),
+                infocols[2]: np.nanmax(dataframe[col]),
+                infocols[3]: (~np.isfinite(dataframe[col])).sum(),
+                infocols[4]: len(df1),
+                infocols[5]: len(df99)
+                # columns[5]: stas1 + stas99,
+            }
+        sum_dfs[classname + ' (#: %d)' % len(_dfr)] = \
+            pd.DataFrame(data=list(sum_df.values()),
+                         columns=infocols,
+                         index=list(sum_df.keys()))
+
+#     return df2str(pd.DataFrame(data, columns=columns, index=index))
+    return pd.concat(sum_dfs.values(), axis=0, keys=sum_dfs.keys())
 
 
-def df2str(dataframe):
-    ''':return: the string representation of `dataframe`, with numeric values
-    formatted with comma as decimal separator
-    '''
-    return _dfformat(dataframe).to_string()
+# def df2str(dataframe):
+#     ''':return: the string representation of `dataframe`, with numeric values
+#     formatted with comma as decimal separator
+#     '''
+#     return _dfformat(dataframe).to_string()
 
 
 def _dfformat(dataframe, n_decimals=2):
@@ -390,7 +577,6 @@ def dfnormalize(dataframe, columns=None, verbose=True):
         only. Otherwise, it is a list of strings denoting the columns on
         which to normalize
     '''
-    sum_df = {}
     if verbose:
         if columns is None:
             print('Normalizing numeric columns (floats only)')
@@ -399,46 +585,16 @@ def dfnormalize(dataframe, columns=None, verbose=True):
         print('(only good instances - no outliers - taken into account)')
 
     with capture_stderr(verbose):
-        infocols = ['prenorm_min', 'prenorm_max',
-                    'min', 'median', 'max', 'NAs', 'ids outside [1-99]%']
-        oks_ = ~is_outlier(dataframe)
+        norm_df = dataframe[~is_outlier(dataframe)]
         itercols = floatingcols(dataframe) if columns is None else columns
         for col in itercols:
-            _dfr = dataframe.loc[oks_, :]
-            q01 = np.nanquantile(_dfr[col], 0.01)
-            q99 = np.nanquantile(_dfr[col], 0.99)
-            df1, df99 = _dfr[(_dfr[col] < q01)], _dfr[(_dfr[col] > q99)]
-            segs1 = len(pd.unique(df1[ID_COL]))
-            segs99 = len(pd.unique(df99[ID_COL]))
-            # stas1 = len(pd.unique(df1['station_id']))
-            # stas99 = len(pd.unique(df99['station_id']))
-
             # for calculating min and max, we need to drop also infinity, tgus
             # np.nanmin and np.nanmax do not work. Hence:
-            finite_values = _dfr[col][np.isfinite(_dfr[col])]
+            finite_values = norm_df[col][np.isfinite(norm_df[col])]
             min_, max_ = np.min(finite_values), np.max(finite_values)
             dataframe[col] = (dataframe[col] - min_) / (max_ - min_)
-            if verbose:
-                sum_df[col] = {
-                    infocols[0]: min_,
-                    infocols[1]: max_,
-                    infocols[2]: dataframe[col].min(),
-                    infocols[3]: dataframe[col].quantile(0.5),
-                    infocols[4]: dataframe[col].max(),
-                    infocols[5]: (~np.isfinite(dataframe[col])).sum(),
-                    infocols[6]: segs1 + segs99,
-                    # columns[5]: stas1 + stas99,
-                }
         if verbose:
-            print(df2str(pd.DataFrame(data=list(sum_df.values()),
-                                      columns=infocols,
-                                      index=list(sum_df.keys()))))
-            print("-------")
-            print("Min and max might be outside [0, 1]: the normalization ")
-            print("bounds are calculated on good segments (non outlier) only")
-            print("%s: values which are NaN or Infinity" % infocols[5])
-            print("%s: good instances (not outliers) the given percentiles" % 
-                  infocols[6])
+            print(dfinfo(dataframe).to_string())
 
     return dataframe
 
@@ -513,5 +669,5 @@ def groupby_stations(dataframe, verbose=True):
             assert groups.size().sum() == len(ret)
             print('')
             print('Summary of the new dataset (instances = stations)')
-            print(dfinfo(ret))
+            print(dfinfo(ret).to_string())
         return ret

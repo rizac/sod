@@ -20,8 +20,7 @@ from sklearn.metrics.classification import (confusion_matrix,
                                             log_loss as scikit_log_loss)
 
 from sod.core import pdconcat, odict
-from sod.core.dataset import (is_outlier, classes_of, UNIQUE_ID_COLUMNS,
-                              class_weight, is_class_outlier, OUTLIER_COL)
+from sod.core.dataset import (is_outlier, OUTLIER_COL, dataset_info)
 
 
 CORRECTLY_PREDICTED_COL = 'correctly_predicted'
@@ -36,11 +35,13 @@ def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
         to modify the returned dataframe safely (no pandas warnings), call
         `copy()` on it first.
     '''
+    dinfo = dataset_info(dataframe)
     o_dataframe = dataframe
     dataframe = keep_cols(o_dataframe, columns).copy()
 
     class_index = np.zeros(len(o_dataframe))
-    for i, selector in enumerate(classes_of(dataframe).values(), 1):
+    for i, cname in enumerate(dinfo.classnames, 1):
+        selector = dinfo.class_selector(cname)
         class_index[selector(dataframe)] = i
     dataframe['_t'] = class_index
 
@@ -91,10 +92,13 @@ def keep_cols(dataframe, columns):
     :return: a VIEW of the original dataframe (does NOT return a copy)
         keeping the specified columns only
     '''
-    dfcols = set(dataframe.columns)
-    cols = chain((k for k in columns if k not in UNIQUE_ID_COLUMNS),
-                 (k for k in UNIQUE_ID_COLUMNS if k in dfcols))
-    return dataframe[list(cols)]
+    dinfo = dataset_info(dataframe)
+    cols = set(columns) | set(dinfo.uid_columns)
+    # return the dataframe with only `cols` columns, but assure that
+    # dinfo.uid_columns[0] is in the first position otherwise
+    # dataset_info called on the returned dataframe won't work
+    return dataframe[[dinfo.uid_columns[0]] +
+                     list(_ for _ in cols if _ != dinfo.uid_columns[0])]
 
 
 def classifier(clf_class, dataframe, **clf_params):
@@ -141,12 +145,16 @@ def predict(clf, dataframe, *columns):
     outliers = is_outlier(dataframe)
     logloss_ = log_loss(outliers, predicted)
     cpred_ = correctly_predicted(outliers, predicted)
-    dfcols = set(dataframe.columns)
+    dinfo = dataset_info(dataframe)
+    # return the dataframe with only `cols` columns, but assure that
+    # dinfo.uid_columns[0] is in the first position otherwise
+    # dataset_info called on the returned dataframe won't work
     data = {
+        dinfo.uid_columns[0]: dataframe[dinfo.uid_columns[0]],
         CORRECTLY_PREDICTED_COL: cpred_,
         LOGLOSS_COL: logloss_,
         PREDICT_COL: predicted,
-        **{k: dataframe[k] for k in UNIQUE_ID_COLUMNS if k in dfcols}
+        **{k: dataframe[k] for i, k in enumerate(dinfo.uid_columns) if i > 0}
     }
     return pd.DataFrame(data, index=dataframe.index)
 
@@ -226,8 +234,8 @@ def cmatrix_df(predicted_df):
     The rows of the dataframe will be the keys of `CLASSES` (== `CLASSNAMES`),
     the columns 'ok' (inlier), 'outlier' '%rec', 'Mean log loss'.
     '''
-    classes = classes_of(predicted_df)
-    classnames = list(classes.keys())
+    dinfo = dataset_info(predicted_df)
+    classnames = dinfo.classnames
     # NOTE: IF YOU WANT TO CHANGE 'ok' or 'outlier' THEN CONSIDER CHANGING
     # ALSO THE ROWS (SEE `CLASSNAMES`)
     sum_df_cols = CMATRIX_COLUMNS
@@ -236,8 +244,8 @@ def cmatrix_df(predicted_df):
                           columns=sum_df_cols,
                           dtype=int)
 
-    for cname, selectorfunc in classes.items():
-        cls_df = predicted_df[selectorfunc(predicted_df)]
+    for cname in classnames:
+        cls_df = predicted_df[dinfo.class_selector(cname)(predicted_df)]
         if cls_df.empty:
             continue
         correctly_pred = cls_df[CORRECTLY_PREDICTED_COL].sum()
@@ -245,7 +253,7 @@ def cmatrix_df(predicted_df):
         # map any class defined here to the index of the column above which denotes
         # 'correctly classified'. Basically, map 'ok' to zero and any other class
         # to 1:
-        col_idx = 1 if is_class_outlier(cname) else 0
+        col_idx = 1 if cls_df.iloc[0][OUTLIER_COL] else 0
         # assign value and caluclate percentage recognition:
         sum_df.loc[cname, sum_df_cols[col_idx]] += correctly_pred
         sum_df.loc[cname, sum_df_cols[1-col_idx]] += \
@@ -254,6 +262,7 @@ def cmatrix_df(predicted_df):
             np.around(100 * np.true_divide(correctly_pred, len(cls_df)), 3)
         sum_df.loc[cname, sum_df_cols[3]] = np.around(avg_log_loss, 5)
 
+    sum_df.dataset_info = dinfo
     return sum_df
 
 
@@ -275,6 +284,8 @@ def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
 
     :return: the HTML formatted string containing the evaluation report
     '''
+    first_cm = next(iter(cmatrix_dfs.values()))
+    dinfo = first_cm.dataset_info
     # score columns: list of 'asc', 'desc' or None relative to each element of
     # CMATRIX_COLUMNS
     score_columns = {
@@ -285,14 +296,14 @@ def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
         {'key': params, 'data': sumdf.values.tolist()}
         for (params, sumdf) in cmatrix_dfs.items()
     ]
-    classnames = next(iter(cmatrix_dfs.values())).index.tolist()
+    classnames = dinfo.classnames
     content = _get_eval_report_html_template() % {
         'title': title,
         'evaluations': json.dumps(evl),
         'columns': json.dumps(CMATRIX_COLUMNS),
         'scoreColumns': json.dumps(score_columns),
         'currentScoreColumn': json.dumps(CMATRIX_COLUMNS[-1]),
-        'weights': json.dumps([class_weight(_) for _ in classnames]),
+        'weights': json.dumps([dinfo.class_weight(_) for _ in classnames]),
         'classes': json.dumps(classnames)
     }
     if outfilepath is not None:
@@ -552,6 +563,8 @@ class CVEvaluator:
 
     def save_evel_report(self, fkey, delete=True):
         features = ParamsEncDec.todict(fkey)['features']
+        if not isinstance(features, (list, tuple)):
+            features = (features,)
         title = \
             self.clf_class.__name__ + " (features: %s)" % ", ".join(features)
         sum_dfs = self._eval_reports[fkey]
