@@ -41,7 +41,7 @@ def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
 
     class_index = np.zeros(len(o_dataframe))
     for i, cname in enumerate(dinfo.classnames, 1):
-        selector = dinfo.class_selector(cname)
+        selector = dinfo.class_selector[cname]
         class_index[selector(dataframe)] = i
     dataframe['_t'] = class_index
 
@@ -245,7 +245,7 @@ def cmatrix_df(predicted_df):
                           dtype=int)
 
     for cname in classnames:
-        cls_df = predicted_df[dinfo.class_selector(cname)(predicted_df)]
+        cls_df = predicted_df[dinfo.class_selector[cname](predicted_df)]
         if cls_df.empty:
             continue
         correctly_pred = cls_df[CORRECTLY_PREDICTED_COL].sum()
@@ -303,7 +303,7 @@ def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
         'columns': json.dumps(CMATRIX_COLUMNS),
         'scoreColumns': json.dumps(score_columns),
         'currentScoreColumn': json.dumps(CMATRIX_COLUMNS[-1]),
-        'weights': json.dumps([dinfo.class_weight(_) for _ in classnames]),
+        'weights': json.dumps([dinfo.class_weight[_] for _ in classnames]),
         'classes': json.dumps(classnames)
     }
     if outfilepath is not None:
