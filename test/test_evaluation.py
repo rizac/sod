@@ -44,6 +44,7 @@ class PoolMocker:
         except Exception as exc:
             if error_callback:
                 error_callback(exc)
+            raise
     
     def imap_unordered(self, func, iterable):
         for arg in iterable:
@@ -275,7 +276,7 @@ class Tester:
 
                     assert listdir(join(OUTPATH, evalconfigname))
                     # check prediction file:
-                    html_file= None
+                    html_file = None
                     prediction_file = None
                     model_file = None
                     for fle in listdir(join(OUTPATH, evalconfigname)):
