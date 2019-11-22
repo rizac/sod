@@ -45,9 +45,6 @@ def is_outlier(dataframe):
 ##########################
 
 
-S2S_COL = 'Segment.db.id'
-
-
 def open_dataset(filename, normalize=True, verbose=True):
 
     filepath = dataset_path(filename)
@@ -59,35 +56,7 @@ def open_dataset(filename, normalize=True, verbose=True):
         raise ValueError('Invalid dataset, no function "%s" '
                          'implemented' % keyname)
 
-    if verbose:
-        print('Opening %s' % abspath(filepath))
-
-    # capture warnings which are redirected to stderr:
-    with capture_stderr(verbose):
-        dfr = pd.read_hdf(filepath)
-
-        # EXTREMELY IMPORTANT PART: create the id column and set it
-        idcol = datasetinfo.uid_columns[0]
-        dfr.insert(0, idcol, dfr[S2S_COL])
-        dfr.drop(S2S_COL, axis=1, inplace=True)
-
-        try:
-            dfr = datasetinfo.open(dfr)
-        except Exception as exc:
-            raise ValueError('Check module function "%s", error: %s' %
-                             (datasetinfo.__name__, str(exc)))
-
-        if verbose:
-            print('')
-            print(dfinfo(dfr).to_string())
-
-        if normalize:
-            print('')
-            dfr = dfnormalize(dfr, None, verbose)
-
-    # for safety:
-    dfr.reset_index(drop=True, inplace=True)
-    return dfr
+    return datasetinfo.open(filename, normalize, verbose)
 
 
 def dataset_path(filename, assure_exist=True):
@@ -113,7 +82,52 @@ def dataset_info(dataframe):
     raise ValueError('DataFrame not bound to a known dataset')
 
 
-class pgapgv:
+class DatasetInfo:
+    
+    S2S_COL = 'Segment.db.id'
+
+    @classmethod
+    def open(cls, filename, normalize=True, verbose=True):
+
+        filepath = dataset_path(filename)
+        keyname = splitext(basename(filepath))[0]
+
+        if verbose:
+            print('Opening %s' % abspath(filepath))
+
+        # capture warnings which are redirected to stderr:
+        with capture_stderr(verbose):
+            dfr = pd.read_hdf(filepath)
+
+            # EXTREMELY IMPORTANT PART: create the id column and set it
+            idcol = cls.uid_columns[0]
+            dfr.insert(0, idcol, dfr[cls.S2S_COL])
+            dfr.drop(cls.S2S_COL, axis=1, inplace=True)
+
+            try:
+                dfr = cls._open(dfr)
+            except Exception as exc:
+                raise ValueError('Check module function "%s", error: %s' %
+                                 (cls.__name__, str(exc)))
+
+            if verbose:
+                print('')
+                print(dfinfo(dfr))
+
+            if normalize:
+                print('')
+                dfr = dfnormalize(dfr, None, verbose)
+
+        # for safety:
+        dfr.reset_index(drop=True, inplace=True)
+        return dfr
+
+    @classmethod
+    def _open(cls, dataframe):
+        return dataframe
+
+
+class pgapgv(DatasetInfo):
     _MODIFIED_COL = 'modified'
 
     # list of unique columns identifying an instance in this dataset
@@ -166,7 +180,7 @@ class pgapgv:
     }
 
     @classmethod
-    def open(cls, dataframe):
+    def _open(cls, dataframe):
         '''Custom operations to be performed on this dataset'''
         modified_col = cls._MODIFIED_COL
         # setting up columns:
@@ -200,7 +214,7 @@ class pgapgv:
         return dataframe
 
 
-class oneminutewindows:
+class oneminutewindows(DatasetInfo):
 
     _WINDOW_TYPE_COL = 'window_type'  # defined in oneminiutewindows.hdf
 
@@ -222,7 +236,7 @@ class oneminutewindows:
     class_weight = pgapgv.class_weight
 
     @classmethod
-    def open(cls, dataframe):
+    def _open(cls, dataframe):
         '''Custom operations to be performed on this dataset'''
         modified_col = pgapgv._MODIFIED_COL
         # save space:
@@ -232,7 +246,11 @@ class oneminutewindows:
         return dataframe
 
 
-class magnitudeenergy:
+class oneminutewindows_sn_only(oneminutewindows):
+    pass
+
+
+class magnitudeenergy(DatasetInfo):
 
     _SUBCLASS_COL = 'subclass'  # defined in magnitudeenergy.hdf
 
@@ -257,10 +275,10 @@ class magnitudeenergy:
     class_selector = {
         classnames[0]: lambda dataframe:
             ~is_outlier(dataframe) &
-            dataframe[magnitudeenergy._SUBCLASS_COL].str.len() < 1,
+            dataframe[magnitudeenergy._SUBCLASS_COL].str.match('^$'),
         classnames[1]: lambda dataframe:
             is_outlier(dataframe) &
-            dataframe[magnitudeenergy._SUBCLASS_COL].str.len() < 1,
+            dataframe[magnitudeenergy._SUBCLASS_COL].str.match('^$'),
         classnames[2]: lambda df:
             df[magnitudeenergy._SUBCLASS_COL].
             str.contains('unlabeled.maybe.outlier'),
@@ -279,7 +297,7 @@ class magnitudeenergy:
     }
 
     @classmethod
-    def open(cls, dataframe):
+    def _open(cls, dataframe):
         '''Custom operations to be performed on this dataset'''
         subclass_col = cls._SUBCLASS_COL
         # save space:
@@ -332,13 +350,12 @@ def capture_stderr(verbose=False):
             sys.stderr = syserr
 
 
-def dfinfo(dataframe):
+def dfinfo(dataframe, asstring=True):
     '''Returns a a dataframe with info about the given `dataframe` representing
     a given dataset
     '''
     dinfo = dataset_info(dataframe)
     classes = {c: dinfo.class_selector[c] for c in dinfo.classnames}
-    cols2 = floatingcols(dataframe)
     sum_dfs = odict()
     empty_classes = set()
     infocols = ['Min', 'Median', 'Max', '#NAs', '#<1Perc.', '#>99Perc.']
@@ -349,7 +366,7 @@ def dfinfo(dataframe):
             empty_classes.add(classname)
             continue
         # if _dfr.empty
-        for col in cols2:
+        for col in floatingcols(dataframe):
             q01 = np.nanquantile(_dfr[col], 0.01)
             q99 = np.nanquantile(_dfr[col], 0.99)
             df1, df99 = _dfr[(_dfr[col] < q01)], _dfr[(_dfr[col] > q99)]
@@ -359,21 +376,28 @@ def dfinfo(dataframe):
             # stas99 = len(pd.unique(df99['station_id']))
 
             sum_df[col] = {
-                infocols[0]: np.nanmin(dataframe[col]),
-                infocols[1]: np.nanquantile(dataframe[col], 0.5),
-                infocols[2]: np.nanmax(dataframe[col]),
-                infocols[3]: (~np.isfinite(dataframe[col])).sum(),
+                infocols[0]: np.nanmin(_dfr[col]),
+                infocols[1]: np.nanquantile(_dfr[col], 0.5),
+                infocols[2]: np.nanmax(_dfr[col]),
+                infocols[3]: (~np.isfinite(_dfr[col])).sum(),
                 infocols[4]: len(df1),
                 infocols[5]: len(df99)
                 # columns[5]: stas1 + stas99,
             }
-        sum_dfs[classname + ' (#: %d)' % len(_dfr)] = \
+        sum_dfs[classname + " (%d instances)" % len(_dfr)] = \
             pd.DataFrame(data=list(sum_df.values()),
                          columns=infocols,
                          index=list(sum_df.keys()))
 
 #     return df2str(pd.DataFrame(data, columns=columns, index=index))
-    return pd.concat(sum_dfs.values(), axis=0, keys=sum_dfs.keys())
+    if not asstring:
+        return pd.concat(sum_dfs.values(), axis=0, keys=sum_dfs.keys(),
+                         sort=False)
+
+    allstrs = []
+    for (key, val) in sum_dfs.items():
+        allstrs.extend(['', key, val.to_string()])
+    return '\n'.join(allstrs)
 
 
 # def df2str(dataframe):
@@ -412,7 +436,9 @@ def dfnormalize(dataframe, columns=None, verbose=True):
             print('Normalizing numeric columns (floats only)')
         else:
             print('Normalizing %s' % str(columns))
-        print('(only good instances - no outliers - taken into account)')
+        print('Normalization is a Rescaling (min-max normalization) where '
+              'mina and max are calculated on inliers only'
+              'and applied to all instances)')
 
     with capture_stderr(verbose):
         norm_df = dataframe[~is_outlier(dataframe)]
@@ -424,7 +450,7 @@ def dfnormalize(dataframe, columns=None, verbose=True):
             min_, max_ = np.min(finite_values), np.max(finite_values)
             dataframe[col] = (dataframe[col] - min_) / (max_ - min_)
         if verbose:
-            print(dfinfo(dataframe).to_string())
+            print(dfinfo(dataframe))
 
     return dataframe
 
@@ -499,5 +525,5 @@ def groupby_stations(dataframe, verbose=True):
             assert groups.size().sum() == len(ret)
             print('')
             print('Summary of the new dataset (instances = stations)')
-            print(dfinfo(ret).to_string())
+            print(dfinfo(ret))
         return ret
