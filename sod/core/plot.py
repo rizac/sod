@@ -8,8 +8,9 @@ from itertools import product, repeat, cycle
 from sklearn.calibration import calibration_curve, CalibratedClassifierCV
 from matplotlib.patches import Rectangle
 from matplotlib.collections import PatchCollection
+from sod.core.dataset import dataset_info
 # from sod.core.evaluation import is_outlier, pdconcat
-from sod.core.dataset import classes_of
+
 # %matplotlib inline
 
 
@@ -36,10 +37,12 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
 
     dfs = {}
     numsegments = {}
-    classes = classes_of(df)
+    dinfo = dataset_info(df)
     # divide the dataframe in bins using pandas qcut, which creates bins
     # with roughly the same size of samples per bin
-    for name, fff in classes.items():
+    for name in dinfo.classnames:
+        fff = dinfo.class_selector[name]
+        
         class_df = df[fff(df)]
 
         numsegments[name] = len(class_df)
@@ -73,11 +76,11 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
         dfs[name] = class_df_bins
 
     fig = plt.figure(figsize=(15, 15))
-    rows = int(sqrt(len(classes)))
+    rows = int(sqrt(len(dinfo.classnames)))
     cols = rows
-    if rows * cols < len(classes):
+    if rows * cols < len(dinfo.classnames):
         rows += 1
-    if rows * cols < len(classes):
+    if rows * cols < len(dinfo.classnames):
         cols += 1
 
     def newaxes(index):
@@ -122,7 +125,7 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
         [0, 0.75, 0.1]   # swap acc <-> vel
     ]
     # now for all other classes set the same color:
-    for _ in range(len(classes)-len(colors)):
+    for _ in range(len(dinfo.classnames)-len(colors)):
         colors.append([0.75, 0.5, 0])
 
     for i, ((name, _df_), color) in enumerate(zip(dfs.items(), colors)):
