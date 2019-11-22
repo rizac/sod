@@ -447,7 +447,7 @@ class CVEvaluator:
 
         self._predictions.clear()
         self._eval_reports.clear()
-        pool = Pool(processes=int(cpu_count()))
+        pool = None  # Pool(processes=int(cpu_count()))
 
         with click.progressbar(
             length=len(columns) * (1 + self.n_folds) * len(self.parameters),
@@ -470,6 +470,9 @@ class CVEvaluator:
 
             try:
                 for cols in columns:
+
+                    pool = Pool(processes=int(cpu_count()))
+
                     # purge the dataframe from duplicates (drop_duplicates)
                     # and unnecessary columns (keep_cols). Return a copy at the end
                     # of the process. This helps memory mamagement in
@@ -499,10 +502,9 @@ class CVEvaluator:
                                 callback=aasync_callback,
                                 error_callback=kill_pool
                             )
-                    pool.join()
 
-                pool.close()
-                
+                    pool.close()
+                    pool.join()
 
             except Exception as exc:  # pylint: disable=broad-except
                 kill_pool(str(exc))
