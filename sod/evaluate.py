@@ -9,7 +9,7 @@ from os import makedirs
 from os.path import (isabs, abspath, isdir, isfile, dirname, join, basename,
                      splitext)
 from yaml import safe_load
-from sod.core.dataset import dataset_path, open_dataset
+from sod.core.dataset import dataset_path, open_dataset, magnitudeenergy
 from sod.core.evaluation import CVEvaluator, is_outlier, Evaluator
 from sklearn.svm.classes import OneClassSVM
 from sklearn.ensemble.iforest import IsolationForest
@@ -69,9 +69,45 @@ class IsolationForestEvaluator(OcsvmEvaluator):
         CVEvaluator.__init__(self, IsolationForest, parameters, n_folds)
 
 
+class IsolationForestEvaluatorMagnitudeEnergyDataset(IsolationForestEvaluator):
+    '''IsolationForest evaluator for the MagnitudeEnergy dataset'''
+
+    @staticmethod
+    def inlier_selector(dataframe):
+        return ~is_outlier(dataframe) & \
+            dataframe[magnitudeenergy._SUBCLASS_COL].str.match('^$')
+
+    def train_test_split_cv(self, dataframe):
+        '''Returns an iterable yielding (train_df, test_df) elements for
+        cross-validation. Both DataFrames in each yielded elements are subset
+        of `dataframe`
+        '''
+        # we have TWO types of not outliers in this
+        return CVEvaluator.train_test_split_cv(
+            self, dataframe[self.inlier_selector(dataframe)]
+        )
+
+    def train_test_split_model(self, dataframe):
+        '''Returns two dataframe representing the train and test dataframe for
+        training the global model. Unless subclassed this method returns the
+        tuple:
+        ```
+        dataframe, None
+        ```
+        '''
+        is_inl = self.inlier_selector(dataframe)
+        return dataframe[is_inl], dataframe[~is_inl]
+
+    def run(self, dataframe, columns,  # pylint: disable=arguments-differ
+            destdir):
+        CVEvaluator.run(self, dataframe, columns, remove_na=True,
+                        destdir=destdir)
+
+
 EVALUATORS = {
     'OneClassSVM': OcsvmEvaluator,
-    'IsolationForest': IsolationForestEvaluator  # IsolationForestEvaluator
+    'IsolationForest': IsolationForestEvaluator,  # IsolationForestEvaluator
+    'IsolationForestMeDataset': IsolationForestEvaluatorMagnitudeEnergyDataset
 }
 
 
