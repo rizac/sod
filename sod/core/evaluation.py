@@ -499,9 +499,10 @@ class CVEvaluator:
                                 callback=aasync_callback,
                                 error_callback=kill_pool
                             )
+                    pool.join()
 
                 pool.close()
-                pool.join()
+                
 
             except Exception as exc:  # pylint: disable=broad-except
                 kill_pool(str(exc))
