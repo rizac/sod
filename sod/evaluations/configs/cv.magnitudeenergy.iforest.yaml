@@ -5,7 +5,7 @@ input: 'magnitudeenergy.hdf'
 
 # The classifier. See `execute.EVALUATORS` for a list of possible strings
 # mapped to a subclass of the base `Evaluator` class (defined in `evaluation.__init__`)
-clf: "IsolationForest"
+clf: "IsolationForestMeDataset"
 
 # The features (inout dataframe columns) to iterate over:
 features:
