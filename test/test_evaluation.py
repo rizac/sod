@@ -408,18 +408,21 @@ class Tester:
                 'f=1,2&c=ert']
         for _ in list(strs):
             strs.append(_+'.extension')
+            strs.append(_.replace('f=', 'features='))
         for str_ in strs:
-            dic = ParamsEncDec.todict(str_)
             if '?' not in str_:
-                assert not dic
+                with pytest.raises(ValueError):
+                    ParamsEncDec.todict(str_)
                 continue
-            assert sorted(dic.keys()) == ['c', 'f']
-            assert dic['f'] == ('1', '2')
-            assert dic['c'] == 'ert'
-            expected = splitext(basename(str_))[0]
-            if '?' in expected:
-                expected = expected[expected.index('?'):]
-            assert ParamsEncDec.tostr(dic) == expected
+            dic = ParamsEncDec.todict(str_)
+            if 'features=' in str_:
+                assert sorted(dic.keys()) == ['c', 'features']
+                assert dic['features'] == ('1', '2')
+            else:
+                assert sorted(dic.keys()) == ['c', 'f']
+                assert dic['f'] == ('1,2')
+            assert dic['c'] == \
+                'ert' + ('.extension' if '.extension' in str_ else '')
 
         # try with a string containing a comma percent encoded (%2C):
         str_ = 'bla/asd?f=1%2C2&c=ert'
@@ -427,4 +430,6 @@ class Tester:
         assert sorted(dic.keys()) == ['c', 'f']
         assert dic['f'] == ('1,2')
         assert dic['c'] == 'ert'
-        assert ParamsEncDec.tostr(dic) == str_[str_.index('?'):]
+        assert ParamsEncDec.tostr(**dic) == str_[str_.index('?'):]
+        assert ParamsEncDec.tostr(3, 's', **dic) == \
+            '?features=3,s&f=1%2C2&c=ert'
