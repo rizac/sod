@@ -10,10 +10,10 @@ clf: "OneClassSVM"
 # The features (inout dataframe columns) to iterate over:
 features:
   -
-#    - 'psd@2sec'
+    - 'psd@2sec'
 #   -
 #     - 'psd@5sec'
-#   -
+  -
     - 'psd@2sec'
     - 'psd@5sec'
 

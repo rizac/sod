@@ -25,7 +25,8 @@ from sklearn.metrics.scorer import brier_score_loss_scorer
 from sod.core.evaluation import (split, classifier, predict, _predict,
                                  CVEvaluator, train_test_split,
                                  drop_duplicates,
-                                 keep_cols, drop_na, cmatrix_df, ParamsEncDec)
+                                 keep_cols, drop_na, cmatrix_df, ParamsEncDec,
+                                 join_save_evaluation)
 from sod.core.dataset import (open_dataset, groupby_stations)
 from sod.evaluate import (OcsvmEvaluator, run)
 from sod.core import paths
@@ -74,6 +75,7 @@ class Tester:
     cv_evalconfig = join(dirname(__file__), 'data', 'cv.pgapgv.ocsvm.yaml')
     cv_evalconfig2 = join(dirname(__file__), 'data', 'cv.oneminutewindows.ocsvm.yaml')
     evalconfig = join(dirname(__file__), 'data', 'eval.oneminutewindows.yaml')
+    evalconfig2 = join(dirname(__file__), 'data', 'eval.pgapgv.yaml')
 
     tmpdir = join(dirname(__file__), 'tmp')
 
@@ -279,15 +281,20 @@ class Tester:
                     html_file = None
                     prediction_file = None
                     model_file = None
-                    for fle in listdir(join(OUTPATH, evalconfigname)):
-                        if not model_file and splitext(fle)[1] == '.model':
-                            model_file = join(OUTPATH, evalconfigname, fle)
-                        elif not prediction_file and splitext(fle)[1] == '.hdf':
-                            prediction_file = join(OUTPATH, evalconfigname, fle)
-                        elif not html_file and splitext(fle)[1] == '.html':
-                            html_file = join(OUTPATH, evalconfigname, fle)
-                    assert html_file and prediction_file and model_file
+                    subdirs = (CVEvaluator.EVALREPORTDIRNAME,
+                               CVEvaluator.PREDICTIONSDIRNAME,
+                               CVEvaluator.MODELDIRNAME)
+                    assert sorted(listdir(join(OUTPATH, evalconfigname))) == \
+                        sorted(subdirs)
+                    for subdir in subdirs:
+                        assert listdir(join(OUTPATH, evalconfigname, subdir))
 
+                    prediction_file = \
+                        listdir(join(OUTPATH, evalconfigname,
+                                     CVEvaluator.PREDICTIONSDIRNAME))[0]
+                    prediction_file = join(OUTPATH, evalconfigname,
+                                           CVEvaluator.PREDICTIONSDIRNAME,
+                                           prediction_file)
                     id = basename(evalconfigpath).split('.')[1] + '.id'
                     if evalconfigpath == self.cv_evalconfig:
                         cols = ['correctly_predicted', 'outlier', 'modified',
@@ -309,6 +316,13 @@ class Tester:
                 runner = CliRunner()
                 result = runner.invoke(run, ["-c", basename(self.evalconfig)])
                 assert not result.exception
+                runner = CliRunner()
+                result = runner.invoke(run, ["-c", basename(self.evalconfig2)])
+                assert not result.exception
+
+        join_save_evaluation(join(OUTPATH,
+                                  basename(self.cv_evalconfig2),
+                                  'evalreports'))
 
     def test_dirs_exist(self):
         '''these tests MIGHT FAIL IF DIRECTORIES ARE NOT YET INITIALIZED

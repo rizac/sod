@@ -7,7 +7,8 @@ Created on 1 Nov 2019
 '''
 import json
 from multiprocessing import Pool, cpu_count
-from os.path import join, dirname, isfile, basename, splitext
+from os import listdir, makedirs
+from os.path import join, dirname, isfile, basename, splitext, isdir, abspath
 from itertools import product, chain
 from collections import defaultdict
 
@@ -21,6 +22,7 @@ from sklearn.metrics.classification import (confusion_matrix,
 
 from sod.core import pdconcat, odict
 from sod.core.dataset import (is_outlier, OUTLIER_COL, dataset_info)
+import re
 
 
 CORRECTLY_PREDICTED_COL = 'correctly_predicted'
@@ -383,6 +385,10 @@ class CVEvaluator:
     evaluation, saving all predictions in HDF file, and a summary report in a
     dynamic html page'''
 
+    MODELDIRNAME = 'models'
+    EVALREPORTDIRNAME = 'evalreports'
+    PREDICTIONSDIRNAME = 'predictions'
+
     # a dict of default params for the classifier:
     default_clf_params = {}
 
@@ -412,9 +418,6 @@ class CVEvaluator:
         '''Returns an unique file path from the given features and params'''
         # build an orderd dict
         paramz = odict()
-        # add features:
-        if features:
-            paramz['features'] = features
         # add parameters:
         # 1. make params sorted first by iteration params then default ones,
         pr1 = sorted(k for k in params if k not in self.default_clf_params)
@@ -425,7 +428,7 @@ class CVEvaluator:
         # build a base file path with the current classifier class name:
         basepath = join(destdir, self.clf_class.__name__)
         # add the URLquery-like string with ParamsEncDec.tostr:
-        return basepath + ParamsEncDec.tostr(paramz)
+        return basepath + ParamsEncDec.tostr(*features, **paramz)
 
     def run(self, dataframe, columns, remove_na, destdir):
         '''Runs the model evaluation using the data in `dataframe` under
@@ -435,6 +438,14 @@ class CVEvaluator:
         print('Running CVEvaluator. All files will be stored in:\n%s' %
               dirname(basepath))
         print('with file names prefixed with "%s"' % basename(basepath))
+
+        for subdir in [self.MODELDIRNAME, self.EVALREPORTDIRNAME,
+                       self.PREDICTIONSDIRNAME]:
+            _ddir = abspath(join(destdir, subdir))
+            if not isdir(_ddir):
+                makedirs(_ddir)
+            if not isdir(_ddir):
+                raise ValueError('Unable to create "%s"' % _ddir)
 
         if remove_na:
             print('')
@@ -485,7 +496,8 @@ class CVEvaluator:
                             self.train_test_split_model(dataframe_)
                         prms = {**self.default_clf_params, **dict(params)}
                         fpath = self.uniquefilepath(destdir, *cols, **prms)
-                        fpath += '.model'
+                        fpath = join(dirname(fpath), self.MODELDIRNAME,
+                                     basename(fpath)) + '.model'
                         pool.apply_async(
                             _fit_and_predict,
                             (self.clf_class, cpy(_traindf), cols, prms,
@@ -557,7 +569,9 @@ class CVEvaluator:
         predicted_df = pdconcat(list(_ for _ in self._predictions[fpkey]
                                      if not getattr(_, 'empty', True)))
         # fpkey is also the unique file path associated to the data, so:
-        save_df(predicted_df, fpkey + '.predictions.hdf', key='predictions')
+        destfile = join(dirname(fpkey), self.PREDICTIONSDIRNAME,
+                        basename(fpkey)) + '.hdf'
+        save_df(predicted_df, destfile, key='predictions')
         if delete:
             # delete unused data (help gc?):
             del self._predictions[fpkey]
@@ -566,8 +580,6 @@ class CVEvaluator:
 
     def save_evel_report(self, fkey, delete=True):
         features = ParamsEncDec.todict(fkey)['features']
-        if not isinstance(features, (list, tuple)):
-            features = (features,)
         title = \
             self.clf_class.__name__ + " (features: %s)" % ", ".join(features)
         sum_dfs = self._eval_reports[fkey]
@@ -578,8 +590,10 @@ class CVEvaluator:
             basename(key)[basename(key).index('?')+1:].replace('&', ' '): val
             for key, val in sum_dfs.items()
         }
+        destfile = join(dirname(fkey), self.EVALREPORTDIRNAME,
+                        basename(fkey)) + '.html'
         # fkey is also the unique file path associated to the data
-        create_evel_report(sum_dfs, fkey + '.evalreport.html', title)
+        create_evel_report(sum_dfs, destfile, title)
         if delete:
             del self._eval_reports[fkey]
 
@@ -605,6 +619,68 @@ def _fit_and_predict(clf_class, train_df, columns, params, test_df=None,
     return clf, params, columns, predictions
 
 
+def join_save_evaluation(indir):
+    template_chunks = []
+    dotall, icase = re.DOTALL, re.IGNORECASE  # @UndefinedVariable
+    re_data = re.compile(r'evaluations: +(\[\{.*?\}\]),\n', dotall)
+    re_classes = re.compile(r'classes: +(\[.*?\]),\n', dotall)
+    re_weights = re.compile(r'weights: +(\[.*?\]),\n', dotall)
+    classes = []
+    weights = []
+    all_data = [] 
+    for fle in listdir(indir):
+        bfle, efle = splitext(fle) 
+        if efle.lower() == '.html':
+            if '?' not in bfle:
+                continue
+            prefix = "clf=%s" % bfle[:bfle.index('?')]
+            params = ParamsEncDec.todict(bfle)
+            if 'features' not in params or len(params) > 1:
+                continue
+            prefix += " features=%s" % ",".join(params['features'])
+            with open(join(indir, fle), 'r') as _opn:
+                content = _opn.read()
+                match_data = re_data.search(content)
+                if not match_data:
+                    raise ValueError('No data match found')
+                try:
+                    for dic in json.loads(match_data.group(1)):
+                        dic['key'] = prefix + " " + dic['key']
+                        all_data.append(dic)
+                except:
+                    raise ValueError('data unparsable as JSON')
+                if not template_chunks:
+                    start, end = match_data.start(1), match_data.end(1)
+                    template_chunks = \
+                        [content[:start], '\n', content[end:]]
+                for name, matcher in zip(('classes', 'weights'),
+                                        (re_classes, re_weights)):
+                    match_ = matcher.search(content)
+                    if not match_:
+                        raise ValueError('No %s match found' % name)
+                    try:
+                        _pyval = json.loads(match_.group(1))
+                    except:
+                        raise ValueError('classes unparsable as JSON')
+                    if name == 'classes' and not classes:
+                        classes = _pyval
+                    elif not weights:
+                        weights = _pyval
+                    expected = classes if name == 'classes' else weights
+                    if expected != _pyval:
+                        raise ValueError('Mismatching %s in htmls' % name)
+
+    template_chunks[1] = json.dumps(all_data)
+    content = ''.join(template_chunks)
+    re_title = re.compile(r'<title>(.*?)</title>', icase)
+    oldtitle = re_title.search(content).group(1).strip()
+    newtitle = "Summary CV evaluations"
+    content = content.replace(oldtitle, newtitle)
+    outfile = join(indir, 'evaluations.all.html')
+    with open(outfile, 'w') as _opn:
+        _opn.write(content)
+                 
+
 class Evaluator:
     '''Class for evaluating pre-fitted and saved model(s) (ususally obtained
     via `CVEvaluator`) against a
@@ -616,9 +692,17 @@ class Evaluator:
                 len(classifier_paths):
             raise ValueError('You need to pass a list of unique file names')
 
-        if not all('features' in ParamsEncDec.todict(clfpath)
-                   for clfpath in classifier_paths):
-            raise ValueError("'features=' not found in all classifiers names")
+        self.clf_features = {}
+        for clfpath in classifier_paths:
+            fpath, ext = splitext(clfpath)
+            if ext != '.model':
+                raise ValueError('Classifiers file names must have extension'
+                                 ' .model')
+            _params = ParamsEncDec.todict(fpath)
+            if 'features' not in _params:
+                raise ValueError("'features=' not found in file name '%s'" %
+                                 basename(fpath))
+            self.clf_features[basename(clfpath)] = _params['features']
 
         self.clfs = {}
         for _ in classifier_paths:
@@ -633,8 +717,8 @@ class Evaluator:
         bounds = None
         if normalizer_df is not None:
             bounds = {}
-            for clfpath in classifier_paths:
-                for feat in ParamsEncDec.todict(clfpath)['features']:
+            for features in self.clf_features.values():
+                for feat in features:
                     bounds[feat] = (None, None)
             normalizer_df_columns = set(normalizer_df.columns)
             ndf = normalizer_df[~is_outlier(normalizer_df)]
@@ -645,9 +729,20 @@ class Evaluator:
         self.bounds = bounds
 
     def run(self, test_df, destdir):
-        pool = Pool(processes=int(cpu_count()))
+        test_dataset_name = dataset_info(test_df).__name__
 
-        print('Running Evaluator (%d classifiers supplied)' % len(self.clfs))
+        predictions_destdir = abspath(join(destdir,
+                                           CVEvaluator.PREDICTIONSDIRNAME))
+        if not isdir(predictions_destdir):
+            makedirs(predictions_destdir)
+        if not isdir(predictions_destdir):
+            raise ValueError('Unable to create dirctory "%s"' %
+                             predictions_destdir)
+
+        print('Evaluating %d classifiers on test dataset "%s"'
+              % (len(self.clfs), test_dataset_name))
+
+        pool = Pool(processes=int(cpu_count()))
 
         with click.progressbar(
             length=len(self.clfs),
@@ -668,10 +763,11 @@ class Evaluator:
                         pool.imap_unordered(_imap_predict,
                                             self.iterator(test_df)):
                     pbar.update(1)
-                    if destdir is not None:
-                        save_df(predicted_df,
-                                join(destdir, clfname+'.predictions.hdf'),
-                                key='predictions')
+                    pred_basename = splitext(clfname)[0]
+                    pred_basename += "&testset=%s" % test_dataset_name + '.hdf'
+                    save_df(predicted_df,
+                            join(predictions_destdir, pred_basename),
+                            key='predictions')
                     key = splitext(clfname)[0].replace('?', ' ').\
                         replace('&', ' ')
                     cmatrix_dfs['clf=%s' % key] = cmatrix_df(predicted_df)
@@ -682,10 +778,10 @@ class Evaluator:
             except Exception as exc:  # pylint: disable=broad-except
                 kill_pool(exc)
 
-            outfilepath = None if destdir is None else \
-                join(destdir, 'evalreport.html')
+            outfilepath = join(destdir, 'evalreport.html')
             title = ('Evalation results comparing '
-                     '%d classifiers') % len(self.clfs)
+                     '%d classifiers on test dataset "%s"') % \
+                    (len(self.clfs), test_dataset_name)
             return create_evel_report(cmatrix_dfs, outfilepath, title=title)
 
     def iterator(self, dataframe):
@@ -693,7 +789,7 @@ class Evaluator:
         classifiers of this class
         '''
         for name, clf in self.clfs.items():
-            features = ParamsEncDec.todict(name)['features']
+            features = self.clf_features[name]
             dataframe_ = drop_duplicates(dataframe, features, 0, verbose=False)
             dataframe_ = keep_cols(dataframe_, features).copy()
             # normalize:
@@ -733,13 +829,11 @@ class ParamsEncDec:
                                         ['%2F', '%26', '%3F', '%3D', '%2C'])}
 
     @staticmethod
-    def tostr(params):
+    def tostr(*features, **params):
         '''Encodes params dict to string in a URL query fashion:
         ?param1=value&param2=value2...
-        Each value is converted using `ParamsEncDec._tostr` (which is the
-        same as Python __str__ method excepts that for iterables, where it
-        firsts sort them and then returns the elements joined with comma)
 
+        :param features: a list of features
         :param params: dict of string params mapped to values (pass OrederdDict
             if you want to preserve insertion order and Python < 3.7)
         '''
@@ -750,26 +844,19 @@ class ParamsEncDec:
 
         chunks = []
         prefix = '?'
+        if features:
+            chunks.append("%sfeatures=%s" %
+                          (prefix, ",".join(quote(_) for _ in features)))
+            prefix = '&'
         for key, val in params.items():
-            # get if val is iterable (strings and bytes are not considered
-            # iterables):
-            if hasattr(val, '__iter__') and not isinstance(val, (str, bytes)):
-                try:
-                    val = sorted(val)
-                except TypeError:
-                    # list/tuple with mixed types. Convert to string and then sort:
-                    val = sorted(str(_) for _ in val)
-                # now convert
-                val = ",".join(quote(_) for _ in val)
-            else:
-                val = quote(str(val))
-            chunks.append('%s%s=%s' % (prefix, quote(str(key)), val))
+            chunks.append('%s%s=%s' %
+                          (prefix, quote(str(key)), quote(str(val))))
             prefix = '&'
 
         return ''.join(chunks)
 
     @staticmethod
-    def todict(string):
+    def todict(filepath_noext):
         '''Decodes string encoded parameters to dict
 
         :param string: string including a query string denoting parameters
@@ -780,9 +867,6 @@ class ParamsEncDec:
             file?a=8,9,10&b=gamma
             or simply its query string portion:
             ?a=8,9,10&b=gamma
-        :param comma_sep: boolean (False by default), whether strings with
-            commas should be parsed back as tuples. False will leave every
-            dict value as string
         '''
 
         def unquote(string):
@@ -792,14 +876,14 @@ class ParamsEncDec:
             return string
 
         ret = odict()  # ordered dict
-        pth = splitext(basename(string))[0]
+        pth = basename(filepath_noext)
         if '?' not in pth:
             return ret
         pth = pth[pth.find('?') + 1:]
         splits = pth.split('&')
         for chunk in splits:
             param, value = chunk.split('=')
-            if ',' in value:
+            if param == 'features':
                 value = tuple(unquote(_) for _ in value.split(','))
             else:
                 value = unquote(value)
