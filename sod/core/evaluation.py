@@ -846,7 +846,7 @@ class ParamsEncDec:
         prefix = '?'
         if features:
             chunks.append("%sfeatures=%s" %
-                          (prefix, ",".join(quote(_) for _ in features)))
+                          (prefix, ",".join(quote(str(_)) for _ in features)))
             prefix = '&'
         for key, val in params.items():
             chunks.append('%s%s=%s' %
@@ -878,7 +878,7 @@ class ParamsEncDec:
         ret = odict()  # ordered dict
         pth = basename(filepath_noext)
         if '?' not in pth:
-            return ret
+            raise ValueError('"?" not in "%s"' % pth)
         pth = pth[pth.find('?') + 1:]
         splits = pth.split('&')
         for chunk in splits:
