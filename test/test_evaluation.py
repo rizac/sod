@@ -420,7 +420,7 @@ class Tester:
                 assert dic['features'] == ('1', '2')
             else:
                 assert sorted(dic.keys()) == ['c', 'f']
-                assert dic['f'] == ('1,2')
+                assert dic['f'] == '1,2'
             assert dic['c'] == \
                 'ert' + ('.extension' if '.extension' in str_ else '')
 
@@ -428,8 +428,8 @@ class Tester:
         str_ = 'bla/asd?f=1%2C2&c=ert'
         dic = ParamsEncDec.todict(str_)
         assert sorted(dic.keys()) == ['c', 'f']
-        assert dic['f'] == ('1,2')
+        assert dic['f'] == '1,2'
         assert dic['c'] == 'ert'
         assert ParamsEncDec.tostr(**dic) == str_[str_.index('?'):]
-        assert ParamsEncDec.tostr(3, 's', **dic) == \
-            '?features=3,s&f=1%2C2&c=ert'
+        assert ParamsEncDec.tostr(3, 's,', **dic) == \
+            '?features=3,s%2C&f=1%2C2&c=ert'
