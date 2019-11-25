@@ -458,7 +458,7 @@ class CVEvaluator:
 
         self._predictions.clear()
         self._eval_reports.clear()
-        pool = Pool(processes=int(cpu_count()))
+        pool = None  # Pool(processes=int(cpu_count()))
 
         with click.progressbar(
             length=len(columns) * (1 + self.n_folds) * len(self.parameters),
@@ -490,6 +490,7 @@ class CVEvaluator:
                                                  verbose=False)
                     dataframe_ = keep_cols(dataframe_, cols).copy()
                     for params in self.parameters:
+                        pool = Pool(processes=int(cpu_count()))
                         _traindf, _testdf = \
                             self.train_test_split_model(dataframe_)
                         prms = {**self.default_clf_params, **dict(params)}
@@ -512,10 +513,9 @@ class CVEvaluator:
                                 callback=aasync_callback,
                                 error_callback=kill_pool
                             )
-                        pool.join()
 
-                pool.close()
-                pool.join()
+                        pool.close()
+                        pool.join()
 
             except Exception as exc:  # pylint: disable=broad-except
                 kill_pool(str(exc))
