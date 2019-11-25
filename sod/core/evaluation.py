@@ -458,7 +458,7 @@ class CVEvaluator:
 
         self._predictions.clear()
         self._eval_reports.clear()
-        pool = None  # Pool(processes=int(cpu_count()))
+        pool = Pool(processes=int(cpu_count()))
 
         with click.progressbar(
             length=len(columns) * (1 + self.n_folds) * len(self.parameters),
@@ -482,8 +482,6 @@ class CVEvaluator:
             try:
                 for cols in columns:
 
-                    pool = Pool(processes=int(cpu_count()))
-
                     # purge the dataframe from duplicates (drop_duplicates)
                     # and unnecessary columns (keep_cols). Return a copy at the end
                     # of the process. This helps memory mamagement in
@@ -506,7 +504,7 @@ class CVEvaluator:
                             error_callback=kill_pool
                         )
                         for train_df, test_df in \
-                                self.train_test_split_cv(dataframe_):
+                                self.train_test_split_cv(_traindf):
                             pool.apply_async(
                                 _fit_and_predict,
                                 (self.clf_class, cpy(train_df), cols, prms,
@@ -514,17 +512,21 @@ class CVEvaluator:
                                 callback=aasync_callback,
                                 error_callback=kill_pool
                             )
+                        pool.join()
 
-                    pool.close()
-                    pool.join()
+                pool.close()
+                pool.join()
 
             except Exception as exc:  # pylint: disable=broad-except
                 kill_pool(str(exc))
 
     def train_test_split_cv(self, dataframe):
-        '''Returns an iterable yielding (train_df, test_df) elements for
-        cross-validation. Both DataFrames in each yielded elements are subset
-        of `dataframe`
+        '''Split `dataframe` into random train and test subsets, yielding
+        the tuple: ```(train_dataframe, test_dataframe)``` `n_folds` times
+
+        :param dataframe: pandas DataFrame. It is the FIRST element returned by
+            `train_test_split_model` (by default, the source dataframe
+            unfiltered)
         '''
         return train_test_split(dataframe, self.n_folds)
 
@@ -535,6 +537,9 @@ class CVEvaluator:
         ```
         dataframe, None
         ```
+        The first dataframe will be used to build the global model (saved as
+        file) and tested against the second dataframe (if the latter is not
+        None). Afterwards, it will be passed to `train_test_split_cv`
         '''
         return dataframe, None
 
