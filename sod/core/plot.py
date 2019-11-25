@@ -8,10 +8,84 @@ from itertools import product, repeat, cycle
 from sklearn.calibration import calibration_curve, CalibratedClassifierCV
 from matplotlib.patches import Rectangle
 from matplotlib.collections import PatchCollection
-from sod.core.dataset import dataset_info
+from sod.core.dataset import dataset_info, floatingcols, OUTLIER_COL, is_outlier
+import warnings
 # from sod.core.evaluation import is_outlier, pdconcat
 
 # %matplotlib inline
+
+def plotdist(df, columns=None, bins=10):
+    if columns is None:
+        columns = list(floatingcols(df))
+    dinfo = _dataset_info(df)
+    rows, cols = len(columns), len(dinfo.classnames)
+    fig = plt.figure(figsize=(15, 15))
+
+    index = 1
+    # divide the dataframe in bins using pandas qcut, which creates bins
+    # with roughly the same size of samples per bin
+    for col in columns:
+        # pandas min and max skipna by default:
+        min_, max_ = (df[col]).min(), (df[col]).max()
+        bins_ = np.linspace(min_, max_, bins, endpoint=True)
+        # plot one row of subplots:
+        for colindex, cname in enumerate(dinfo.classnames):
+            ax = fig.add_subplot(rows, cols, index)
+            index += 1
+            class_df = df[dinfo.class_selector[cname]][col]
+#             qcut = pd.cut(class_df, bins, include_lowest=True,
+#                           duplicates='drop')
+#             # make a series with bins (one for each column) -> num of pts per bins:
+#             series_df_bins = class_df.groupby(qcut).size()
+            # plot histogram
+            ax.hist(class_df, bins_)
+            ax.set_xlabel(cname)
+            if colindex == 0:
+                ax.set_ylabel(str(col))
+
+    wspace = 1.5   #  if col_z is not None else .25
+    hspace = wspace
+#     if clfs is not None and col_z is None:
+#         hspace *= len(clfs)
+    plt.subplots_adjust(left=None, bottom=None, right=None, top=None,
+                        wspace=wspace, hspace=hspace)
+    return fig
+
+
+def _get_grid(num):
+    rows = int(sqrt(num))
+    cols = rows
+    if rows * cols < num:
+        rows += 1
+    if rows * cols < num:
+        cols += 1
+    return rows, cols
+
+
+def _dataset_info(df):
+    try:
+        return dataset_info(df)
+    except Exception:
+        msg = "Dataframe is not bound to any implemented dataset"
+        if OUTLIER_COL not in df.columns:
+            raise Exception(msg + ", nor it has a column named \"%s\": "
+                            "can not plot" % OUTLIER_COL)
+        warnings.warn(msg + ", splitting classes based on the"
+                      "\"%s\" column" % OUTLIER_COL)
+
+        class dinfo:
+
+            classnames = ['ok', OUTLIER_COL]
+
+            @classmethod
+            def class_selector(cls, cname):
+                ''''''
+                return {
+                    cls.classnames[0]: lambda d: ~is_outlier(d),
+                    cls.classnames[1]: is_outlier
+                }
+
+        return dinfo
 
 
 def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
@@ -23,6 +97,7 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
     df = df.dropna(subset=cols)
 
     if axis_lim is None:
+        # pandas min and max skipna by default:
         minx, maxx = (df[col_x]).min(), (df[col_x]).max()
         miny, maxy = (df[col_y]).min(), (df[col_y]).max()
         minz, maxz = (None, None)
@@ -37,12 +112,12 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
 
     dfs = {}
     numsegments = {}
-    dinfo = dataset_info(df)
+    dinfo = _dataset_info(df)
     # divide the dataframe in bins using pandas qcut, which creates bins
     # with roughly the same size of samples per bin
     for name in dinfo.classnames:
         fff = dinfo.class_selector[name]
-        
+
         class_df = df[fff(df)]
 
         numsegments[name] = len(class_df)
@@ -76,12 +151,7 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
         dfs[name] = class_df_bins
 
     fig = plt.figure(figsize=(15, 15))
-    rows = int(sqrt(len(dinfo.classnames)))
-    cols = rows
-    if rows * cols < len(dinfo.classnames):
-        rows += 1
-    if rows * cols < len(dinfo.classnames):
-        cols += 1
+    rows, cols = _get_grid(len(dinfo.classnames))
 
     def newaxes(index):
         if col_z is not None:
