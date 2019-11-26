@@ -17,7 +17,7 @@ from click.testing import CliRunner
 from sklearn.ensemble.iforest import IsolationForest
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics.scorer import brier_score_loss_scorer
-from sod.core.plot import plot, plot_calibration_curve
+from sod.core.plot import plot, plot_calibration_curve, plotdist
 from sod.core.dataset import open_dataset
 from sod.core.evaluation import classifier
 
@@ -43,4 +43,5 @@ class Tester:
              clfs={'a': self.clf})
         plot_calibration_curve({'a': self.clf}, self.dfr,
                                ['noise_psd@5sec', 'noise_psd@2sec'])
+        plotdist(self.dfr)
         # plot_decision_func_2d(None, self.clf)
