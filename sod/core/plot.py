@@ -14,7 +14,7 @@ import warnings
 
 # %matplotlib inline
 
-def plotdist(df, columns=None, bins=10):
+def plotdist(df, columns=None, bins=20, axis_lim=None):
     if columns is None:
         columns = list(floatingcols(df))
     dinfo = _dataset_info(df)
@@ -26,7 +26,10 @@ def plotdist(df, columns=None, bins=10):
     # with roughly the same size of samples per bin
     for col in columns:
         # pandas min and max skipna by default:
-        min_, max_ = (df[col]).min(), (df[col]).max()
+        if axis_lim is None:
+            min_, max_ = (df[col]).min(), (df[col]).max()
+        else:
+            min_, max_ = df[col].quantile([1-axis_lim, axis_lim])
         bins_ = np.linspace(min_, max_, bins, endpoint=True)
         # plot one row of subplots:
         for colindex, cname in enumerate(dinfo.classnames):
@@ -42,6 +45,7 @@ def plotdist(df, columns=None, bins=10):
             ax.set_xlabel(cname)
             if colindex == 0:
                 ax.set_ylabel(str(col))
+            #ax.set_yscale('log')
 
     wspace = 1.5   #  if col_z is not None else .25
     hspace = wspace
@@ -77,13 +81,10 @@ def _dataset_info(df):
 
             classnames = ['ok', OUTLIER_COL]
 
-            @classmethod
-            def class_selector(cls, cname):
-                ''''''
-                return {
-                    cls.classnames[0]: lambda d: ~is_outlier(d),
-                    cls.classnames[1]: is_outlier
-                }
+            class_selector = {
+                'ok': lambda d: ~is_outlier(d),
+                OUTLIER_COL: is_outlier
+            }
 
         return dinfo
 
