@@ -1,0 +1,263 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <title>IsolationForest (features: psd@0.2sec, psd@0.5sec, psd@1sec, psd@2sec)</title>
+  <meta name="description" content="sod evaluation report">
+  <meta name="author" content="rizac">
+
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+  <link href="https://fonts.googleapis.com/css?family=Roboto+Condensed&display=swap" rel="stylesheet">
+ 
+  <!-- <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>-->
+  <script src="https://cdn.jsdelivr.net/npm/vue@2.6.0"></script>
+  <style>
+  	body{font-family: 'Roboto Condensed', sans-serif;}
+  	td{padding:0.25rem;}
+  	.bg-info{background-color: #17a2b82e !important;}
+  	/* Vuejs transition: */
+  	.slide-leave-active,
+	.slide-enter-active {
+	  transition: .5s;
+	}
+	.slide-enter, .slide-leave-to {
+		opacity: 0;
+	}
+	/*.slide-enter {
+	  transform: translate(-100%, 0);
+	}
+	.slide-leave-to {
+	  transform: translate(100%, 0);
+	}*/
+  </style>
+</head>
+
+<body style='width:100vw;height:100vh;'>
+<div id='app' class='d-flex flex-column p-2' style='width:100vw;height:100vh;'> <!-- https://stackoverflow.com/a/39166186 -->
+  <h3 class='text-warning font-weight-bold text-center'>IsolationForest (features: psd@0.2sec, psd@0.5sec, psd@1sec, psd@2sec)</h3>
+  <div class='d-flex flex-row' style='flex: 1 1 auto'>
+  	 <div class='position-relative' style='flex: 1 1 auto'>
+  	 	<div class='position-absolute d-flex flex-row flex-wrap align-content-start justify-content-start align-items-start' style='top:0px;right:0px;bottom:0px;left:0px;overflow:auto'>
+	  		<div v-for="(cm, index0) in cms" :key="cm.key" class='m-2 p-1 pr-2 d-flex flex-row border rounded'>
+	     		<table>
+	     			<tr>
+	     				<td rowspan="2" class='p-0 pr-3 align-top'>
+	     					<div class="bg-info p-2 rounded" style="max-width:15rem;overflow:auto">
+	     						<span><b>[{{ index0 + 1 }}]</b></span>
+	     						<span v-html='cm.key' class='ml-1'></span>
+	     					</div>
+	     				</td>
+	     				<td :colspan='2' class='text-right align-bottom pb-0 pt-2'>
+	     					Classified as:
+	     				</td>
+	     				<td :colspan='cm.data[0].length-3'></td>
+	     			</tr>
+	     			<tr>
+	     				<td v-for='col in columns' v-html='col' class='text-right pt-0'></td>
+	     			</tr>
+	     			<tr v-for="(row, index1) in cm.data">
+	     				<td v-for="(cell, index2) in row" v-html="formatNum(cell)"
+	     					class='text-right'
+	     					:class="{
+	     						'text-danger': index2 > 2 || index1 == cm.data.length-1,
+	     						'border': index2 > 0 && index2 <= 2 &&  index1 < cm.data.length-1
+	     					}"
+		 				>
+	     				</td>
+	     			</tr>
+	     		</table>
+	     	</div>
+	  	</div>
+  	</div> 
+  	
+    
+    <div class='ml-3 bg-info border'>
+    	<div class='p-1 d-flex flex-row'>
+    		<transition name="slide">
+	    		<span style='flex:1 1 auto'  v-show='panelVisible'>Configuration</span>
+	    	</transition>
+	    	<button class='p-1 btn btn-outline-info btn-sm'
+	    		style='border-width:0px !important'
+	    		@click='panelVisible=!panelVisible'>↔
+	    	</button>
+    	</div>
+    	<transition name="slide">
+    	<div v-show='panelVisible'>
+    		<div class='d-flex flex-row mx-1 mt-2 align-items-start'>
+	    		<div>Sort by:</div>
+	    		<select :size="Object.keys(scoreColumns).length" v-model='currentScoreColumn' class='ml-1 form-control'>
+	    			<option v-for='val in Object.keys(scoreColumns)' :value='val'>
+	    				{{ val + ' (' + scoreColumns[val] + ')' }}
+	    			</option>
+	    		</select>
+    		</div>
+			<table class='mt-2'>
+	    		<tr><td>Class</td><td>Weight</td></tr>
+	    		<tr v-for='(weight, index) in weights'>
+	    			<td>{{ classes[index] }}</td>
+	    			<td><input type="number" v-model.number="weights[index]" style="width:5rem"></td>
+	    		</tr>
+	    	</table>
+	    </div>
+    	</transition> 
+    </div>
+  </div>
+</div>
+
+<script type="text/javascript">
+
+let app = new Vue({
+  el: '#app',
+  data: {
+  	panelVisible: true,
+    // Evaluation data, list of objects. Each object has property
+    // key -> list of [paramname, paramvalue] elements,
+    // data -> numeric (confusion) matrix
+    evaluations: [{"key": "contamination=0.05 max_samples=512 n_estimators=100 behaviour=new", "data": [[1059901.0, 55795.0, 94.999, 0.10198], [11394.0, 58742.0, 83.754, 0.16393], [25196.0, 168367.0, 86.983, 0.19275], [87679.0, 534803.0, 85.915, 0.18863], [434650.0, 205410.0, 32.092, 0.52169], [587835.0, 52453.0, 8.192, 0.85673], [13293.0, 4815.0, 26.59, 0.65395], [1820300.0, 137499.0, 92.977, 0.17591]]}, {"key": "contamination=0.1 max_samples=512 n_estimators=100 behaviour=new", "data": [[1004165.0, 111531.0, 90.003, 0.1324], [6628.0, 63508.0, 90.55, 0.13299], [21888.0, 171675.0, 88.692, 0.17247], [54040.0, 568442.0, 91.319, 0.1603], [329350.0, 310710.0, 48.544, 0.4386], [551685.0, 88603.0, 13.838, 0.74532], [11616.0, 6492.0, 35.852, 0.55754], [1685051.0, 272748.0, 86.069, 0.17004]]}, {"key": "contamination=0.05 max_samples=2048 n_estimators=100 behaviour=new", "data": [[1059913.0, 55783.0, 95.0, 0.09625], [14093.0, 56043.0, 79.906, 0.17367], [23394.0, 170169.0, 87.914, 0.20003], [84055.0, 538427.0, 86.497, 0.2105], [436834.0, 203226.0, 31.751, 0.51974], [591126.0, 49162.0, 7.678, 0.83219], [12787.0, 5321.0, 29.385, 0.61561], [1797853.0, 159946.0, 91.83, 0.13949]]}, {"key": "contamination=0.1 max_samples=2048 n_estimators=100 behaviour=new", "data": [[1004108.0, 111588.0, 89.998, 0.12486], [8263.0, 61873.0, 88.219, 0.14193], [21751.0, 171812.0, 88.763, 0.17844], [54780.0, 567702.0, 91.2, 0.18421], [334563.0, 305497.0, 47.729, 0.4461], [554884.0, 85404.0, 13.338, 0.74682], [11223.0, 6885.0, 38.022, 0.5706], [1681407.0, 276392.0, 85.883, 0.16343]]}, {"key": "contamination=0.05 max_samples=8192 n_estimators=100 behaviour=new", "data": [[1059863.0, 55833.0, 94.996, 0.09732], [12912.0, 57224.0, 81.59, 0.17305], [22996.0, 170567.0, 88.12, 0.20056], [76269.0, 546213.0, 87.748, 0.22477], [428319.0, 211741.0, 33.081, 0.51969], [592908.0, 47380.0, 7.4, 0.81194], [12374.0, 5734.0, 31.666, 0.61543], [1784407.0, 173392.0, 91.144, 0.17591]]}, {"key": "contamination=0.1 max_samples=8192 n_estimators=100 behaviour=new", "data": [[1004015.0, 111681.0, 89.99, 0.12889], [8045.0, 62091.0, 88.529, 0.136], [21746.0, 171817.0, 88.765, 0.17002], [57460.0, 565022.0, 90.769, 0.19097], [359924.0, 280136.0, 43.767, 0.43308], [559845.0, 80443.0, 12.564, 0.67654], [11285.0, 6823.0, 37.679, 0.49186], [1633327.0, 324472.0, 83.427, 0.19151]]}, {"key": "contamination=0.05 max_samples=16384 n_estimators=100 behaviour=new", "data": [[1059858.0, 55838.0, 94.995, 0.09543], [13502.0, 56634.0, 80.749, 0.17636], [22986.0, 170577.0, 88.125, 0.20823], [77960.0, 544522.0, 87.476, 0.23009], [433520.0, 206540.0, 32.269, 0.5216], [592495.0, 47793.0, 7.464, 0.80816], [12394.0, 5714.0, 31.555, 0.61576], [1793771.0, 164028.0, 91.622, 0.1368]]}, {"key": "contamination=0.1 max_samples=16384 n_estimators=100 behaviour=new", "data": [[1004093.0, 111603.0, 89.997, 0.12335], [8933.0, 61203.0, 87.263, 0.14762], [21670.0, 171893.0, 88.805, 0.18408], [54882.0, 567600.0, 91.183, 0.20029], [337822.0, 302238.0, 47.22, 0.43244], [552972.0, 87316.0, 13.637, 0.69633], [11297.0, 6811.0, 37.613, 0.52885], [1671610.0, 286189.0, 85.382, 0.18113]]}, {"key": "contamination=0.05 max_samples=512 n_estimators=200 behaviour=new", "data": [[1059968.0, 55728.0, 95.005, 0.09972], [13233.0, 56903.0, 81.132, 0.17319], [25478.0, 168085.0, 86.837, 0.19398], [95806.0, 526676.0, 84.609, 0.19019], [447353.0, 192707.0, 30.108, 0.52873], [588682.0, 51606.0, 8.06, 0.87744], [13465.0, 4643.0, 25.641, 0.67605], [1825139.0, 132660.0, 93.224, 0.16885]]}, {"key": "contamination=0.1 max_samples=512 n_estimators=200 behaviour=new", "data": [[1004038.0, 111658.0, 89.992, 0.13091], [6799.0, 63337.0, 90.306, 0.13542], [22082.0, 171481.0, 88.592, 0.17166], [58288.0, 564194.0, 90.636, 0.15869], [336951.0, 303109.0, 47.356, 0.43415], [553159.0, 87129.0, 13.608, 0.76041], [11708.0, 6400.0, 35.343, 0.56808], [1690368.0, 267431.0, 86.34, 0.1691]]}, {"key": "contamination=0.05 max_samples=2048 n_estimators=200 behaviour=new", "data": [[1059939.0, 55757.0, 95.002, 0.09492], [11413.0, 58723.0, 83.727, 0.16266], [23381.0, 170182.0, 87.921, 0.20135], [83181.0, 539301.0, 86.637, 0.20543], [442621.0, 197439.0, 30.847, 0.53595], [592754.0, 47534.0, 7.424, 0.88908], [12879.0, 5229.0, 28.877, 0.66235], [1789692.0, 168107.0, 91.413, 0.13645]]}, {"key": "contamination=0.1 max_samples=2048 n_estimators=200 behaviour=new", "data": [[1004110.0, 111586.0, 89.999, 0.12372], [8290.0, 61846.0, 88.18, 0.1443], [21816.0, 171747.0, 88.729, 0.17987], [56899.0, 565583.0, 90.859, 0.18217], [339419.0, 300641.0, 46.971, 0.45645], [553266.0, 87022.0, 13.591, 0.76178], [11521.0, 6587.0, 36.376, 0.57584], [1681985.0, 275814.0, 85.912, 0.16427]]}, {"key": "contamination=0.05 max_samples=8192 n_estimators=200 behaviour=new", "data": [[1059810.0, 55886.0, 94.991, 0.09412], [12528.0, 57608.0, 82.138, 0.17078], [23097.0, 170466.0, 88.067, 0.20454], [79539.0, 542943.0, 87.222, 0.22347], [438927.0, 201133.0, 31.424, 0.53705], [594041.0, 46247.0, 7.223, 0.84648], [12477.0, 5631.0, 31.097, 0.62674], [1785084.0, 172715.0, 91.178, 0.13694]]}, {"key": "contamination=0.1 max_samples=8192 n_estimators=200 behaviour=new", "data": [[1004096.0, 111600.0, 89.997, 0.12427], [9065.0, 61071.0, 87.075, 0.15195], [21698.0, 171865.0, 88.79, 0.18783], [55898.0, 566584.0, 91.02, 0.198], [333231.0, 306829.0, 47.938, 0.45829], [550977.0, 89311.0, 13.949, 0.75516], [11234.0, 6874.0, 37.961, 0.57143], [1684872.0, 272927.0, 86.059, 0.15996]]}, {"key": "contamination=0.05 max_samples=16384 n_estimators=200 behaviour=new", "data": [[1059840.0, 55856.0, 94.994, 0.09686], [12335.0, 57801.0, 82.413, 0.16606], [22883.0, 170680.0, 88.178, 0.19959], [76100.0, 546382.0, 87.775, 0.22199], [435072.0, 204988.0, 32.026, 0.50735], [593991.0, 46297.0, 7.231, 0.77944], [12439.0, 5669.0, 31.307, 0.57392], [1773932.0, 183867.0, 90.608, 0.15011]]}, {"key": "contamination=0.1 max_samples=16384 n_estimators=200 behaviour=new", "data": [[1004116.0, 111580.0, 89.999, 0.12455], [8645.0, 61491.0, 87.674, 0.14696], [21518.0, 172045.0, 88.883, 0.18107], [53167.0, 569315.0, 91.459, 0.20023], [337839.0, 302221.0, 47.218, 0.44268], [554642.0, 85646.0, 13.376, 0.70252], [11146.0, 6962.0, 38.447, 0.51546], [1664867.0, 292932.0, 85.038, 0.25658]]}],
+    // list of classes (rows of the confusion matrix)
+    classes: ["ok", "outl. (wrong inv)", "outl. (cha. resp. acc <-> vel)", "outl. (gain X100 or X0.01)", "outl. (gain X10 or X0.1)", "outl. (gain X2 or X0.5)", "unlabeled (Me suspicious outl.)", "unlabeled (unknown)"],
+    // list of columns of each confusion matrix. This is not the same as
+    // classes as our confusion matrix is Nx2. The first two columns are
+    // the labels (ok, outlier). Some of the columns are SCORE COLUMNS (when
+    // the relative 'scoreColumnsSortOrders' is not null). Score columns
+    // will compute a score - a weighted average of all rows, and
+    // each confusion matrix can then be displayed sorted according to the
+    // selected score) 
+    columns: ["ok", "outlier", "% rec.", "Mean log_loss"],
+    // Object of columns mapped to 'asc' or 'desc'
+    scoreColumns: {"% rec.": "desc", "Mean log_loss": "asc"},
+    // string (a key of scoreColumns) denoting the currently selected score column
+    // whereby to sort confusion matrices:
+    currentScoreColumn: "Mean log_loss", 
+ 	// list of weights, one for each class in classes
+    weights: [100, 100, 10, 50, 5, 1, 1, 1],
+    // the Confusion matrices used for display. It is a subset of evaluations above 
+    // (a propery score will be added to each Object element when creating this Vue, see below)
+    cms: [],
+  },
+  watch: {
+  	weights: {
+  		immediate: true,
+  		deep: true,
+  		handler: function(newVal, oldVal){
+  			this.createCms();
+  		}
+  	},
+  	currentScoreColumn: function(newVal, oldVal){
+  		this.sortCms();
+  		// this.cms = Array.from(this.cms);
+  	}
+  },
+  methods: {
+  	formatNum: function(value){  // https://stackoverflow.com/a/49868526
+  		var val = typeof value === 'number' ? value : parseFloat(value);
+  		if (!isNaN(val)){
+  			return val.toLocaleString();
+  		}
+  		return value;
+  	},
+  	getScoreColIndices: function(){
+  		// returns the indices of the score columns, i.e. the indices
+  		// of this.scoreColumnsSortOrders that are not null
+  		var scoreColIndices = {};
+  		var columns = this.columns;
+  		Object.keys(this.scoreColumns).forEach(elm => {
+  			scoreColIndices[elm] = columns.indexOf(elm);
+  		});
+  		return scoreColIndices;
+  	},
+  	getVisibleClassIndices: function(){
+  		// return the indices of the visible classes (conf.matrix rows)
+  		// A class  is visible if the corresponding weight is numeric (not NaN) 
+  		var [classes, weights] = [this.classes, this.weights];
+  		var classIndices = [];
+  		for (var i=0; i< classes.length ; i++){
+  		    var weight = parseFloat(weights[i]);
+			if (isNaN(weight)){
+				continue;
+			}
+			classIndices.push(i);
+  		}
+  		return classIndices;
+  	},
+  	getWeightsSum: function(){
+  		var weights = this.weights;
+  		var sum = 0;
+  		for (var w of weights){
+  		    weight = parseFloat(w);
+			if (isNaN(weight)){
+				continue;
+			}
+			sum += weight;
+  		}
+  		return sum;
+  	},
+	createCms: function(event){
+  		// map each score column to its index in the columns array:
+  		var scoreColIndices = this.getScoreColIndices();
+  		var classIndices = this.getVisibleClassIndices();
+		// calculate the sum of the weights (use Array reduce?):
+		var weightDenom = this.getWeightsSum();
+		var classes = this.classes;
+  		// populate newcms, an Array of Objects where each Object represents
+  		// a confusion matrix (resulting from a set of parameters)
+  		var newcms = [];
+  		for (var cm of this.evaluations){
+	  		newcm = {
+	  			key: cm.key,
+	  			data:[],
+	  			scores: {}
+	  		};
+	  		for (var i of classIndices){
+	  			// insert the row header at position 0 in each row:
+	  			var row = cm.data[i];
+	  		    newcm.data.push([classes[i]].concat(row));
+	  		    // update the scores
+	  		    var weight = this.weights[i];
+	  		    for (var scoreCol of Object.keys(scoreColIndices)){
+	  		    	if (!(scoreCol in newcm.scores)){
+	  		    		newcm.scores[scoreCol] = 0;
+	  		    	}
+	  		    	var colIndex = scoreColIndices[scoreCol];
+	  		    	newcm.scores[scoreCol] += row[colIndex] * weight;
+	  		    }
+	  		}
+	  		// normalize the scores:
+	  		for (var scoreCol of Object.keys(scoreColIndices)){
+  		    	newcm.scores[scoreCol] /= weightDenom;
+  		    }
+  		    // populate and insert last row:
+  		    var lastrow = new Array(this.columns.length).fill('');
+  		    for (var scoreCol of Object.keys(scoreColIndices)){
+  		    	var colIndex = scoreColIndices[scoreCol];
+	  		    lastrow[colIndex] = newcm.scores[scoreCol];
+  		    }
+  		    newcm.data.push(['Weighted Average'].concat(lastrow));
+	  		newcms.push(newcm);
+  		}
+  		this.cms = newcms;
+  		this.sortCms();
+  	},
+	sortCms: function(event){
+  		var scoreCol = this.currentScoreColumn;
+  		var sortOrder = this.scoreColumns[scoreCol];
+  		// sort:
+  		this.cms.sort((cm1, cm2) => {
+  		    var [val1, val2] = [cm1.scores[scoreCol], cm2.scores[scoreCol]];
+  		    if (isNaN(val1) || val1 < val2) {
+    			return sortOrder == 'desc' ? 1: -1;
+  			}
+			if (isNaN(val2) || val1 > val2) {
+    			return sortOrder == 'desc' ? -1: 1;
+ 			}
+  			return 0;
+		});
+  	}
+  }
+});
+</script>
+
+</body>
+</html>
