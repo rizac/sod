@@ -26,7 +26,8 @@ from sod.core.evaluation import (split, classifier, predict, _predict,
                                  CVEvaluator, train_test_split,
                                  drop_duplicates,
                                  keep_cols, drop_na, cmatrix_df, ParamsEncDec,
-                                 join_save_evaluation)
+                                 join_save_evaluation_hdf,
+                                 join_save_evaluation_html)
 from sod.core.dataset import (open_dataset, groupby_stations)
 from sod.evaluate import (OcsvmEvaluator, run)
 from sod.core import paths
@@ -320,7 +321,10 @@ class Tester:
                 result = runner.invoke(run, ["-c", basename(self.evalconfig2)])
                 assert not result.exception
 
-        join_save_evaluation(join(OUTPATH,
+        join_save_evaluation_html(join(OUTPATH,
+                                  basename(self.cv_evalconfig2),
+                                  'evalreports'))
+        join_save_evaluation_hdf(join(OUTPATH,
                                   basename(self.cv_evalconfig2),
                                   'evalreports'))
 
