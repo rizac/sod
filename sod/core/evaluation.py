@@ -624,17 +624,92 @@ def _fit_and_predict(clf_class, train_df, columns, params, test_df=None,
     return clf, params, columns, predictions
 
 
-def join_save_evaluation(indir):
+def join_save_evaluation_hdf(indir):
+    template_chunks = []
+    all_data = []
+    keycolumns = []
+    for (html_pre, data_list, classes, weights, columns, html_post) in \
+            _join_save_evaluation(indir):
+        for dic in data_list:
+            key = dic['key']
+            newdic = {}
+            allkeys = key.split(' ')
+            for chunk in allkeys:
+                key, val = chunk.split('=')
+                try:
+                    val = int(val)
+                except:
+                    try:
+                        val = float(val)
+                    except:
+                        pass
+                newdic[key] = val
+            data = dic['data']
+            # each data form column
+            new_df_row = dict(newdic)
+            for classname, rowdata in zip(classes, data):
+                new_df_row['classname'] = classname
+                for capt, val in zip(columns[2:], rowdata[2:]):
+                    new_df_row[capt] = val
+            all_data.append(new_df_row)
+
+#     template_chunks[1] = json.dumps(all_data)
+#     content = ''.join(template_chunks)
+#     re_title = re.compile(r'<title>(.*?)</title>', re.IGNORECASE)
+#     oldtitle = re_title.search(content).group(1).strip()
+#     newtitle = "Summary CV evaluations"
+#     content = content.replace(oldtitle, newtitle)
+    outfile = join(indir, 'evaluations.all.hdf')
+    save_df(pd.DataFrame(all_data), outfile, key='evaluation_all')
+
+
+def join_save_evaluation_html(indir, format='html'):
+    template_chunks = []
+    all_data = []
+    for (html_pre, data_list, classes, weights, columns, html_post) in \
+            _join_save_evaluation(indir):
+        all_data.extend(data_list)
+        if not template_chunks:
+            template_chunks = [html_pre, '\n', html_post]
+
+    template_chunks[1] = json.dumps(all_data)
+    content = ''.join(template_chunks)
+    re_title = re.compile(r'<title>(.*?)</title>', re.IGNORECASE)
+    oldtitle = re_title.search(content).group(1).strip()
+    newtitle = "Summary CV evaluations"
+    content = content.replace(oldtitle, newtitle)
+    outfile = join(indir, 'evaluations.all.html')
+    with open(outfile, 'w') as _opn:
+        _opn.write(content)
+
+
+def _join_save_evaluation(indir):
     template_chunks = []
     dotall, icase = re.DOTALL, re.IGNORECASE  # @UndefinedVariable
     re_data = re.compile(r'evaluations: +(\[\{.*?\}\]),\n', dotall)
-    re_classes = re.compile(r'classes: +(\[.*?\]),\n', dotall)
-    re_weights = re.compile(r'weights: +(\[.*?\]),\n', dotall)
-    classes = []
-    weights = []
-    all_data = [] 
+    html_pre, html_post = '', ''
+#     re_classes = re.compile(r'classes: +(\[.*?\]),\n', dotall)
+#     re_weights = re.compile(r'weights: +(\[.*?\]),\n', dotall)
+#     re_columns = re.compile(r'columns: +(\[.*?\]),\n', dotall)
+#     classes = []
+#     weights = []
+#     columns = []
+    
+    jsvars = {
+        're': {
+            'classes': re.compile(r'classes: +(\[.*?\]),\n', dotall),
+            'weights': re.compile(r'weights: +(\[.*?\]),\n', dotall),
+            'columns': re.compile(r'columns: +(\[.*?\]),\n', dotall)
+        },
+        'val': {
+            'classes': [],
+            'weights': [],
+            'columns': []
+        }
+    }
+
     for fle in listdir(indir):
-        bfle, efle = splitext(fle) 
+        bfle, efle = splitext(fle)
         if efle.lower() == '.html':
             if '?' not in bfle:
                 continue
@@ -643,6 +718,7 @@ def join_save_evaluation(indir):
             if 'features' not in params or len(params) > 1:
                 continue
             prefix += " features=%s" % ",".join(params['features'])
+            all_data = []
             with open(join(indir, fle), 'r') as _opn:
                 content = _opn.read()
                 match_data = re_data.search(content)
@@ -654,36 +730,35 @@ def join_save_evaluation(indir):
                         all_data.append(dic)
                 except:
                     raise ValueError('data unparsable as JSON')
-                if not template_chunks:
-                    start, end = match_data.start(1), match_data.end(1)
-                    template_chunks = \
-                        [content[:start], '\n', content[end:]]
-                for name, matcher in zip(('classes', 'weights'),
-                                        (re_classes, re_weights)):
+                start, end = match_data.start(1), match_data.end(1)
+                html_pre, html_post = content[:start], content[end:]
+                for name, matcher in jsvars['re'].items():
                     match_ = matcher.search(content)
                     if not match_:
-                        raise ValueError('No %s match found' % name)
+                        raise ValueError('No match found for variable "%s"' %
+                                         name)
                     try:
                         _pyval = json.loads(match_.group(1))
                     except:
-                        raise ValueError('classes unparsable as JSON')
-                    if name == 'classes' and not classes:
-                        classes = _pyval
-                    elif not weights:
-                        weights = _pyval
-                    expected = classes if name == 'classes' else weights
-                    if expected != _pyval:
-                        raise ValueError('Mismatching %s in htmls' % name)
+                        raise ValueError('variable "%s" unparsable as JSON' %
+                                         name)
+                    if not jsvars['val'][name]:
+                        jsvars['val'][name] = _pyval
+                    elif jsvars['val'][name] != _pyval:
+                        raise ValueError('Variable "%s" not equal in all '
+                                         'html files' % name)
+                yield (html_pre, all_data, *jsvars['val'].values(),
+                       html_post)        
 
-    template_chunks[1] = json.dumps(all_data)
-    content = ''.join(template_chunks)
-    re_title = re.compile(r'<title>(.*?)</title>', icase)
-    oldtitle = re_title.search(content).group(1).strip()
-    newtitle = "Summary CV evaluations"
-    content = content.replace(oldtitle, newtitle)
-    outfile = join(indir, 'evaluations.all.html')
-    with open(outfile, 'w') as _opn:
-        _opn.write(content)
+#     template_chunks[1] = json.dumps(all_data)
+#     content = ''.join(template_chunks)
+#     re_title = re.compile(r'<title>(.*?)</title>', icase)
+#     oldtitle = re_title.search(content).group(1).strip()
+#     newtitle = "Summary CV evaluations"
+#     content = content.replace(oldtitle, newtitle)
+#     outfile = join(indir, 'evaluations.all.html')
+#     with open(outfile, 'w') as _opn:
+#         _opn.write(content)
                  
 
 class Evaluator:
