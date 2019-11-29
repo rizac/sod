@@ -330,7 +330,7 @@ class globalset(DatasetInfo):
     # The first column will replace S2S_COL and will uniquely identify the
     # DataFrame's dataset: it will always be the DataFrame FIRST column
     # (see open_dataset). Set it to this class name + '.id'
-    uid_columns = ('globalset.id', OUTLIER_COL,
+    uid_columns = ('globalset.id', OUTLIER_COL, 'dataset_id',
                    _SUBCLASS_COL, _WINDOW_TYPE_COL)
 
     classnames = (
