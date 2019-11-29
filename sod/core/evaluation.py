@@ -195,6 +195,62 @@ def log_loss(outliers, predictions, eps=1e-15, normalize_=True):
     return -np.log10(predictions_n)  # http://wiki.fast.ai/index.php/Log_Loss
 
 
+def normalize(predictions, range_in=None, map_to=(0, 1)):
+    '''Normalizes `predictions` and returns an array with values all within
+    `maps_to`, where:
+    the closer a value to `maps_to[0]`, the more it is an outlier
+    the closer a value to `maps_to[1]`, the more it is an inlier
+
+    :param predictions: the result of `predict`. Negative values must denote
+        outliers, positive values must denote inliers
+    :param range_in: 2-element tuple denoting the input range in the form:
+        ```
+        (outliers min, inliers max)
+        ```
+        The first element must be negative and the second positive.
+        If None (the default), it defaults to the minimum of the negative
+        scores of predictions, and the maximum of the positive scores of
+        predictions
+    :param map_to: 2-tuple element denoting the the output range
+        in the form
+        ```
+        (value_of the_highest_outlier_score, value_of the_highest_inlier_score)
+        ```
+        The numbers DO NOT AHVE any restrictions:
+        map_to=(1, 0) returns numbers in [0, 1], the higher, the more outlier
+        map_to=(0, 1) returns numbers in [0, 1], the higher, the more inlier
+
+    :return: new array with float values in map_to
+    '''
+    preds = np.array(predictions, copy=True, dtype=float)
+    positives = preds >= 0
+    if np.nansum(positives):
+        if range_in is None:
+            max_inlier = np.nanmax(preds[positives])
+        else:
+            max_inlier = range_in[1]
+            if not max_inlier > 0:
+                raise ValueError('range_in second element must be positive')
+            preds[positives] = np.clip(preds[positives], None, max_inlier)
+        preds[positives] = preds[positives] / max_inlier
+
+    negatives = ~positives
+    if np.nansum(negatives):
+        if range_in is None:
+            min_outlier = np.nanmin(preds[negatives])
+        else:
+            min_outlier = range_in[0]
+            if not min_outlier < 0:
+                raise ValueError('range_in first element must be negative')
+            preds[negatives] = np.clip(preds[negatives], min_outlier, None)
+        preds[negatives] = preds[negatives] / -min_outlier
+
+    # we now have values all in [-1, 1], where values >=0 denote inliers
+    if map_to is not None and (map_to[0] != -1 or map_to[1] != 1):
+        preds = map_to[0] + (map_to[1] - map_to[0]) * (preds + 1.) / 2.0
+    return preds
+
+
 def correctly_predicted(outliers, predictions):
     '''Returns if the instances are correctly predicted
 
@@ -625,6 +681,10 @@ def _fit_and_predict(clf_class, train_df, columns, params, test_df=None,
 
 
 def join_save_evaluation_hdf(indir):
+    '''Asuming `indir` is the directory where CV reports in HTML format
+    have been saved by a run of `CVEvaluator`, then generates a new HTML
+    page summing up all cv evaluation reports of `indir`
+    '''
     template_chunks = []
     all_data = []
     keycolumns = []
@@ -646,12 +706,12 @@ def join_save_evaluation_hdf(indir):
                 newdic[key] = val
             data = dic['data']
             # each data form column
-            new_df_row = dict(newdic)
             for classname, rowdata in zip(classes, data):
+                new_df_row = dict(newdic)
                 new_df_row['classname'] = classname
                 for capt, val in zip(columns[2:], rowdata[2:]):
                     new_df_row[capt] = val
-            all_data.append(new_df_row)
+                all_data.append(new_df_row)
 
 #     template_chunks[1] = json.dumps(all_data)
 #     content = ''.join(template_chunks)

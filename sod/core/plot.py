@@ -1,20 +1,26 @@
+'''plot utilities'''
+
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-from mpl_toolkits.mplot3d import Axes3D
+from itertools import product, cycle
+import warnings
 from math import sqrt
-from itertools import product, repeat, cycle
-from sklearn.calibration import calibration_curve, CalibratedClassifierCV
+# from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.collections import PatchCollection
+from sklearn.calibration import calibration_curve  # , CalibratedClassifierCV
+
 from sod.core.dataset import dataset_info, floatingcols, OUTLIER_COL, is_outlier
-import warnings
 # from sod.core.evaluation import is_outlier, pdconcat
 
 # %matplotlib inline
 
+
 def plotdist(df, columns=None, bins=20, axis_lim=None):
+    '''
+    Plots the distributions of all `columns` of df
+    '''
     if columns is None:
         columns = list(floatingcols(df))
     dinfo = _dataset_info(df)
@@ -45,9 +51,9 @@ def plotdist(df, columns=None, bins=20, axis_lim=None):
             ax.set_xlabel(cname)
             if colindex == 0:
                 ax.set_ylabel(str(col))
-            #ax.set_yscale('log')
+            # ax.set_yscale('log')
 
-    wspace = 1.5   #  if col_z is not None else .25
+    wspace = 1.5   # if col_z is not None else .25
     hspace = wspace
 #     if clfs is not None and col_z is None:
 #         hspace *= len(clfs)
@@ -57,6 +63,9 @@ def plotdist(df, columns=None, bins=20, axis_lim=None):
 
 
 def _get_grid(num):
+    '''returns the tuple (row, col) of integers denoting the best
+    layout for the given `num` (denoting the number of plots to display)
+    '''
     rows = int(sqrt(num))
     cols = rows
     if rows * cols < num:
@@ -67,6 +76,11 @@ def _get_grid(num):
 
 
 def _dataset_info(df):
+    '''Returns the dataset info of the given dataframe `df` or a simple
+    newly created dataset info splitting according to the column
+    `OUTLIER_COL` ('outlier'). If such a column does not exist, this function
+    raises Exception
+    '''
     try:
         return dataset_info(df)
     except Exception:
@@ -89,10 +103,20 @@ def _dataset_info(df):
         return dinfo
 
 
-def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
-    '''axis_lim is the quantile of data to be shown on the axis: 0.95 will
-    display the axis min and max at 0.05 quantile of the data distribution
-    and 0.95 quantile, respectuvely'''
+def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None,
+         class_indices=None):
+    '''Plots the given dataframe per classes. The dataframe must have been
+    implemented as Dataset (see module `dataset`) OR have at least the
+    boolean column 'outlier', denoting whether the rows are outliers or
+    inliers.
+
+    :param axis_lim: float in [0, 1] or None, is the quantile of data to be
+    shown on the axis: 0.95 will display the axis min and max at 0.05
+    quantile of the data distribution and 0.95 quantile, respectuvely
+
+    :param class_indices: the indices of the classes to display, wrt the
+        passed dataframe's dataset. None (the default) will show all classes
+    '''
 
     cols = [col_x, col_y] + ([] if col_z is None else [col_z])
     df = df.dropna(subset=cols)
@@ -114,9 +138,26 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
     dfs = {}
     numsegments = {}
     dinfo = _dataset_info(df)
+    classnames = dinfo.classnames
+    if class_indices is not None:
+        classnames = [_ for i, _ in enumerate(classnames)
+                      if i in class_indices]
+
+    # colors for the points. Do not specify a fourth element
+    # (alpha=transparency)
+    # as it will be added according to the points density
+    OUTLIER_COLOR = [0.75, 0.5, 0]
+    INLIER_COLOR = [0, 0.1, 0.75]
+    # other colors:
+    # red: [0.75, 0.1, 0]
+    # green [0, 0.75, 0.1]
+    # yellow/brown: [0.75, 0.5, 0]
+
+    classcolors = {}
     # divide the dataframe in bins using pandas qcut, which creates bins
     # with roughly the same size of samples per bin
-    for name in dinfo.classnames:
+    for name in classnames:
+
         fff = dinfo.class_selector[name]
 
         class_df = df[fff(df)]
@@ -124,6 +165,9 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
         numsegments[name] = len(class_df)
         if class_df.empty:
             continue
+
+        classcolors[name] = OUTLIER_COLOR if class_df[OUTLIER_COL].values[0] \
+            else INLIER_COLOR
 
         if col_z is None and axis_lim is not None:
             # remove out of bounds so that the granularity of bins is
@@ -151,8 +195,8 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
                     class_df_bins[col].apply(lambda val: val.mid)
         dfs[name] = class_df_bins
 
-    fig = plt.figure(figsize=(15, 15))
-    rows, cols = _get_grid(len(dinfo.classnames))
+    fig = plt.figure()  # figsize=(15, 15))
+    rows, cols = _get_grid(len(classnames))
 
     def newaxes(index):
         if col_z is not None:
@@ -169,12 +213,12 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
         ax.grid(True)
         return ax
 
-    def scatter(ax, df, color):
+    def scatter(ax, df, basecolor):
         kwargs = {'edgecolors': 'none', 's': 64}
         colors = np.zeros(shape=(len(df), 4))
-        colors[:, 0] = color[0]
-        colors[:, 1] = color[1]
-        colors[:, 2] = color[2]
+        colors[:, 0] = basecolor[0]
+        colors[:, 1] = basecolor[1]
+        colors[:, 2] = basecolor[2]
         colors[:, 3] = df[0].values
         if col_z is not None:  # 3D
             ax.scatter(df[col_x], df[col_y], color=colors, **kwargs)
@@ -189,18 +233,8 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
             )
         return ax
 
-    # create colors:
-    colors = [
-        [0, 0.1, 0.75],  # segments ok
-        [0.75, 0.1, 0],  # wrong inv
-        [0, 0.75, 0.1]   # swap acc <-> vel
-    ]
-    # now for all other classes set the same color:
-    for _ in range(len(dinfo.classnames)-len(colors)):
-        colors.append([0.75, 0.5, 0])
-
-    for i, ((name, _df_), color) in enumerate(zip(dfs.items(), colors)):
-        ax_ = scatter(newaxes(i+1), _df_, color)
+    for i, (name, _df_) in enumerate(dfs.items()):
+        ax_ = scatter(newaxes(i+1), _df_, classcolors[name])
         ax_.set_title('%s: %d segments' % (name, numsegments[name]))
 
     # draw each classifier decision function's contour:
@@ -220,10 +254,10 @@ def plot(df, col_x, col_y, col_z=None, axis_lim=None, clfs=None):
                 axs.set_title(ttt)
 
     # set subplots spaces:
-    wspace = .4 if col_z is not None else .25
+    wspace = .2  # if col_z is not None else .25
     hspace = wspace
     if clfs is not None and col_z is None:
-        hspace *= len(clfs)
+        hspace *= (1 + len(clfs))
     plt.subplots_adjust(left=None, bottom=None, right=None, top=None,
                         wspace=wspace, hspace=hspace)
     return fig

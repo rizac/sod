@@ -19,7 +19,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics.scorer import brier_score_loss_scorer
 from sod.core.plot import plot, plot_calibration_curve, plotdist
 from sod.core.dataset import open_dataset
-from sod.core.evaluation import classifier
+from sod.core.evaluation import classifier, normalize
 
 
 class Tester:
@@ -38,10 +38,40 @@ class Tester:
     tmpdir = join(dirname(__file__), 'tmp')
 
     @patch('sod.core.plot.plt')        
-    def test_plot(self, mock_plt):
+    def tst_plot(self, mock_plt):
         plot(self.dfr, 'noise_psd@5sec', 'noise_psd@2sec', axis_lim=.945,
              clfs={'a': self.clf})
         plot_calibration_curve({'a': self.clf}, self.dfr,
                                ['noise_psd@5sec', 'noise_psd@2sec'])
         plotdist(self.dfr)
         # plot_decision_func_2d(None, self.clf)
+
+    def test_normalize(self):
+        preds = [-1, 0, 1]
+        assert (normalize(preds, range_in=None, map_to=[0, 1]) == [0, 0.5, 1]).all()
+        assert (normalize(preds, range_in=None, map_to=[1, 0]) == [1, 0.5, 0]).all()
+        assert (normalize(preds, range_in=None, map_to=[-1, 1]) == [-1, 0, 1]).all()
+        assert (normalize(preds, range_in=None, map_to=[-3, -1]) == [-3, -2, -1]).all()
+        assert (normalize(preds, range_in=None, map_to=[3, 1]) == [3, 2, 1]).all()
+        
+        preds = [-10, 0, 1]
+        assert (normalize(preds, range_in=[-1, 1], map_to=[0, 1]) == [0, 0.5, 1]).all()
+        assert (normalize(preds, range_in=[-1, 1], map_to=[1, 0]) == [1, 0.5, 0]).all()
+        assert (normalize(preds, range_in=[-1, 1], map_to=[-1, 1]) == [-1, 0, 1]).all()
+        assert (normalize(preds, range_in=[-1, 1], map_to=[-3, -1]) == [-3,-2, -1]).all()
+        assert (normalize(preds, range_in=[-1, 1], map_to=[3, 1]) == [3, 2, 1]).all()
+        
+        preds = [-0.1, 0, 11.31]
+        assert (normalize(preds, range_in=[-0.01, 1], map_to=[0, 1]) == [0, 0.5, 1]).all()
+        assert (normalize(preds, range_in=[-0.01, 1], map_to=[1, 0]) == [1, 0.5, 0]).all()
+        assert (normalize(preds, range_in=[-0.01, 1], map_to=[-1, 1]) == [-1, 0, 1]).all()
+        assert (normalize(preds, range_in=[-0.01, 1], map_to=[-3, -1]) == [-3, -2, -1]).all()
+        assert (normalize(preds, range_in=[-0.01, 1], map_to=[3, 1]) == [3, 2, 1]).all()
+        
+        preds = (-0.35693947774039203, 0.07255932122838979, 0.10972665377052404,
+                 -0.3460104025237925, -0.2998335126365414, 0.09612788974091535,
+                 -0.016918, 0)
+        vals = normalize(preds, map_to=(0, 1))
+        asd = 9
+        
+        
