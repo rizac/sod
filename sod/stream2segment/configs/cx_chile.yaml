@@ -282,7 +282,7 @@ advanced_settings:
     # at most 10 ASCII characters in 'col1' and 20 in 'col2', then:
     min_itemsize:
       # modified: 45
-      subclass: 24
+      # subclass: 24
       channel_code: 3
       location_code: 2
     #   col2: 20
