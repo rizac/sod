@@ -734,7 +734,8 @@ def join_save_evaluation_html(indir, format='html'):
 
     template_chunks[1] = json.dumps(all_data)
     content = ''.join(template_chunks)
-    re_title = re.compile(r'<title>(.*?)</title>', re.IGNORECASE)
+    re_title = re.compile(r'<title>(.*?)</title>',
+                          re.IGNORECASE)  # @UndefinedVariable
     oldtitle = re_title.search(content).group(1).strip()
     newtitle = "Summary CV evaluations"
     content = content.replace(oldtitle, newtitle)

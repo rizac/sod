@@ -319,7 +319,10 @@ class magnitudeenergy(DatasetInfo):
 
 
 class globalset(DatasetInfo):
-
+    '''the globalset was created in
+    'Create.global.dataset.ipynb'
+    by merging oneminutewindows_sn_only.hdf and magnitudeenergy.hdf
+    '''
     _SUBCLASS_COL = \
         magnitudeenergy._SUBCLASS_COL  # pylint: disable=protected-access
     _WINDOW_TYPE_COL = \
