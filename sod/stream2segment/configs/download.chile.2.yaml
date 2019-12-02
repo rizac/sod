@@ -124,11 +124,11 @@ eventws_params:
 #  - "A"
 #  - "B"
 channel:
- - 'BHZ'
+ - 'BL?'
  
 # Limit the search to the specified networks (see 'channel' parameter for details).
 # Implementation details: 'net' or 'networks' are also valid names for the parameter.
-network: '*'
+network: 'CX'
 
 # Limit the search to the specified stations (see 'channel' parameter for details).
 # Implementation details: 'sta' or 'stations' are also valid names for the parameter.
