@@ -198,7 +198,7 @@ search_radius:
 # (e.g., connection problems), then the requested stations and channels will be fetched from the
 # database. In this case, if the database is empty the download process will stop with an error
 # message.
-dataws: 'eida'
+dataws: 'http://geofon.gfz-potsdam.de/fdsnws/dataselect/1/query'
 
 # The model to be used to asses the travel times of a wave from
 # the event location to each station location. Type a string denoting a file name (absolute path)
