@@ -51,9 +51,10 @@ def plotdist(df, columns=None, bins=20, axis_lim=None):
             ax.set_xlabel(cname)
             if colindex == 0:
                 ax.set_ylabel(str(col))
+            ax.grid(True)
             # ax.set_yscale('log')
 
-    wspace = 1.5   # if col_z is not None else .25
+    wspace = .3  # if col_z is not None else .25
     hspace = wspace
 #     if clfs is not None and col_z is None:
 #         hspace *= len(clfs)
