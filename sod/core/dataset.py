@@ -82,9 +82,48 @@ def dataset_info(dataframe):
     raise ValueError('DataFrame not bound to a known dataset')
 
 
-class DatasetInfo:
-    
+class Meta(type):
+    '''Metaclass for the DatasetInfo class'''
+    def __new__(cls, name, bases, dct):
+        '''basically modifies cls.uid_columns'''
+        newcls = super().__new__(cls, name, bases, dct)
+        ocol = tuple() if OUTLIER_COL in newcls.uid_columns else (OUTLIER_COL,)
+        newcls.uid_columns = (name+'.id', *newcls.uid_columns, *ocol)
+        return newcls
+
+
+class DatasetInfo(metaclass=Meta):
+
     S2S_COL = 'Segment.db.id'
+
+    #########################################
+    # MEMBERS TO BE OVERWRITTEN IN SUBCLASSES
+    #########################################
+
+    # tuple of unique columns identifying an instance in this dataset.
+    # (See e.g., `evaluation.predict`, which will save these columns in
+    # addition to the produced prediction scores and decision functions).
+    # In `Meta` (which is called when creating this class), the FIRST element
+    # WILL ALWAYS be an id denoting the dataset (classname+ '.id') and will
+    # replace the S2S_COL of the dataframe (see `open_dataset`).
+    # The column OUTLIER_COL will also be added in `Meta` and needs to be
+    # specified
+    uid_columns = tuple()
+
+    # tuple of this dataset (sub)classes:
+    classnames = tuple()
+
+    # dict where each dataset's subclass is mapped to a selector function:
+    # "func(dataframe)" returning the pandas Series of booleans indicating
+    # where the dataframe row match the given class, so that, to filter
+    # the dataframe with class rows only you call: dataframe[func(dataframe)]
+    class_selector = {}
+
+    # dict where each dataset's class is mapped to its weight. The weight is
+    # only used in html evaluation reports to dynamically sort conf.matrices
+    class_weight = {}
+
+    ############################################
 
     @classmethod
     def open(cls, filename, normalize=True, verbose=True):
@@ -143,7 +182,7 @@ class pgapgv(DatasetInfo):
     # The first column will replace S2S_COL and will uniquely identify the
     # DataFrame's dataset: it will always be the DataFrame FIRST column
     # (see open_dataset). Set it to this class name + '.id'
-    uid_columns = ('pgapgv.id', _MODIFIED_COL, OUTLIER_COL)
+    uid_columns = (_MODIFIED_COL,)
 
     # list of this dataset (sub)classes:
     classnames = (
@@ -231,8 +270,7 @@ class oneminutewindows(DatasetInfo):
     # The first column will replace S2S_COL and will uniquely identify the
     # DataFrame's dataset: it will always be the DataFrame FIRST column
     # (see open_dataset). Set it to this class name + '.id'
-    uid_columns = ('oneminutewindows.id', pgapgv._MODIFIED_COL,
-                   _WINDOW_TYPE_COL, OUTLIER_COL)
+    uid_columns = (pgapgv._MODIFIED_COL, _WINDOW_TYPE_COL)
 
     # list of dataset (sub)classes:
     classnames = pgapgv.classnames
@@ -267,7 +305,7 @@ class magnitudeenergy(DatasetInfo):
     # The first column will replace S2S_COL and will uniquely identify the
     # DataFrame's dataset: it will always be the DataFrame FIRST column
     # (see open_dataset). Set it to this class name + '.id'
-    uid_columns = ('magnitudeenergy.id', OUTLIER_COL)
+    uid_columns = (_SUBCLASS_COL,)
 
     classnames = (
         'ok',
@@ -333,8 +371,7 @@ class globalset(DatasetInfo):
     # The first column will replace S2S_COL and will uniquely identify the
     # DataFrame's dataset: it will always be the DataFrame FIRST column
     # (see open_dataset). Set it to this class name + '.id'
-    uid_columns = ('globalset.id', OUTLIER_COL, 'dataset_id',
-                   _SUBCLASS_COL, _WINDOW_TYPE_COL)
+    uid_columns = ('dataset_id', _SUBCLASS_COL, _WINDOW_TYPE_COL)
 
     classnames = (
         'ok',  # inlier of omw or unknowns me
@@ -418,9 +455,8 @@ class allset_train(DatasetInfo):
     # The first column will replace S2S_COL and will uniquely identify the
     # DataFrame's dataset: it will always be the DataFrame FIRST column
     # (see open_dataset). Set it to this class name + '.id'
-    uid_columns = ('allset_train.id', OUTLIER_COL, 'dataset_id',
-                   _SUBCLASS_COL, _WINDOW_TYPE_COL, _CHA_COL, _LOC_COL,
-                   _STAID_COL)
+    uid_columns = ('dataset_id', _SUBCLASS_COL, _WINDOW_TYPE_COL, _CHA_COL,
+                   _LOC_COL, _STAID_COL)
 
     classnames = globalset.classnames[:2] + globalset.classnames[-2:]
 
@@ -445,8 +481,6 @@ class allset_train(DatasetInfo):
 
 
 class allset_test(allset_train):
-
-    uid_columns = tuple(['allset_test.id'] + allset_train.uid_columns[1:])
 
     classnames = globalset.classnames[2:-2]
 
