@@ -55,7 +55,7 @@ To run a CVevaluation:
 Move to ROOT
 Activate virtualenv
 ```bash
-export PYTHONPATH='.' && python sod/execute.py -c sod/evaluations/configs/<yamlfile>
+export PYTHONPATH='.' && python sod/evaluate.py -c <yamlfilename>
 ```
 
 (note that we need to set the PYTHONPATH as sod is NOT installed as python package)
