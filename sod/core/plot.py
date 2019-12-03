@@ -17,14 +17,20 @@ from sod.core.dataset import dataset_info, floatingcols, OUTLIER_COL, is_outlier
 # %matplotlib inline
 
 
-def plotdist(df, columns=None, bins=20, axis_lim=None):
+def plotdist(df, columns=None, bins=20, axis_lim=None, class_indices=None):
     '''
     Plots the distributions of all `columns` of df
     '''
     if columns is None:
         columns = list(floatingcols(df))
     dinfo = _dataset_info(df)
-    rows, cols = len(columns), len(dinfo.classnames)
+
+    classnames = dinfo.classnames
+    if class_indices is not None:
+        classnames = [_ for i, _ in enumerate(classnames)
+                      if i in class_indices]
+
+    rows, cols = len(columns), len(classnames)
     fig = plt.figure(figsize=(15, 15))
 
     index = 1
@@ -38,7 +44,7 @@ def plotdist(df, columns=None, bins=20, axis_lim=None):
             min_, max_ = df[col].quantile([1-axis_lim, axis_lim])
         bins_ = np.linspace(min_, max_, bins, endpoint=True)
         # plot one row of subplots:
-        for colindex, cname in enumerate(dinfo.classnames):
+        for cls_index, cname in enumerate(classnames):
             ax = fig.add_subplot(rows, cols, index)
             index += 1
             class_df = df[dinfo.class_selector[cname]][col]
@@ -49,12 +55,12 @@ def plotdist(df, columns=None, bins=20, axis_lim=None):
             # plot histogram
             ax.hist(class_df, bins_)
             ax.set_xlabel(cname)
-            if colindex == 0:
+            if cls_index == 0:
                 ax.set_ylabel(str(col))
             ax.grid(True)
             # ax.set_yscale('log')
 
-    wspace = .3  # if col_z is not None else .25
+    wspace = .5  # if col_z is not None else .25
     hspace = wspace
 #     if clfs is not None and col_z is None:
 #         hspace *= len(clfs)

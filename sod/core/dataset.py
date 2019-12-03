@@ -344,7 +344,7 @@ class globalset(DatasetInfo):
         'outl. (gain X10 or X0.1)',
         'outl. (gain X2 or X0.5)',
         'unlabeled (Me suspicious outl.)',
-        'unlabeled (unknown)'
+        'unlabeled (Me unknown)'
     )
 
     # dict where each dataset's subclass is mapped to a selector function:
@@ -423,60 +423,16 @@ class allset_train(DatasetInfo):
                    _STAID_COL)
 
     classnames = globalset.classnames[:2] + globalset.classnames[-2:]
-#     classnames = (
-#         'ok',  # inlier of omw or unknowns me
-#         'outl. (wrong inv)',  # artificially created in omw or labelled in me
-#         'outl. (cha. resp. acc <-> vel)',
-#         'outl. (gain X100 or X0.01)',
-#         'outl. (gain X10 or X0.1)',
-#         'outl. (gain X2 or X0.5)',
-#         'unlabeled (Me suspicious outl.)',
-#         'unlabeled (unknown)'
-#     )
 
     # dict where each dataset's subclass is mapped to a selector function:
     # "func(dataframe)" returning the pandas Series of booleans indicating
     # where the dataframe row match the given class, so that, to filter
     # the dataframe with class rows only you call: dataframe[func(dataframe)]
     class_selector = {_: globalset.class_selector[_] for _ in classnames}
-#     class_selector = {
-#         classnames[0]: lambda dataframe:
-#             ~is_outlier(dataframe) &
-#             dataframe[globalset._SUBCLASS_COL].str.match('^$'),
-#         classnames[1]: lambda dataframe:
-#             is_outlier(dataframe) &
-#             (dataframe[globalset._SUBCLASS_COL].str.contains('INVFILE:') |
-#              dataframe[globalset._SUBCLASS_COL].str.match('^$')),
-#         classnames[2]: lambda dataframe:
-#             dataframe[globalset._SUBCLASS_COL].str.contains('CHARESP:'),
-#         classnames[3]: lambda dataframe:
-#             dataframe[globalset._SUBCLASS_COL].str.contains('STAGEGAIN:X100.0') |
-#             dataframe[globalset._SUBCLASS_COL].str.contains('STAGEGAIN:X0.01'),
-#         classnames[4]: lambda dataframe:
-#             dataframe[globalset._SUBCLASS_COL].str.contains('STAGEGAIN:X10.0') |
-#             dataframe[globalset._SUBCLASS_COL].str.contains('STAGEGAIN:X0.1'),
-#         classnames[5]: lambda dataframe:
-#             dataframe[globalset._SUBCLASS_COL].str.contains('STAGEGAIN:X2.0') |
-#             dataframe[globalset._SUBCLASS_COL].str.contains('STAGEGAIN:X0.5'),
-#         classnames[6]: lambda df:
-#             df[globalset._SUBCLASS_COL].str.contains('unlabeled.maybe.outlier'),
-#         classnames[7]: lambda df:
-#             df[globalset._SUBCLASS_COL].str.contains('unlabeled.unknown')
-#     }
 
     # dict where each dataset's class is mapped to its weight. The weight is
     # only used in html evaluation reports to dynamically sort conf.matrices
     class_weight = {_: globalset.class_weight[_] for _ in classnames}
-#     class_weight = {
-#         classnames[0]: 100,
-#         classnames[1]: 100,
-#         classnames[2]: 10,
-#         classnames[3]: 50,
-#         classnames[4]: 5,
-#         classnames[5]: 1,
-#         classnames[6]: 1,
-#         classnames[7]: 1
-#     }
 
     @classmethod
     def _open(cls, dataframe):
@@ -486,6 +442,14 @@ class allset_train(DatasetInfo):
                     cls._WINDOW_TYPE_COL]:
             dataframe[cl_] = dataframe[cl_].astype('category')
         return dataframe
+
+
+class allset_test(allset_train):
+
+    uid_columns = tuple(['allset_test.id'] + allset_train.uid_columns[1:])
+
+    classnames = globalset.classnames[2:-2]
+
 ###########################
 # Other operations
 ###########################
