@@ -1,7 +1,7 @@
 # configuration for training a classifier
 
 # the input HDF5 file path
-input: 'globalset.hdf'
+input: 'allset_train.hdf'
 
 # The classifier. See `execute.EVALUATORS` for a list of possible strings
 # mapped to a subclass of the base `Evaluator` class (defined in `evaluation.__init__`)
