@@ -9,7 +9,8 @@ from os import makedirs
 from os.path import (isabs, abspath, isdir, isfile, dirname, join, basename,
                      splitext)
 from yaml import safe_load
-from sod.core.dataset import dataset_path, open_dataset, magnitudeenergy, globalset
+from sod.core.dataset import (dataset_path, open_dataset, magnitudeenergy,
+                              globalset)
 from sod.core.evaluation import CVEvaluator, is_outlier, Evaluator
 from sklearn.svm.classes import OneClassSVM
 from sklearn.ensemble.iforest import IsolationForest

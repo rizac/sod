@@ -100,7 +100,9 @@ class DatasetInfo(metaclass=Meta):
     # MEMBERS TO BE OVERWRITTEN IN SUBCLASSES
     #########################################
 
-    # tuple of unique columns identifying an instance in this dataset.
+    # tuple of unique columns necessary to identify a Data Fraame as belonging
+    # to this dataset. Note that any function generating derived Data Frame
+    # must also pass these columns to the generated Data frames.
     # (See e.g., `evaluation.predict`, which will save these columns in
     # addition to the produced prediction scores and decision functions).
     # In `Meta` (which is called when creating this class), the FIRST element
@@ -366,7 +368,10 @@ class globalset(DatasetInfo):
     _WINDOW_TYPE_COL = \
         oneminutewindows._WINDOW_TYPE_COL  # pylint: disable=protected-access
 
-    # list of unique columns identifying an instance in this dataset
+    # list of unique columns necessary to identify a dataframe under this
+    # dataset. These columns must also be passed to any DataFrame generated
+    # splitting/filtering/evaluating (see e.g. 'predict' child dataframe
+    # ing an instance in this dataset
     # OUTLIER_COL MUST be always present. Also:
     # The first column will replace S2S_COL and will uniquely identify the
     # DataFrame's dataset: it will always be the DataFrame FIRST column
