@@ -124,13 +124,14 @@ features:
 # The classifier parameters to iterate over:
 parameters:
   n_estimators:
+    - 50
     - 100
     - 200
   max_samples:
     - 512
+    - 1024
     - 2048
-    - 8192
-    - 16384
+    - 4096
   contamination:
     - 'auto'
 
