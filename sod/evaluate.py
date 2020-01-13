@@ -65,7 +65,10 @@ class IsolationForestEvaluator(OcsvmEvaluator):
 
 
 class IsolationForestEvaluatorGlobalset(IsolationForestEvaluator):
-    '''IsolationForest evaluator for the MagnitudeEnergy dataset'''
+    '''IsolationForest evaluator for the datasets:
+    allset_train, magnitudeenergy, globalset. It basically uses as
+    inliers those defined as first class in the relative dataset
+    '''
 
     def train_test_split_model(self, dataframe):
         '''Returns two dataframe representing the train and test dataframe for

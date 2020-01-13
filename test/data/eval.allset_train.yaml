@@ -3,18 +3,18 @@
 # the input HDF5 file path (TEST dataset)
 # it must be in sod/sod/dataset/executions/results
 # NOTE: EXTENSION .hdf IS IGNORED BY GIT, FORN TEST FILES WE USE .hdf_ 
-input: 'oneminutewindows.hdf_'
+input: 'allset_train.hdf_'
 
 # The classifiers. Provide a list of model files (ending with '.model') with
 # path relative to sod/sod/evaluation/executions/results
 clf:
-  - 'cv.oneminutewindows.ocsvm.yaml/models/OneClassSVM?features=psd@2sec,psd@5sec&gamma=50&kernel=rbf&nu=0.1&cache_size=1500.model'
-  - 'cv.oneminutewindows.ocsvm.yaml/models/OneClassSVM?features=psd@2sec,psd@5sec&gamma=50&kernel=rbf&nu=0.2&cache_size=1500.model'
+  - 'cv.allset_train.iforest.yaml/models/IsolationForest?features=psd@2sec,psd@5sec&contamination=auto&max_samples=128&n_estimators=100&behaviour=new.model'
+  - 'cv.allset_train.iforest.yaml/models/IsolationForest?features=psd@2sec&contamination=auto&max_samples=128&n_estimators=200&behaviour=new.model'
 
 # These are regexp mapped to a dict of <feature>: <bounds> items.
 # When any of the classifiers path above matches (using re.find, not re.match),
 # then the corresponding features are normalized (if present in the classifier file name, see above)
-input_normalize: 'oneminutewindows.hdf_'
+input_normalize: ''
   
 # these are the bounds of oneminutewindows.hdf (pre normalization)
 # Use a juopyter notebook and open the dataset with `verbose` and `normalize`

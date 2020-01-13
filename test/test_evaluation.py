@@ -26,11 +26,12 @@ from sod.core.evaluation import (split, classifier, predict, _predict,
                                  CVEvaluator, train_test_split,
                                  drop_duplicates,
                                  keep_cols, drop_na, cmatrix_df, ParamsEncDec,
-                                 join_save_evaluation_hdf,
-                                 join_save_evaluation_html)
-from sod.core.dataset import (open_dataset, groupby_stations)
+                                 aggeval_hdf, aggeval_html, correctly_predicted,
+    PREDICT_COL, save_df)
+from sod.core.dataset import (open_dataset, groupby_stations, allset_train,
+    oneminutewindows, pgapgv)
 from sod.evaluate import (OcsvmEvaluator, run)
-from sod.core import paths
+from sod.core import paths, pdconcat
 
 
 class PoolMocker:
@@ -77,6 +78,9 @@ class Tester:
     cv_evalconfig2 = join(dirname(__file__), 'data', 'cv.oneminutewindows.ocsvm.yaml')
     evalconfig = join(dirname(__file__), 'data', 'eval.oneminutewindows.yaml')
     evalconfig2 = join(dirname(__file__), 'data', 'eval.pgapgv.yaml')
+    cv_evalconfig3 = join(dirname(__file__), 'data', 'cv.allset_train.iforest.yaml')
+    evalconfig3 = join(dirname(__file__), 'data', 'eval.allset_train.yaml')
+    
 
     tmpdir = join(dirname(__file__), 'tmp')
 
@@ -171,9 +175,9 @@ class Tester:
         ])
         dfr.insert(0, 'pgapgv.id', [1, 2])
 
-        mock_predict.side_effect = lambda *a, **kw: np.array([1, -1])
+        mock_predict.side_effect = lambda *a, **kw: np.array([0, 1])
         pred_df = predict(None, dfr)
-        assert pred_df['correctly_predicted'].sum() == 2
+        assert correctly_predicted(pred_df).sum() == 2
         cm_ = cmatrix_df(pred_df)
         assert cm_.loc['ok', :].to_dict() == {
             'ok': 1.0,
@@ -191,9 +195,9 @@ class Tester:
             {'outlier': True, 'modified': 'INVFILE:'}
         ])
         dfr.insert(0, 'pgapgv.id', [1, 2])
-        mock_predict.side_effect = lambda *a, **kw: np.array([1, -1])
+        mock_predict.side_effect = lambda *a, **kw: np.array([0, 1])
         pred_df = predict(None, dfr)
-        assert pred_df['correctly_predicted'].sum() == 2
+        assert correctly_predicted(pred_df).sum() == 2
         cm_ = cmatrix_df(pred_df)
         assert cm_.loc['ok', :].to_dict() == {
             'ok': 1.0,
@@ -222,18 +226,18 @@ class Tester:
 
         # predictions are:
         # ok, slightly bad, slightly bad, ok
-        mock_predict.side_effect = lambda *a, **kw: np.array([1, -.1, .1, -1])
+        mock_predict.side_effect = lambda *a, **kw: np.array([0, 0.55, .45, 1])
         pred_df_low_logloss = predict(None, dfr)
         cm_low_logloss = cmatrix_df(pred_df_low_logloss)
         # predictions are:
         # ok, highly bad, ok, ok
-        mock_predict.side_effect = lambda *a, **kw: np.array([1, -1, -1, -1])
+        mock_predict.side_effect = lambda *a, **kw: np.array([0, 1, 1, 1])
         pred_df_high_logloss = predict(None, dfr)
         cm_high_logloss = cmatrix_df(pred_df_high_logloss)
         
         # prediction 1 is worse concerning correctly predicted:
-        assert pred_df_low_logloss['correctly_predicted'].sum() == 2
-        assert pred_df_high_logloss['correctly_predicted'].sum() == 3
+        assert correctly_predicted(pred_df_low_logloss).sum() == 2
+        assert correctly_predicted(pred_df_high_logloss).sum() == 3
         # but has a lower log loss (i.e., better):
         assert cm_low_logloss['Mean log_loss'].sum() < \
             cm_high_logloss['Mean log_loss'].sum()
@@ -251,6 +255,17 @@ class Tester:
             res2.append(_[0])
         assert (res == res2).all()
 
+    # REMOVE THESE LINES (CREATE A SMALL DATASET FOR TESTING FROM AN EXISTING ONE):
+#     hdf_ = pd.read_hdf('/Users/riccardo/work/gfz/projects/sources/python/sod/sod/datasets/allset_train.hdf')
+#     hts = []
+#     for sc in pd.unique(hdf_.subclass):
+#         for clname in allset_train.classnames:
+#             hts.append(hdf_[(hdf_.subclass == sc) & (hdf_.outlier)][:10])
+#             hts.append(hdf_[(hdf_.subclass == sc) & ~(hdf_.outlier)][:10])
+#     save_df(pdconcat(hts),
+#             '/Users/riccardo/work/gfz/projects/sources/python/sod/test/data/allset_train.hdf_',
+#             key='allset_train')
+
     @patch('sod.core.dataset.dataset_path')
     @patch('sod.core.evaluation.Pool',
            side_effect=lambda *a, **v: PoolMocker())
@@ -262,8 +277,16 @@ class Tester:
                        ):
         if isdir(self.tmpdir):
             shutil.rmtree(self.tmpdir)
-
+ 
         INPATH, OUTPATH = self.datadir, self.tmpdir
+
+        configs = [
+            (self.cv_evalconfig3, self.evalconfig3),
+            (self.cv_evalconfig2, self.evalconfig2),
+            # DO NOT USE evalconfig, it's an old dataset, and we want to spedd
+            # up test:
+            (self.cv_evalconfig, self.evalconfig)
+        ]
 
         with patch('sod.evaluate.EVALUATIONS_CONFIGS_DIR', INPATH):
             with patch('sod.evaluate.EVALUATIONS_RESULTS_DIR', OUTPATH):
@@ -271,13 +294,13 @@ class Tester:
                 mock_dataset_in_path.side_effect = \
                     lambda filename, *a, **v: join(INPATH, filename)
 
-                for evalconfigpath in [self.cv_evalconfig, self.cv_evalconfig2]:
-                    evalconfigname = basename(evalconfigpath)
+                for (cvconfigpath, _) in configs:
+                    cvconfigname = basename(cvconfigpath)
                     runner = CliRunner()
-                    result = runner.invoke(run, ["-c", evalconfigname])
+                    result = runner.invoke(run, ["-c", cvconfigname])
                     assert not result.exception
 
-                    assert listdir(join(OUTPATH, evalconfigname))
+                    assert listdir(join(OUTPATH, cvconfigname))
                     # check prediction file:
                     html_file = None
                     prediction_file = None
@@ -285,48 +308,43 @@ class Tester:
                     subdirs = (CVEvaluator.EVALREPORTDIRNAME,
                                CVEvaluator.PREDICTIONSDIRNAME,
                                CVEvaluator.MODELDIRNAME)
-                    assert sorted(listdir(join(OUTPATH, evalconfigname))) == \
+                    assert sorted(listdir(join(OUTPATH, cvconfigname))) == \
                         sorted(subdirs)
                     for subdir in subdirs:
-                        assert listdir(join(OUTPATH, evalconfigname, subdir))
+                        assert listdir(join(OUTPATH, cvconfigname, subdir))
 
                     prediction_file = \
-                        listdir(join(OUTPATH, evalconfigname,
+                        listdir(join(OUTPATH, cvconfigname,
                                      CVEvaluator.PREDICTIONSDIRNAME))[0]
-                    prediction_file = join(OUTPATH, evalconfigname,
+                    prediction_file = join(OUTPATH, cvconfigname,
                                            CVEvaluator.PREDICTIONSDIRNAME,
                                            prediction_file)
-                    id = basename(evalconfigpath).split('.')[1] + '.id'
-                    if evalconfigpath == self.cv_evalconfig:
-                        cols = ['correctly_predicted', 'outlier', 'modified',
-                                id, 'decision_function',
-                                'log_loss']
-                    else:
-                        cols = ['window_type', 'log_loss', 'decision_function',
-                                'correctly_predicted', 'outlier', 'modified',
-                                id]
-                    assert sorted(pd.read_hdf(prediction_file).columns) == \
-                        sorted(cols)
+                    id = basename(cvconfigpath).split('.')[1] + '.id'
+                    if cvconfigpath == self.cv_evalconfig:
+                        cols = pgapgv.uid_columns
+                    elif cvconfigpath == self.cv_evalconfig2:
+                        cols = oneminutewindows.uid_columns
+                    elif cvconfigpath == self.cv_evalconfig3:
+                        cols = allset_train.uid_columns
+                    
+                    cols = sorted(list(cols) + [PREDICT_COL])
+                    assert sorted(pd.read_hdf(prediction_file).columns) == cols
 
-                runner = CliRunner()
-                result = runner.invoke(run, ["-c", basename(self.cv_evalconfig2)])
-                # directory exists:
-                assert result.exception
+                for (cvconfigpath, evalconfigpath) in configs:
+                    runner = CliRunner()
+                    result = runner.invoke(run, ["-c", basename(cvconfigpath)])
+                    # directory exists:
+                    assert result.exception
 
-                # now run evaluations with the generated files:
-                runner = CliRunner()
-                result = runner.invoke(run, ["-c", basename(self.evalconfig)])
-                assert not result.exception
-                runner = CliRunner()
-                result = runner.invoke(run, ["-c", basename(self.evalconfig2)])
-                assert not result.exception
+                    # now run evaluations with the generated files:
+                    runner = CliRunner()
+                    result = runner.invoke(run, ["-c", basename(evalconfigpath)])
+                    assert not result.exception
 
-        join_save_evaluation_html(join(OUTPATH,
-                                  basename(self.cv_evalconfig2),
-                                  'evalreports'))
-        join_save_evaluation_hdf(join(OUTPATH,
-                                  basename(self.cv_evalconfig2),
-                                  'evalreports'))
+        aggeval_html(join(OUTPATH, basename(self.cv_evalconfig2),
+                          'evalreports'))
+        aggeval_hdf(join(OUTPATH, basename(self.cv_evalconfig2),
+                         'evalreports'))
 
     def test_dirs_exist(self):
         '''these tests MIGHT FAIL IF DIRECTORIES ARE NOT YET INITIALIZED

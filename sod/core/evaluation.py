@@ -23,11 +23,11 @@ from sklearn.metrics.classification import (confusion_matrix,
 from sod.core import pdconcat, odict
 from sod.core.dataset import (is_outlier, OUTLIER_COL, dataset_info)
 import re
+from sklearn.ensemble.iforest import IsolationForest
+from sklearn.svm.classes import OneClassSVM
 
 
-CORRECTLY_PREDICTED_COL = 'correctly_predicted'
-LOGLOSS_COL = 'log_loss'
-PREDICT_COL = 'decision_function'
+PREDICT_COL = 'predicted_anomaly_score'
 
 
 def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
@@ -119,172 +119,71 @@ def classifier(clf_class, dataframe, **clf_params):
 
 def predict(clf, dataframe, *columns):
     '''
-    :return: a DataFrame with columns 'correctly_predicted' (boolean),
-        'log_loss' (float) plus the columns of `dataframe` useful to uniquely
-        identify the row: these columns depend on the dataset used and are
-        `UNIQUE_ID_COLUMNS` (or a subset of it).
+    Builds and returns a PRDICTED DATAFRAME (predicted_df) representing
+    the predictions of `cls` on the test dataframe.
+
+    :return: a DataFrame with the columns 'outlier' (boolean) and
+    'prediction' (float in [0, 1]) plus the columns implemented in the
+    dataset type associated to dataframe (see module `dataset`)
     '''
-
-#     OneClassSVM.decision_function(self, X):
-#         """Signed distance to the separating hyperplane.
-#         Signed distance is positive for an inlier and negative for an outlier
-
-#     IsolationForest.def decision_function(self, X):
-#         ''' ...
-#         Returns
-#         -------
-#         scores : array, shape (n_samples,)
-#             The anomaly score of the input samples.
-#             The lower, the more abnormal. Negative scores represent outliers,
-#             positive scores represent inliers.
-#
-#         """
-
     predicted = _predict(
         clf,
         dataframe if not columns else dataframe[list(columns)]
     )
-    outliers = is_outlier(dataframe)
-    logloss_ = log_loss(outliers, predicted)
-    cpred_ = correctly_predicted(outliers, predicted)
     dinfo = dataset_info(dataframe)
     # return the dataframe with only `cols` columns, but assure that
     # dinfo.uid_columns[0] is in the first position otherwise
     # dataset_info called on the returned dataframe won't work
     data = {
         dinfo.uid_columns[0]: dataframe[dinfo.uid_columns[0]],
-        CORRECTLY_PREDICTED_COL: cpred_,
-        LOGLOSS_COL: logloss_,
         PREDICT_COL: predicted,
         **{k: dataframe[k] for i, k in enumerate(dinfo.uid_columns) if i > 0}
     }
     return pd.DataFrame(data, index=dataframe.index)
 
 
-def log_loss(outliers, predictions, eps=1e-15, normalize_=True):
-    '''Computes the log loss of each prediction
-
-    :param outliers: Ground truth (correct) labels (True: outlier,
-        False: inlier)
-    :param predictions: predicted scores (must have the same length as
-        `outliers`) as returned by `_predict`: float array with positive
-        (inlier) or negative (outlier) scores
-
-    :return: a numpy array the same length of `predictions` with the log loss
-        scores
-    '''
-    predictions_n = np.copy(predictions)
-    if normalize_:
-        # normalize bounds to have all predictions in [-1, 1]. But
-        # normalize positives and then negatives separately, as we might have
-        # unbalanced bounds (e.g. negatives in [-1, 0], positives in [0, 1200]
-        positives = predictions_n > 0
-        if np.nansum(positives):
-            predictions_n[positives] = \
-                predictions_n[positives] / np.nanmax(predictions_n[positives])
-        negatives = predictions_n < 0
-        if np.nansum(negatives):
-            predictions_n[negatives] = \
-                predictions_n[negatives] / -np.nanmin(predictions_n[negatives])
-
-    not_outliers = ~outliers
-    predictions_n[not_outliers] = (1 + predictions_n[not_outliers]) / 2.0
-    predictions_n[outliers] = (1 - predictions_n[outliers]) / 2.0
-    if eps is not None:
-        predictions_n = np.clip(predictions_n, eps, 1 - eps)
-    return -np.log10(predictions_n)  # http://wiki.fast.ai/index.php/Log_Loss
-
-
-def normalize(predictions, range_in=None, map_to=(0, 1)):
-    '''Normalizes `predictions` and returns an array with values all within
-    `maps_to`, where:
-    the closer a value to `maps_to[0]`, the more it is an outlier
-    the closer a value to `maps_to[1]`, the more it is an inlier
-
-    :param predictions: the result of `predict`. Negative values must denote
-        outliers, positive values must denote inliers
-    :param range_in: 2-element tuple denoting the input range in the form:
-        ```
-        (outliers min, inliers max)
-        ```
-        The first element must be negative and the second positive.
-        If None (the default), it defaults to the minimum of the negative
-        scores of predictions, and the maximum of the positive scores of
-        predictions
-    :param map_to: 2-tuple element denoting the the output range
-        in the form
-        ```
-        (value_of the_highest_outlier_score, value_of the_highest_inlier_score)
-        ```
-        The numbers DO NOT AHVE any restrictions:
-        map_to=(1, 0) returns numbers in [0, 1], the higher, the more outlier
-        map_to=(0, 1) returns numbers in [0, 1], the higher, the more inlier
-
-    :return: new array with float values in map_to
-    '''
-    preds = np.array(predictions, copy=True, dtype=float)
-    positives = preds >= 0
-    if np.nansum(positives):
-        if range_in is None:
-            max_inlier = np.nanmax(preds[positives])
-        else:
-            max_inlier = range_in[1]
-            if not max_inlier > 0:
-                raise ValueError('range_in second element must be positive')
-            preds[positives] = np.clip(preds[positives], None, max_inlier)
-        preds[positives] = preds[positives] / max_inlier
-
-    negatives = ~positives
-    if np.nansum(negatives):
-        if range_in is None:
-            min_outlier = np.nanmin(preds[negatives])
-        else:
-            min_outlier = range_in[0]
-            if not min_outlier < 0:
-                raise ValueError('range_in first element must be negative')
-            preds[negatives] = np.clip(preds[negatives], min_outlier, None)
-        preds[negatives] = preds[negatives] / -min_outlier
-
-    # we now have values all in [-1, 1], where values >=0 denote inliers
-    if map_to is not None and (map_to[0] != -1 or map_to[1] != 1):
-        preds = map_to[0] + (map_to[1] - map_to[0]) * (preds + 1.) / 2.0
-    return preds
-
-
-def correctly_predicted(outliers, predictions):
-    '''Returns if the instances are correctly predicted
-
-    :param outliers: boolean array denoting if the element is an outlier
-    :param predictions: the output of `_predict`: float array with positive
-        (inlier) or negative (outlier) scores
-
-    :return: a boolean numpy array telling if the element is correctly
-        predicted
-    '''
-    return (outliers & (predictions < 0)) | ((~outliers) & (predictions >= 0))
-
-
 def _predict(clf, dataframe):
-    '''Returns a numpy array of len(dataframe) integers where:
-    negative values represent samples classified as OUTLIER (the lower, the
-        more abnormal)
-    positive values represent samples classified as INLIER (the higher, the
-        more normal)
-    The returned values bounds depend on the classifier chosen
+    '''Returns a numpy array of len(dataframe) predictions, (i.e. floats
+    in [0, 1]) for each row of dataframe.
+
+    **A prediction is a float in [0, 1] representing the
+    anomaly score (0: inlier, 1: outlier)**
+
+    For any new classifier added, call the prediciton method which best fits
+    your needs (e.g., predict, decision_function, score_samples) and, if
+    needed, convert its output into a numpy array of numbers in [0, 1].
+    Binary classifiers (e.g. SVMs) should return an array of numbers in
+    EITHER 0 or 1 (this way some metrcis - e.g. log loss) are trivial, but we
+    keep consistency).
+    The currently implemented IsolationForest and OneClassSVM do so.
 
     :param clf: the given (trained) classifier
     :param dataframe: pandas DataFrame
-    :param columns: list of string denoting the columns of `dataframe` that
-        represents the feature space to fit the classifier with
+
+    :return: a numopt array of numbers all in [0, 1]
     '''
     # this method is very trivial it is used mainly for test purposes (mock)
-    return clf.decision_function(dataframe.values)
+    if isinstance(clf, IsolationForest):
+        return -clf.score_samples(dataframe.values)
+
+    if isinstance(clf, OneClassSVM):
+        # OCSVM.decision_function returns the Signed distance to the separating
+        # hyperplane. Signed distance is positive for an inlier and negative
+        # for an outlier.
+        ret = clf.decision_function(dataframe.values)
+        # OCSVMs do NOT support bounded scores, thus:
+        ret[ret >= 0] = 0
+        ret[ret < 0] = 1
+        return ret
+
+    raise ValueError('Classifier type not implemented in _predict: %s'
+                     % str(clf))
 
 
 # NOTE: IF YOU WANT TO CHANGE 'ok' or 'outlier' THEN CONSIDER CHANGING
 # ALSO THE ROWS (SEE `_CLASSNAMES`). If you want to add new columns,
 # also ADD a sort order in CMATRIX_SCORE_COLUMNS (see below)
-CMATRIX_COLUMNS = ('ok', 'outlier', '% rec.', 'Mean %s' % LOGLOSS_COL)
+CMATRIX_COLUMNS = ('ok', 'outlier', '% rec.', 'Mean log_loss')
 
 
 def cmatrix_df(predicted_df):
@@ -306,8 +205,8 @@ def cmatrix_df(predicted_df):
         cls_df = predicted_df[dinfo.class_selector[cname](predicted_df)]
         if cls_df.empty:
             continue
-        correctly_pred = cls_df[CORRECTLY_PREDICTED_COL].sum()
-        avg_log_loss = cls_df[LOGLOSS_COL].mean()
+        correctly_pred = correctly_predicted(cls_df).sum()
+        avg_log_loss = log_loss(cls_df)
         # map any class defined here to the index of the column above which denotes
         # 'correctly classified'. Basically, map 'ok' to zero and any other class
         # to 1:
@@ -322,6 +221,36 @@ def cmatrix_df(predicted_df):
 
     sum_df.dataset_info = dinfo
     return sum_df
+
+
+def log_loss(predicted_df, eps=1e-15, normalize=True):
+    '''Computes the log loss of `predicted_df`
+
+    :param predicted_df: A dataframe with predictions, the output of
+        `predict`
+
+    :return: a NUMBER representing the mean (normalize=True) or sum
+        (normalize=False) of all scores in predicted_df
+    '''
+    return scikit_log_loss(predicted_df[OUTLIER_COL],
+                           predicted_df[PREDICT_COL],
+                           eps=eps, normalize=normalize,
+                           labels=[False, True])
+
+
+def correctly_predicted(predicted_df):
+    '''Returns a numpy array of boolean representing the correctly
+    predicted instances of `predicted_df`
+
+     :param predicted_df: A dataframe with predictions, the output of
+        `predict`
+
+    :return: a boolean numpy array telling if the element is correctly
+        predicted
+    '''
+    outliers = predicted_df[OUTLIER_COL]
+    preds = predicted_df[PREDICT_COL]
+    return (outliers & (preds > 0.5)) | ((~outliers) & (preds <= 0.5))
 
 
 def _get_eval_report_html_template():
