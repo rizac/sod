@@ -2,11 +2,11 @@
 
 # the input HDF5 file path
 # NOTE: EXTENSION .hdf IS IGNORED BY GIT, FORN TEST FILES WE USE .hdf_ 
-input: 'oneminutewindows.hdf_'
+input: 'allset_train.hdf_'
 
 # The classifier. See `execute.EVALUATORS` for a list of possible strings
 # mapped to a subclass of the base `Evaluator` class (defined in `evaluation.__init__`)
-clf: "OneClassSVM"
+clf: "IsolationForestGlobalset"
 
 # The features (inout dataframe columns) to iterate over:
 features:
@@ -21,20 +21,20 @@ features:
 
 # The classifier parameters to iterate over:
 parameters:
-  kernel:
-    - 'rbf'
-  gamma:
+  n_estimators:
+    - 100
+    - 200
+  max_samples:
     # - 'auto'
     # - 1
     # - 10
-    - 50  # np.logspace(np.log10(1), np.log10(50), 4)
-  nu:
-    - 0.1
-    - 0.2
+    - 128  # np.logspace(np.log10(1), np.log10(50), 4)
+  contamination:
+    - 'auto'
     # - 0.5  # np.logspace(np.log10(.1), np.log10(.5), 3)
 
 # if input has to be normalized before evaluation (normalize on good segments only):
-input_normalize: true
+input_normalize: false
 
 # the output director root path. The output path will be constructed by
 # appending the basename of the input file above to the root path:

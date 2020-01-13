@@ -359,9 +359,9 @@ class magnitudeenergy(DatasetInfo):
 
 
 class globalset(DatasetInfo):
-    '''the globalset was created in
-    'Create.global.dataset.ipynb'
-    by merging oneminutewindows_sn_only.hdf and magnitudeenergy.hdf
+    '''This dataset represents the dataframe created in
+    'Create.global.dataset.ipynb' by merging oneminutewindows_sn_only.hdf and
+    magnitudeenergy.hdf
     '''
     _SUBCLASS_COL = \
         magnitudeenergy._SUBCLASS_COL  # pylint: disable=protected-access
@@ -443,9 +443,11 @@ class globalset(DatasetInfo):
 
 
 class allset_train(DatasetInfo):
-    '''the globalset was created in
-    'Creating.allset.ipynb'
-    by merging globalset.hdf and cx_chile.hdf
+    '''This dataset represents the dataframe created in
+    'Creating.allset.ipynb' by merging globalset.hdf and cx_chile.hdf
+    It also removes all segments synthetically created in order to
+    speed up cv testing. These instances can be run later if you want by
+    evaluating the dataset 'allset_synth_modified_segments.hdf'
     '''
     _SUBCLASS_COL = \
         magnitudeenergy._SUBCLASS_COL  # pylint: disable=protected-access
