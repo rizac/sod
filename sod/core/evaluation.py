@@ -680,16 +680,27 @@ def _fit_and_predict(clf_class, train_df, columns, params, test_df=None,
     return clf, params, columns, predictions
 
 
-def join_save_evaluation_hdf(indir):
+def aggeval(indir, format='html', save=True):  # @ReservedAssignment
+    '''Aggregates all evaluations html files of `indir` (produced with
+    CVEvaluation) into a general evaluation in the specified format
+    (html or hdf)
+    '''
+    if format == 'html':
+        return aggeval_html(indir, save)
+    if format == 'hdf':
+        return aggeval_hdf(indir, save)
+    raise ValueError('format can be either "hdf" or "html", not "%s"'
+                     % str(format))
+
+
+def aggeval_hdf(indir, save=True):
     '''Asuming `indir` is the directory where CV reports in HTML format
     have been saved by a run of `CVEvaluator`, then generates a new HTML
     page summing up all cv evaluation reports of `indir`
     '''
-    template_chunks = []
     all_data = []
-    keycolumns = []
     for (html_pre, data_list, classes, weights, columns, html_post) in \
-            _join_save_evaluation(indir):
+            _evalhtmlscanner(indir):
         for dic in data_list:
             key = dic['key']
             newdic = {}
@@ -698,10 +709,10 @@ def join_save_evaluation_hdf(indir):
                 key, val = chunk.split('=')
                 try:
                     val = int(val)
-                except:
+                except:  # @IgnorePep8 pylint: disable=bare-except
                     try:
                         val = float(val)
-                    except:
+                    except:  # @IgnorePep8 pylint: disable=bare-except
                         pass
                 newdic[key] = val
             data = dic['data']
@@ -713,21 +724,18 @@ def join_save_evaluation_hdf(indir):
                     new_df_row[capt] = val
                 all_data.append(new_df_row)
 
-#     template_chunks[1] = json.dumps(all_data)
-#     content = ''.join(template_chunks)
-#     re_title = re.compile(r'<title>(.*?)</title>', re.IGNORECASE)
-#     oldtitle = re_title.search(content).group(1).strip()
-#     newtitle = "Summary CV evaluations"
-#     content = content.replace(oldtitle, newtitle)
-    outfile = join(indir, 'evaluations.all.hdf')
-    save_df(pd.DataFrame(all_data), outfile, key='evaluation_all')
+    dfr = pd.DataFrame(all_data)
+    if save:
+        outfile = join(indir, 'evaluations.all.hdf')
+        save_df(dfr, outfile, key='evaluation_all')
+    return dfr
 
 
-def join_save_evaluation_html(indir, format='html'):
+def aggeval_html(indir, save=True):
     template_chunks = []
     all_data = []
     for (html_pre, data_list, classes, weights, columns, html_post) in \
-            _join_save_evaluation(indir):
+            _evalhtmlscanner(indir):
         all_data.extend(data_list)
         if not template_chunks:
             template_chunks = [html_pre, '\n', html_post]
@@ -739,23 +747,18 @@ def join_save_evaluation_html(indir, format='html'):
     oldtitle = re_title.search(content).group(1).strip()
     newtitle = "Summary CV evaluations"
     content = content.replace(oldtitle, newtitle)
-    outfile = join(indir, 'evaluations.all.html')
-    with open(outfile, 'w') as _opn:
-        _opn.write(content)
+    if save:
+        outfile = join(indir, 'evaluations.all.html')
+        with open(outfile, 'w') as _opn:
+            _opn.write(content)
+    return content
 
 
-def _join_save_evaluation(indir):
-    template_chunks = []
+def _evalhtmlscanner(indir):
     dotall, icase = re.DOTALL, re.IGNORECASE  # @UndefinedVariable
     re_data = re.compile(r'evaluations: +(\[\{.*?\}\]),\n', dotall)
     html_pre, html_post = '', ''
-#     re_classes = re.compile(r'classes: +(\[.*?\]),\n', dotall)
-#     re_weights = re.compile(r'weights: +(\[.*?\]),\n', dotall)
-#     re_columns = re.compile(r'columns: +(\[.*?\]),\n', dotall)
-#     classes = []
-#     weights = []
-#     columns = []
-    
+
     jsvars = {
         're': {
             'classes': re.compile(r'classes: +(\[.*?\]),\n', dotall),
@@ -789,7 +792,7 @@ def _join_save_evaluation(indir):
                     for dic in json.loads(match_data.group(1)):
                         dic['key'] = prefix + " " + dic['key']
                         all_data.append(dic)
-                except:
+                except:  # @IgnorePep8
                     raise ValueError('data unparsable as JSON')
                 start, end = match_data.start(1), match_data.end(1)
                 html_pre, html_post = content[:start], content[end:]
@@ -800,7 +803,7 @@ def _join_save_evaluation(indir):
                                          name)
                     try:
                         _pyval = json.loads(match_.group(1))
-                    except:
+                    except:  # @IgnorePep8
                         raise ValueError('variable "%s" unparsable as JSON' %
                                          name)
                     if not jsvars['val'][name]:
@@ -809,18 +812,8 @@ def _join_save_evaluation(indir):
                         raise ValueError('Variable "%s" not equal in all '
                                          'html files' % name)
                 yield (html_pre, all_data, *jsvars['val'].values(),
-                       html_post)        
+                       html_post)
 
-#     template_chunks[1] = json.dumps(all_data)
-#     content = ''.join(template_chunks)
-#     re_title = re.compile(r'<title>(.*?)</title>', icase)
-#     oldtitle = re_title.search(content).group(1).strip()
-#     newtitle = "Summary CV evaluations"
-#     content = content.replace(oldtitle, newtitle)
-#     outfile = join(indir, 'evaluations.all.html')
-#     with open(outfile, 'w') as _opn:
-#         _opn.write(content)
-                 
 
 class Evaluator:
     '''Class for evaluating pre-fitted and saved model(s) (ususally obtained
