@@ -384,9 +384,8 @@ class CVEvaluator:
             list of possible values. The total number of cv iterations will
             be done for all possible combinations of all parameters values
         '''
-        assert n_folds >= 1
         self.clf_class = clf_class
-        self.n_folds = n_folds
+        self.n_folds = max(0, n_folds)
         # setup self.parameters:
         __p = []
         for pname, vals in parameters.items():
@@ -489,6 +488,8 @@ class CVEvaluator:
                             callback=aasync_callback,
                             error_callback=kill_pool
                         )
+                        if self.n_folds == 0:
+                            continue
                         for train_df, test_df in \
                                 self.train_test_split_cv(_traindf):
                             pool.apply_async(
