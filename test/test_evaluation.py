@@ -13,7 +13,7 @@ from itertools import repeat, product
 from collections import defaultdict
 from sklearn.model_selection._split import KFold
 from sklearn.metrics.classification import (confusion_matrix, brier_score_loss,
-                                            log_loss)
+                                            log_loss as sk_log_loss)
 import mock
 from sklearn.svm.classes import OneClassSVM
 from mock import patch
@@ -27,7 +27,7 @@ from sod.core.evaluation import (split, classifier, predict, _predict,
                                  drop_duplicates,
                                  keep_cols, drop_na, cmatrix_df, ParamsEncDec,
                                  aggeval_hdf, aggeval_html, correctly_predicted,
-    PREDICT_COL, save_df)
+    PREDICT_COL, save_df, log_loss)
 from sod.core.dataset import (open_dataset, groupby_stations, allset_train,
     oneminutewindows, pgapgv)
 from sod.evaluate import (OcsvmEvaluator, run)
@@ -166,6 +166,178 @@ class Tester:
             all_tst.extend(tst.index)
         assert sorted(set(all_trn)) == indices
         assert sorted(set(all_tst)) == indices
+
+    @patch('sod.core.evaluation._predict')
+    def test_logloss(self, mock_predict):
+        eps = 1e-15
+        MINVAL = -np.log(1 - eps)
+        MAXVAL = -np.log(eps)
+        mock_predict.side_effect = lambda *a, **kw: np.array([0.0, 1.0])
+
+        dfr = pd.DataFrame([
+            {
+                'outlier': False,
+                'subclass': '',
+                'window_type': '',
+                'location_code': '',
+                'channel_code': 'BV',
+                'station_id': 1,
+                'dataset_id': 1,
+                'allset_train.id': 1
+             },
+            {
+                'outlier': True,
+                'subclass': '',
+                'window_type': '',
+                'location_code': '',
+                'channel_code': 'BV',
+                'station_id': 1,
+                'dataset_id': 1,
+                'allset_train.id': 1
+             },
+        ])
+        pred_df = predict(None, dfr)
+        ll = log_loss(pred_df)
+        assert np.isclose(ll, MINVAL)
+
+        # test that log_loss converts booleans to floats. Provide floats
+        # and see that result is the same:
+        dfr = pd.DataFrame([
+            {
+                'outlier': 0.0,
+                'subclass': '',
+                'window_type': '',
+                'location_code': '',
+                'channel_code': 'BV',
+                'station_id': 1,
+                'dataset_id': 1,
+                'allset_train.id': 1
+             },
+            {
+                'outlier': 1.0,
+                'subclass': '',
+                'window_type': '',
+                'location_code': '',
+                'channel_code': 'BV',
+                'station_id': 1,
+                'dataset_id': 1,
+                'allset_train.id': 1
+             },
+        ])
+        pred_df = predict(None, dfr)
+        ll = log_loss(pred_df)
+        assert np.isclose(ll, MINVAL)
+        
+        dfr = pd.DataFrame([
+            {
+                'outlier': True,
+                'subclass': '',
+                'window_type': '',
+                'location_code': '',
+                'channel_code': 'BV',
+                'station_id': 1,
+                'dataset_id': 1,
+                'allset_train.id': 1
+             },
+            {
+                'outlier': False,
+                'subclass': '',
+                'window_type': '',
+                'location_code': '',
+                'channel_code': 'BV',
+                'station_id': 1,
+                'dataset_id': 1,
+                'allset_train.id': 1
+             },
+        ])
+        pred_df = predict(None, dfr)
+        ll = log_loss(pred_df)
+        assert np.isclose(ll, MAXVAL, rtol=1e-3)
+
+        # test mid-case, should be greater than 0 but lower than max        
+        dfr = pd.DataFrame([
+            {
+                'outlier': False,
+                'subclass': '',
+                'window_type': '',
+                'location_code': '',
+                'channel_code': 'BV',
+                'station_id': 1,
+                'dataset_id': 1,
+                'allset_train.id': 1
+             },
+            {
+                'outlier': False,
+                'subclass': '',
+                'window_type': '',
+                'location_code': '',
+                'channel_code': 'BV',
+                'station_id': 1,
+                'dataset_id': 1,
+                'allset_train.id': 1
+             },
+        ])
+        pred_df = predict(None, dfr)
+        ll = log_loss(pred_df)
+        assert MINVAL < ll < MAXVAL
+        
+        # same as above, but labels inverted: same log loss as above        
+        dfr = pd.DataFrame([
+            {
+                'outlier': True,
+                'subclass': '',
+                'window_type': '',
+                'location_code': '',
+                'channel_code': 'BV',
+                'station_id': 1,
+                'dataset_id': 1,
+                'allset_train.id': 1
+             },
+            {
+                'outlier': True,
+                'subclass': '',
+                'window_type': '',
+                'location_code': '',
+                'channel_code': 'BV',
+                'station_id': 1,
+                'dataset_id': 1,
+                'allset_train.id': 1
+             },
+        ])
+        pred_df = predict(None, dfr)
+        ll = log_loss(pred_df)
+        assert MINVAL < ll < MAXVAL
+        
+        # test that log loss is greater for BIG distances
+        dfr = pd.DataFrame([
+            {
+                'outlier': True,
+                'subclass': '',
+                'window_type': '',
+                'location_code': '',
+                'channel_code': 'BV',
+                'station_id': 1,
+                'dataset_id': 1,
+                'allset_train.id': 1
+             },
+            {
+                'outlier': True,
+                'subclass': '',
+                'window_type': '',
+                'location_code': '',
+                'channel_code': 'BV',
+                'station_id': 1,
+                'dataset_id': 1,
+                'allset_train.id': 1
+             },
+        ])
+        mock_predict.side_effect = lambda *a, **kw: np.array([0.0, 1.0])
+        pred_df = predict(None, dfr)
+        ll1 = log_loss(pred_df)
+        mock_predict.side_effect = lambda *a, **kw: np.array([0.5, 0.5])
+        pred_df = predict(None, dfr)
+        ll2 = log_loss(pred_df)
+        assert ll2 < ll1
 
     @patch('sod.core.evaluation._predict')
     def test_get_scores(self, mock_predict):
