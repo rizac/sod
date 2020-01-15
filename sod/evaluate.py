@@ -3,15 +3,18 @@ Created on 28 Oct 2019
 
 @author: riccardo
 '''
-import click
+import importlib
 
 from os import makedirs
 from os.path import (isabs, abspath, isdir, isfile, dirname, join, basename,
                      splitext)
+
 from yaml import safe_load
+import click
+
 from sod.core.dataset import (dataset_path, open_dataset, magnitudeenergy,
                               globalset)
-from sod.core.evaluation import CVEvaluator, is_outlier, Evaluator
+from sod.core.evaluation import Evaluator, ClfEvaluator, is_outlier
 from sklearn.svm.classes import OneClassSVM
 from sklearn.ensemble.iforest import IsolationForest
 from sod.core.paths import EVALUATIONS_CONFIGS_DIR, EVALUATIONS_RESULTS_DIR
@@ -25,73 +28,6 @@ def load_cfg(fname):
         return safe_load(stream)
 
 
-class OcsvmEvaluator(CVEvaluator):
-
-    # A dict of default params for the classifier. In principle, put here what
-    # should not be iterated over, but applied to any classifier during cv:
-    default_clf_params = {'cache_size': 1500}
-
-    def __init__(self, parameters, n_folds=5):
-        CVEvaluator.__init__(self, OneClassSVM, parameters, n_folds)
-
-    def train_test_split_model(self, dataframe):
-        '''Returns two dataframe representing the train and test dataframe for
-        training the global model. Unless subclassed this method returns the
-        tuple:
-        ```
-        dataframe, None
-        ```
-        The first dataframe will be used to build the global model (saved as
-        file) and tested against the second dataframe (if the latter is not
-        None). Afterwards, it will be passed to `train_test_split_cv`
-        '''
-        is_outl = is_outlier(dataframe)
-        return dataframe[~is_outl], dataframe[is_outl]
-
-    def run(self, dataframe, columns,  # pylint: disable=arguments-differ
-            destdir):
-        CVEvaluator.run(self, dataframe, columns, remove_na=True,
-                        destdir=destdir)
-
-
-class IsolationForestEvaluator(OcsvmEvaluator):
-
-    # A dict of default params for the classifier. In principle, put here what
-    # should not be iterated over, but applied to any classifier during cv:
-    default_clf_params = {'behaviour': 'new'}  # , 'contamination': 0}
-
-    def __init__(self, parameters, n_folds=5):
-        CVEvaluator.__init__(self, IsolationForest, parameters, n_folds)
-
-
-class IsolationForestEvaluatorGlobalset(IsolationForestEvaluator):
-    '''IsolationForest evaluator for the datasets:
-    allset_train, magnitudeenergy, globalset. It basically uses as
-    inliers those defined as first class in the relative dataset
-    '''
-
-    def train_test_split_model(self, dataframe):
-        '''Returns two dataframe representing the train and test dataframe for
-        training the global model. Unless subclassed this method returns the
-        tuple:
-        ```
-        dataframe, None
-        ```
-        The first dataframe will be used to build the global model (saved as
-        file) and tested against the second dataframe (if the latter is not
-        None). Afterwards, it will be passed to `train_test_split_cv`
-        '''
-        is_inl = globalset.class_selector[globalset.classnames[0]](dataframe)
-        return dataframe[is_inl], dataframe[~is_inl]
-
-
-EVALUATORS = {
-    'OneClassSVM': OcsvmEvaluator,
-    'IsolationForest': IsolationForestEvaluator,  # IsolationForestEvaluator
-    'IsolationForestGlobalset': IsolationForestEvaluatorGlobalset
-}
-
-
 @click.command()
 @click.option(
     '-c', '--config',
@@ -101,11 +37,11 @@ EVALUATORS = {
 def run(config):
     cfg_dict = load_cfg(config)
 
-    is_cv_eval = ('features' in cfg_dict) + ('parameters' in cfg_dict)
-    if is_cv_eval == 2:
-        print('Running Cross validation evaluation and creating classifiers ')
-    elif is_cv_eval == 0:
-        print('Running evaluation of provided classifier path(s) ')
+    is_normal_eval = ('features' in cfg_dict) + ('parameters' in cfg_dict)
+    if is_normal_eval == 2:
+        print('Creating and optionally evaluating models from parameter sets')
+    elif is_normal_eval == 0:
+        print('Evaluating provided classifiers')
     else:
         raise ValueError('Config file does not seem neither a cv-evaluation'
                          'nor an evaluation config file')
@@ -122,17 +58,40 @@ def run(config):
                          "Rename yaml file or remove directory" % destdir)
     print('Saving results (HDF, HTML files) to: %s' % str(destdir))
 
-    if is_cv_eval:
-        evaluator_class = EVALUATORS.get(cfg_dict['clf'], None)
-        if evaluator_class is None:
-            raise ValueError('%s in the config is invalid, please specify: %s'
-                             % ('clf', str(" ".join(EVALUATORS.keys()))))
+    if is_normal_eval:
 
-        dataframe = open_dataset(cfg_dict['input'],
-                                 normalize=cfg_dict['input_normalize'])
+        clf_class = None
+        try:
+            modname = cfg_dict['clf'][:cfg_dict['clf'].rfind('.')]
+            module = importlib.import_module(modname)
+            classname = cfg_dict['clf'][cfg_dict['clf'].rfind('.')+1:]
+            clf_class = getattr(module, classname)
+            if clf_class is None:
+                raise Exception('classifier class is None')
+        except Exception as exc:
+            raise ValueError('Invalid `clf`: check paths and names.'
+                             '\nError : %s' % str(exc))
 
-        evl = evaluator_class(cfg_dict['parameters'], n_folds=5)
-        evl.run(dataframe, columns=cfg_dict['features'], destdir=destdir)
+        print('Using classifier: %s' % clf_class.__name__)
+        test_df = None
+        test_dataframe_path = cfg_dict['testset']
+        if test_dataframe_path:
+            if cfg_dict['input_normalize']:
+                raise ValueError('No `test` allowed with `input_normalize`='
+                                 'true. Set the `test` to "" (or null), or '
+                                 'normalize the test dataframe first, and '
+                                 'then run the evaluation with '
+                                 '`input_normalize`=False')
+            test_df = open_dataset(test_dataframe_path, normalize=False)
+
+        train_df = open_dataset(cfg_dict['trainingset'],
+                                normalize=cfg_dict['input_normalize'])
+
+        evl = Evaluator(clf_class, cfg_dict['parameters'],
+                        cfg_dict['cv_n_folds'])
+        # run(self, train_df, columns, destdir, test_df=None, remove_na=True):
+        evl.run(train_df, columns=cfg_dict['features'], destdir=destdir,
+                test_df=test_df, remove_na=cfg_dict.get('remove_na', True))
     else:
         classifier_paths = [abspath(join(EVALUATIONS_RESULTS_DIR, _))
                             for _ in cfg_dict['clf']]
@@ -143,7 +102,7 @@ def run(config):
         if cfg_dict.get('input_normalize', None):
             nrm_df = open_dataset(cfg_dict['input_normalize'], False)
 
-        evl = Evaluator(classifier_paths, normalizer_df=nrm_df)
+        evl = ClfEvaluator(classifier_paths, normalizer_df=nrm_df)
         evl.run(dataframe, destdir)
 
     return 0

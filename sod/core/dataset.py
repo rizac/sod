@@ -176,7 +176,18 @@ class DatasetInfo(metaclass=Meta):
         return dataframe
 
 
+# ###################################
+# AVAILABLE DATASETS. IN PRINCIPLE,
+# EACH CLASS BELOW MANAGES A HDF FILE IN the 'datasets' dir
+# ####################################
+
 class pgapgv(DatasetInfo):
+    '''Dataset with pga and pgv calculated.
+    Created from the Europe database (local earthquakes)
+    See sod.stream2segment.configs
+    (pgapgv.py and pgapgv.yaml)
+    '''
+
     _MODIFIED_COL = 'modified'
 
     # list of unique columns identifying an instance in this dataset
@@ -264,6 +275,11 @@ class pgapgv(DatasetInfo):
 
 
 class oneminutewindows(DatasetInfo):
+    '''Dataset with only noise-related features (psd) <- I GUESS.
+    Created from the Europe database (local earthquakes)
+    See sod.stream2segment.configs
+    (oneminutewindows.py and oneminutewindows.yaml)
+    '''
 
     _WINDOW_TYPE_COL = 'window_type'  # defined in oneminiutewindows.hdf
 
@@ -295,10 +311,22 @@ class oneminutewindows(DatasetInfo):
 
 
 class oneminutewindows_sn_only(oneminutewindows):
+    '''Purged version of (subsey of) oineminutewindows:
+    the Europe database (local earthquakes) was divided into three
+    subwindows: 1 min noise, 1 min noise+signal, 1min signal. The
+    '1min noise+signal' segments were removed here, as practically equivalent
+    to 1min signal
+    '''
     pass
 
 
 class magnitudeenergy(DatasetInfo):
+    '''Dataset with only noise-related features (psd) <- I GUESS.
+    Created from the Me database (teleseismic earthquakes)
+    See sod.stream2segment.configs
+    (magnitudeenergy.py and magnitudeenergy.yaml)
+    '''
+
 
     _SUBCLASS_COL = 'subclass'  # defined in magnitudeenergy.hdf
 
@@ -442,7 +470,24 @@ class globalset(DatasetInfo):
         return dataframe
 
 
-class allset_train(DatasetInfo):
+class globalset_inliers(globalset):
+    '''
+    globalset.hdf with inliers only. Created via the notebook:
+    Creating.allset_and_globalset.inliers.noinliers.datasets
+    '''
+    pass
+
+
+class globalset_noinliers(globalset):
+    '''globalset.hdf with not inliers. This dataset includes all segments not
+    necessarily 100% inliers, i.e., it can contain segments labelled with
+    outlier=False. Created via the notebook:
+    Creating.allset_and_globalset.inliers.noinliers.datasets
+    '''
+    pass
+
+
+class allset(DatasetInfo):
     '''This dataset represents the dataframe created in
     'Creating.allset.ipynb' by merging globalset.hdf and cx_chile.hdf
     It also removes all segments synthetically created in order to
@@ -487,9 +532,31 @@ class allset_train(DatasetInfo):
         return dataframe
 
 
-class allset_test(allset_train):
-
+class allset_synth_modified_segments(allset):
+    '''This dataset represents the dataframe created in
+    'Creating.allset.ipynb' by merging globalset.hdf and cx_chile.hdf
+    and includes ONLY segments synthetically created in order to
+    speed up cv testing.
+    '''
     classnames = globalset.classnames[2:-2]
+
+
+class allset_inliers(allset):
+    '''
+    allset.hdf with inliers only. Created via the notebook:
+    Creating.allset_and_globalset.inliers.noinliers.datasets
+    '''
+    pass
+
+
+class allset_noinliers(allset):
+    '''
+    allset.hdf with not inliers. This dataset includes all segments not
+    necessarily 100% inliers, i.e., it can contain segments labelled with
+    outlier=False. Created via the notebook:
+    Creating.allset_and_globalset.inliers.noinliers.datasets
+    '''
+    pass
 
 ###########################
 # Other operations
