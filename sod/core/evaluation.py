@@ -364,9 +364,9 @@ def train_test_split(dataframe, n_folds=5):
         yield train, test
 
 
-class CVEvaluator:
+class Evaluator:
     '''Creates (and saves) a statisical ML model for outlier detection,
-    and launches in parallel a CV
+    and optionally launches in parallel a CV
     evaluation, saving all predictions in HDF file, and a summary report in a
     dynamic html page'''
 
@@ -377,7 +377,7 @@ class CVEvaluator:
     # a dict of default params for the classifier:
     default_clf_params = {}
 
-    def __init__(self, clf_class, parameters, n_folds=5):
+    def __init__(self, clf_class, parameters, cv_n_folds=5):
         '''
 
         :param parameters: a dict mapping each parameter name (strings) to its
@@ -385,7 +385,7 @@ class CVEvaluator:
             be done for all possible combinations of all parameters values
         '''
         self.clf_class = clf_class
-        self.n_folds = max(0, n_folds)
+        self.n_folds = max(0, cv_n_folds)
         # setup self.parameters:
         __p = []
         for pname, vals in parameters.items():
@@ -414,9 +414,23 @@ class CVEvaluator:
         # add the URLquery-like string with ParamsEncDec.tostr:
         return basepath + ParamsEncDec.tostr(*features, **paramz)
 
-    def run(self, dataframe, columns, remove_na, destdir):
-        '''Runs the model evaluation using the data in `dataframe` under
-        the specified columns and for all provided parameters
+    def run(self, train_df, columns, destdir, test_df=None, remove_na=True):
+        '''Runs the model evaluation using the data in `train_df` under
+        the specified columns and for all provided parameters.
+
+        Creates a folder with three subfiolders:
+        models/ : where each classifier (scikit model) is saved
+        predictions/ where each predictions (hdf files) are saved.
+            Each prediction row is an instance, each column depends on the
+            dataset but always contains 'outlier' (boolean) and
+            'predicted_anomaly_score' (float in [0, 1])
+            this folder is empty if cvn_folds==0 AND test_df is None
+        evalreports/: html files displaying the confusion matrices from
+            the predictions. There is one html file PER prediction.
+            You can run `aggeval'on this directory to aggregate all html
+            reports into a single html file or hdf file
+
+        :param test_df: the test dataframe, can be None
         '''
         basepath = self.uniquefilepath(destdir)
         print('Running CVEvaluator. All files will be stored in:\n%s' %
@@ -433,9 +447,10 @@ class CVEvaluator:
 
         if remove_na:
             print('')
-            dataframe = drop_na(dataframe,
-                                set(_ for lst in columns for _ in lst),
-                                verbose=True).copy()
+            __c = set(_ for lst in columns for _ in lst)
+            train_df = drop_na(train_df, __c, verbose=True).copy()
+            if test_df is not None:
+                test_df = drop_na(test_df, __c, verbose=True).copy()
 
         def cpy(dfr):
             return dfr if dfr is None else dfr.copy()
@@ -470,13 +485,11 @@ class CVEvaluator:
                     # and unnecessary columns (keep_cols). Return a copy at the end
                     # of the process. This helps memory mamagement in
                     # sub-processes (especialy keep_cols + copy)
-                    dataframe_ = drop_duplicates(dataframe, cols, 0,
-                                                 verbose=False)
-                    dataframe_ = keep_cols(dataframe_, cols).copy()
+                    _traindf = keep_cols(train_df, cols).copy()
+                    _testdf = None if test_df is None else \
+                        keep_cols(test_df, cols).copy()
                     for params in self.parameters:
                         pool = Pool(processes=int(cpu_count()))
-                        _traindf, _testdf = \
-                            self.train_test_split_model(dataframe_)
                         prms = {**self.default_clf_params, **dict(params)}
                         fpath = self.uniquefilepath(destdir, *cols, **prms)
                         fpath = join(dirname(fpath), self.MODELDIRNAME,
@@ -488,14 +501,14 @@ class CVEvaluator:
                             callback=aasync_callback,
                             error_callback=kill_pool
                         )
-                        if self.n_folds == 0:
+                        if self.n_folds < 1:
                             continue
-                        for train_df, test_df in \
+                        for cv_train_df, cv_test_df in \
                                 self.train_test_split_cv(_traindf):
                             pool.apply_async(
                                 _fit_and_predict,
-                                (self.clf_class, cpy(train_df), cols, prms,
-                                 cpy(test_df), None),
+                                (self.clf_class, cpy(cv_train_df), cols, prms,
+                                 cpy(cv_test_df), None),
                                 callback=aasync_callback,
                                 error_callback=kill_pool
                             )
@@ -505,6 +518,22 @@ class CVEvaluator:
 
             except Exception as exc:  # pylint: disable=broad-except
                 kill_pool(str(exc))
+                print()
+                raise
+
+        print('Aggregating evaluations in html format into')
+        print('a single html and hdf file')
+        evalpath = join(destdir, self.EVALREPORTDIRNAME)
+        try:
+            if not self.aggeval(evalpath):
+                print('Nothing to aggregate (no evaluation report html found)')
+        except:
+            print('WARNING: could not aggregate evaluations. ')
+            print('Inspect "%s" '
+                  'and in case of problems try (via notebook or terminal): '
+                  '`sod.core.evaluation.aggeval(%s)` ' % (evalpath, evalpath))
+        print()
+        print('DONE')
 
     def train_test_split_cv(self, dataframe):
         '''Split `dataframe` into random train and test subsets, yielding
@@ -515,19 +544,6 @@ class CVEvaluator:
             unfiltered)
         '''
         return train_test_split(dataframe, self.n_folds)
-
-    def train_test_split_model(self, dataframe):  # pylint: disable=no-self-use
-        '''Returns two dataframe representing the train and test dataframe for
-        training the global model. Unless subclassed this method returns the
-        tuple:
-        ```
-        dataframe, None
-        ```
-        The first dataframe will be used to build the global model (saved as
-        file) and tested against the second dataframe (if the latter is not
-        None). Afterwards, it will be passed to `train_test_split_cv`
-        '''
-        return dataframe, None
 
     def _applyasync_callback(self, clf, params, features, predictions,
                              destdir):
@@ -542,6 +558,9 @@ class CVEvaluator:
         # (eval_result.predictions might be None)
 
         if len(self._predictions[fpkey]) == self.n_folds + 1:
+            if self.n_folds == 0 and predictions is None:
+                return  # nothing to save
+
             # finished with predictions of current parameters for the current
             # features, save as hdf5 and store the summary dataframe of the
             # predicted segments just saved:
@@ -587,6 +606,19 @@ class CVEvaluator:
         create_evel_report(sum_dfs, destfile, title)
         if delete:
             del self._eval_reports[fkey]
+    
+    def aggeval(self, eval_dir):
+        count = sum((splitext(_)[1] == '.html' or
+                    splitext(_)[1] == '.htm') for _ in listdir(eval_dir))
+        if count > 0:
+            aggeval_html(eval_dir)
+            aggeval_hdf(eval_dir)
+            filez = set(listdir(eval_dir))
+            if ('%s.html' % AGGEVAL_BASENAME not in filez) or \
+                    ('%s.hdf' % AGGEVAL_BASENAME not in filez):
+                raise Exception()
+            return True
+        return False
 
 
 def _fit_and_predict(clf_class, train_df, columns, params, test_df=None,
@@ -611,9 +643,12 @@ def _fit_and_predict(clf_class, train_df, columns, params, test_df=None,
 
 
 def aggeval(indir, format='html', save=True):  # @ReservedAssignment
-    '''Aggregates all evaluations html files of `indir` (produced with
-    CVEvaluation) into a general evaluation in the specified format
+    '''Aggregates all evaluations html files of `indir` (produced with an
+    Evaluation) into a general evaluation in the specified format
     (html or hdf)
+
+    :param indir: the directory where CV reports in HTML format
+    have been saved by a run of `Evaluator`
     '''
     if format == 'html':
         return aggeval_html(indir, save)
@@ -622,10 +657,11 @@ def aggeval(indir, format='html', save=True):  # @ReservedAssignment
     raise ValueError('format can be either "hdf" or "html", not "%s"'
                      % str(format))
 
+AGGEVAL_BASENAME= ' evaluation.all'
 
 def aggeval_hdf(indir, save=True):
     '''Asuming `indir` is the directory where CV reports in HTML format
-    have been saved by a run of `CVEvaluator`, then generates a new HTML
+    have been saved by a run of `Evaluator`, then generates a new HTML
     page summing up all cv evaluation reports of `indir`
     '''
     all_data = []
@@ -656,7 +692,7 @@ def aggeval_hdf(indir, save=True):
 
     dfr = pd.DataFrame(all_data)
     if save:
-        outfile = join(indir, 'evaluations.all.hdf')
+        outfile = join(indir, '%s.hdf' % AGGEVAL_BASENAME)
         save_df(dfr, outfile, key='evaluation_all')
     return dfr
 
@@ -675,10 +711,10 @@ def aggeval_html(indir, save=True):
     re_title = re.compile(r'<title>(.*?)</title>',
                           re.IGNORECASE)  # @UndefinedVariable
     oldtitle = re_title.search(content).group(1).strip()
-    newtitle = "Summary CV evaluations"
+    newtitle = "Summary Evaluations"
     content = content.replace(oldtitle, newtitle)
     if save:
-        outfile = join(indir, 'evaluations.all.html')
+        outfile = join(indir, '%s.html' % AGGEVAL_BASENAME)
         with open(outfile, 'w') as _opn:
             _opn.write(content)
     return content
@@ -745,7 +781,7 @@ def _evalhtmlscanner(indir):
                        html_post)
 
 
-class Evaluator:
+class ClfEvaluator:
     '''Class for evaluating pre-fitted and saved model(s) (ususally obtained
     via `CVEvaluator`) against a
     dataset of instances, saving to file the predictions and an html report
@@ -796,7 +832,7 @@ class Evaluator:
         test_dataset_name = dataset_info(test_df).__name__
 
         predictions_destdir = abspath(join(destdir,
-                                           CVEvaluator.PREDICTIONSDIRNAME))
+                                           Evaluator.PREDICTIONSDIRNAME))
         if not isdir(predictions_destdir):
             makedirs(predictions_destdir)
         if not isdir(predictions_destdir):

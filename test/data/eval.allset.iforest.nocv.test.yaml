@@ -1,0 +1,45 @@
+# configuration for training a classifier
+
+# the input HDF5 file path
+trainingset: 'allset.hdf_'
+
+# the test set
+testset: 'allset.hdf_'
+
+# the number of folds for a cross validation on input
+cv_n_folds: 0
+
+# if input has to be normalized before evaluation
+input_normalize: false
+
+# whether to remove na before training and testing (this might lead to slightly different
+# number of rows of the prediciton dataframes and confusion matrices)
+remova_na: true
+
+# The classifier. See `execute.EVALUATORS` for a list of possible strings
+# mapped to a subclass of the base `Evaluator` class (defined in `evaluation.__init__`)
+clf: "sklearn.ensemble.iforest.IsolationForest"
+
+# The features (inout dataframe columns) to iterate over:
+features:
+  -
+    - "psd@0.2sec"
+    - "psd@0.5sec"
+  -
+    - "psd@5sec"
+
+# The classifier parameters to iterate over:
+parameters:
+  n_estimators:
+    - 50
+#    - 100
+#    - 200
+  max_samples:
+    - 512
+    - 1024
+#    - 2048
+#    - 4096
+  contamination:
+    - 'auto'
+  behaviour:
+    - 'new'
