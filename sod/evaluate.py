@@ -82,7 +82,8 @@ def run(config):
                                  'normalize the test dataframe first, and '
                                  'then run the evaluation with '
                                  '`input_normalize`=False')
-            test_df = None  # open_dataset(test_dataframe_path, normalize=False)
+            test_df = open_dataset(test_dataframe_path, normalize=False)
+            print('')
 
         train_df = open_dataset(cfg_dict['trainingset'],
                                 normalize=cfg_dict['input_normalize'])

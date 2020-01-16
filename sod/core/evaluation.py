@@ -452,8 +452,8 @@ class Evaluator:
             if test_df is not None:
                 test_df = drop_na(test_df, __c, verbose=True).copy()
 
-#         def cpy(dfr):
-#             return dfr if dfr is None else dfr.copy()
+        def cpy(dfr):
+            return dfr if dfr is None else dfr.copy()
 
         self._predictions.clear()
         self._eval_reports.clear()
@@ -501,18 +501,18 @@ class Evaluator:
                             callback=aasync_callback,
                             error_callback=kill_pool
                         )
-                        if self.n_folds < 1:
-                            continue
-                        for cv_train_df, cv_test_df in \
-                                self.train_test_split_cv(_traindf):
-                            pool.apply_async(
-                                _fit_and_predict,
-                                (self.clf_class, cv_train_df, cols, prms,
-                                 cv_test_df, None),
-                                callback=aasync_callback,
-                                error_callback=kill_pool
-                            )
-
+                        if self.n_folds > 0:
+                            for cv_train_df, cv_test_df in \
+                                    self.train_test_split_cv(_traindf):
+                                pool.apply_async(
+                                    _fit_and_predict,
+                                    (self.clf_class, cv_train_df, cols, prms,
+                                     cv_test_df, None),
+                                    callback=aasync_callback,
+                                    error_callback=kill_pool
+                                )
+                        # ABSOLUTELY GET HERE, DO NOT ISSUE continue
+                        # STATEMENTS BEFOREHAND!!!!
                         pool.close()
                         pool.join()
 
