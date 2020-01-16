@@ -82,17 +82,20 @@ def dataset_info(dataframe):
     raise ValueError('DataFrame not bound to a known dataset')
 
 
-class Meta(type):
+class UIDcolsSetter(type):
     '''Metaclass for the DatasetInfo class'''
     def __new__(cls, name, bases, dct):
         '''basically modifies cls.uid_columns'''
         newcls = super().__new__(cls, name, bases, dct)
-        ocol = tuple() if OUTLIER_COL in newcls.uid_columns else (OUTLIER_COL,)
-        newcls.uid_columns = (name+'.id', *newcls.uid_columns, *ocol)
+        uidcols = list(newcls.uid_columns)
+        if OUTLIER_COL not in uidcols:
+            uidcols += [OUTLIER_COL]
+        uidcols[0] = name+'.id'
+        newcls.uid_columns = tuple(uidcols)
         return newcls
 
 
-class DatasetInfo(metaclass=Meta):
+class DatasetInfo(metaclass=UIDcolsSetter):
 
     S2S_COL = 'Segment.db.id'
 
@@ -110,7 +113,7 @@ class DatasetInfo(metaclass=Meta):
     # replace the S2S_COL of the dataframe (see `open_dataset`).
     # The column OUTLIER_COL will also be added in `Meta` and needs to be
     # specified
-    uid_columns = tuple()
+    uid_columns = (S2S_COL,)
 
     # tuple of this dataset (sub)classes:
     classnames = tuple()

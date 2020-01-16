@@ -30,7 +30,7 @@ from sod.core.evaluation import (split, classifier, predict, _predict,
     PREDICT_COL, save_df, log_loss)
 from sod.core.dataset import (open_dataset, groupby_stations, allset,
     oneminutewindows, pgapgv)
-from sod.evaluate import (OcsvmEvaluator, run)
+from sod.evaluate import run
 from sod.core import paths, pdconcat
 
 
