@@ -151,13 +151,20 @@ class DatasetInfo(metaclass=Meta):
                 raise ValueError('Check module function "%s", error: %s' %
                                  (cls.__name__, str(exc)))
 
+            kount = 0
             for cname in cls.classnames:
                 _ = dfr[cls.class_selector[cname](dfr)]
+                kount += len(_)
                 sum_ = _[OUTLIER_COL].sum()
                 if sum_ > 0 and sum_ != len(_):
                     raise ValueError('subclass "%s" contains both inliers '
                                      'and outliers. Please change the '
                                      'class selectors in the code' % cname)
+            if kount != len(dfr):
+                raise ValueError('Rows count by subclasses does '
+                                 'not sum up to total number of rows '
+                                 'Please change the '
+                                 'class selectors in the code')
 
             if verbose:
                 print('')
@@ -557,6 +564,42 @@ class allset_noinliers(allset):
     Creating.allset_and_globalset.inliers.noinliers.datasets
     '''
     pass
+
+
+class allset_train(allset):
+    '''
+    allset.hdf with inliers only for novelty detection training.
+    It is purged from inliers
+    with artifacts (moved in allset_test). Created via the notebook:
+    Creating.dataset.allset_train.allset_test
+    '''
+    classnames = allset.classnames[:1]
+
+
+class allset_test(allset):
+    '''
+    allset.hdf for novelty detection testing.
+    This dataset includes also inliers moved from allset_train here, by
+    iterating over each station, fetching the station's segments
+    where all psd* features are in the
+    [0.1, 0.9] quantiles, and then moving 20% of them here (random sampling).
+    It also includes inliers which were
+    labelled as outliers after inspection (window_type='a').
+    Created via the notebook:
+    Creating.dataset.allset_train.allset_test
+    '''
+    classnames = globalset.classnames[:2] + globalset.classnames[-1:]
+
+    # dict where each dataset's subclass is mapped to a selector function:
+    # "func(dataframe)" returning the pandas Series of booleans indicating
+    # where the dataframe row match the given class, so that, to filter
+    # the dataframe with class rows only you call: dataframe[func(dataframe)]
+    class_selector = {
+        classnames[0]: allset.class_selector[classnames[0]],
+        classnames[1]: allset.class_selector[classnames[1]],
+        classnames[2]: lambda df:
+            df[allset._SUBCLASS_COL].str.contains('unlabeled.')
+    }
 
 ###########################
 # Other operations
