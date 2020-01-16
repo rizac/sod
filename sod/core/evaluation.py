@@ -497,7 +497,7 @@ class Evaluator:
                         pool.apply_async(
                             _fit_and_predict,
                             (self.clf_class, cpy(_traindf), cols, prms,
-                             cpy(_testdf), fpath),
+                             _testdf, fpath),
                             callback=aasync_callback,
                             error_callback=kill_pool
                         )
