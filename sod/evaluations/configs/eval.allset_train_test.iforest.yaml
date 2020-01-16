@@ -147,9 +147,9 @@ parameters:
     - 200
   max_samples:
     - 512
-    - 1024
+    # - 1024
     - 2048
-    - 4096
+    # - 4096
     - 8192
   contamination:
     - 'auto'
