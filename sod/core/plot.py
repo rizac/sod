@@ -73,6 +73,8 @@ def _get_grid(num):
     '''returns the tuple (row, col) of integers denoting the best
     layout for the given `num` (denoting the number of plots to display)
     '''
+    if num < 4:
+        return 3, 1
     rows = int(sqrt(num))
     cols = rows
     if rows * cols < num:
