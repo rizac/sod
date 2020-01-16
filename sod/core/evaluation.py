@@ -481,6 +481,8 @@ class Evaluator:
             try:
                 for cols in columns:
 
+                    pool = Pool(processes=int(cpu_count()))
+
                     # purge the dataframe from duplicates (drop_duplicates)
                     # and unnecessary columns (keep_cols). Return a copy at the end
                     # of the process. This helps memory mamagement in
@@ -489,14 +491,13 @@ class Evaluator:
                     _testdf = None if test_df is None else \
                         keep_cols(test_df, cols)
                     for params in self.parameters:
-                        pool = Pool(processes=int(cpu_count()))
                         prms = {**self.default_clf_params, **dict(params)}
                         fpath = self.uniquefilepath(destdir, *cols, **prms)
                         fpath = join(dirname(fpath), self.MODELDIRNAME,
                                      basename(fpath)) + '.model'
                         pool.apply_async(
                             _fit_and_predict,
-                            (self.clf_class, _traindf, cols, prms,
+                            (self.clf_class, cpy(_traindf), cols, prms,
                              _testdf, fpath),
                             callback=aasync_callback,
                             error_callback=kill_pool
@@ -506,15 +507,17 @@ class Evaluator:
                                     self.train_test_split_cv(_traindf):
                                 pool.apply_async(
                                     _fit_and_predict,
-                                    (self.clf_class, cv_train_df, cols, prms,
+                                    (self.clf_class, cpy(cv_train_df), cols,
+                                     prms,
                                      cv_test_df, None),
                                     callback=aasync_callback,
                                     error_callback=kill_pool
                                 )
-                        # ABSOLUTELY GET HERE, DO NOT ISSUE continue
-                        # STATEMENTS BEFOREHAND!!!!
-                        pool.close()
-                        pool.join()
+
+                    # ABSOLUTELY GET HERE, DO NOT ISSUE continue
+                    # STATEMENTS BEFOREHAND!!!!
+                    pool.close()
+                    pool.join()
 
             except Exception as exc:  # pylint: disable=broad-except
                 kill_pool(str(exc))
