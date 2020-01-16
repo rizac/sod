@@ -452,8 +452,8 @@ class Evaluator:
             if test_df is not None:
                 test_df = drop_na(test_df, __c, verbose=True).copy()
 
-        def cpy(dfr):
-            return dfr if dfr is None else dfr.copy()
+#         def cpy(dfr):
+#             return dfr if dfr is None else dfr.copy()
 
         self._predictions.clear()
         self._eval_reports.clear()
@@ -485,9 +485,9 @@ class Evaluator:
                     # and unnecessary columns (keep_cols). Return a copy at the end
                     # of the process. This helps memory mamagement in
                     # sub-processes (especialy keep_cols + copy)
-                    _traindf = keep_cols(train_df, cols).copy()
+                    _traindf = keep_cols(train_df, cols)
                     _testdf = None if test_df is None else \
-                        keep_cols(test_df, cols).copy()
+                        keep_cols(test_df, cols)
                     for params in self.parameters:
                         pool = Pool(processes=int(cpu_count()))
                         prms = {**self.default_clf_params, **dict(params)}
@@ -496,7 +496,7 @@ class Evaluator:
                                      basename(fpath)) + '.model'
                         pool.apply_async(
                             _fit_and_predict,
-                            (self.clf_class, cpy(_traindf), cols, prms,
+                            (self.clf_class, _traindf, cols, prms,
                              _testdf, fpath),
                             callback=aasync_callback,
                             error_callback=kill_pool
@@ -507,8 +507,8 @@ class Evaluator:
                                 self.train_test_split_cv(_traindf):
                             pool.apply_async(
                                 _fit_and_predict,
-                                (self.clf_class, cpy(cv_train_df), cols, prms,
-                                 cpy(cv_test_df), None),
+                                (self.clf_class, cv_train_df, cols, prms,
+                                 cv_test_df, None),
                                 callback=aasync_callback,
                                 error_callback=kill_pool
                             )
