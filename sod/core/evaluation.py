@@ -660,7 +660,7 @@ def aggeval(indir, format='html', save=True):  # @ReservedAssignment
     raise ValueError('format can be either "hdf" or "html", not "%s"'
                      % str(format))
 
-AGGEVAL_BASENAME= ' evaluation.all'
+AGGEVAL_BASENAME= 'evaluation.all'
 
 def aggeval_hdf(indir, save=True):
     '''Asuming `indir` is the directory where CV reports in HTML format
