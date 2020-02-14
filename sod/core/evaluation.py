@@ -865,6 +865,8 @@ class ClfEvaluator:
                 for clfname, predicted_df in \
                         pool.imap_unordered(_imap_predict,
                                             self.iterator(test_df)):
+                    if isinstance(predicted_df, Exception):
+                        raise predicted_df
                     pbar.update(1)
                     pred_basename = splitext(clfname)[0]
                     pred_basename += "&testset=%s" % test_dataset_name + '.hdf'
@@ -893,7 +895,7 @@ class ClfEvaluator:
         '''
         for name, clf in self.clfs.items():
             features = self.clf_features[name]
-            dataframe_ = drop_duplicates(dataframe, features, 0, verbose=False)
+            dataframe_ = drop_na(dataframe, features, verbose=False)
             dataframe_ = keep_cols(dataframe_, features).copy()
             # normalize:
             if self.bounds is not None:
@@ -910,7 +912,10 @@ def _imap_predict(arg):
     the prediction dataframe. Called from within imap in Evaluator
     '''
     name, clf, dfr, feats = arg
-    return name, predict(clf, dfr, *feats)
+    try:
+        return name, predict(clf, dfr, *feats)
+    except Exception as exc:
+        return name, exc
 
 
 class ParamsEncDec:
