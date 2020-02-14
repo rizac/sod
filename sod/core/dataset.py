@@ -87,11 +87,21 @@ class UIDcolsSetter(type):
     def __new__(cls, name, bases, dct):
         '''basically modifies cls.uid_columns'''
         newcls = super().__new__(cls, name, bases, dct)
-        uidcols = list(newcls.uid_columns)
-        if OUTLIER_COL not in uidcols:
-            uidcols += [OUTLIER_COL]
-        uidcols[0] = name+'.id'
-        newcls.uid_columns = tuple(uidcols)
+        _uidcols = [_ for _ in newcls._uid_columns if _ != OUTLIER_COL]
+        newcls.uid_columns = tuple([name + '.id'] +
+                                   _uidcols +
+                                   [OUTLIER_COL])
+        
+        
+#         uidcols = list(newcls.uid_columns)
+#         if OUTLIER_COL not in uidcols:
+#             uidcols += [OUTLIER_COL]
+#         if hasattr(newcls, '_classcol'):
+#             uidcols[0] = name+'.id'
+#         else:
+#             uidcols.insert(0, name+'.id')
+#         newcls._classcol = uidcols[0]
+#         newcls.uid_columns = tuple(uidcols)
         return newcls
 
 
@@ -113,7 +123,7 @@ class DatasetInfo(metaclass=UIDcolsSetter):
     # replace the S2S_COL of the dataframe (see `open_dataset`).
     # The column OUTLIER_COL will also be added in `Meta` and needs to be
     # specified
-    uid_columns = (S2S_COL,)
+    _uid_columns = tuple()  # (S2S_COL,)
 
     # tuple of this dataset (sub)classes:
     classnames = tuple()
@@ -205,7 +215,7 @@ class pgapgv(DatasetInfo):
     # The first column will replace S2S_COL and will uniquely identify the
     # DataFrame's dataset: it will always be the DataFrame FIRST column
     # (see open_dataset). Set it to this class name + '.id'
-    uid_columns = (_MODIFIED_COL,)
+    _uid_columns = (_MODIFIED_COL,)
 
     # list of this dataset (sub)classes:
     classnames = (
@@ -298,7 +308,7 @@ class oneminutewindows(DatasetInfo):
     # The first column will replace S2S_COL and will uniquely identify the
     # DataFrame's dataset: it will always be the DataFrame FIRST column
     # (see open_dataset). Set it to this class name + '.id'
-    uid_columns = (pgapgv._MODIFIED_COL, _WINDOW_TYPE_COL)
+    _uid_columns = (pgapgv._MODIFIED_COL, _WINDOW_TYPE_COL)
 
     # list of dataset (sub)classes:
     classnames = pgapgv.classnames
@@ -345,7 +355,7 @@ class magnitudeenergy(DatasetInfo):
     # The first column will replace S2S_COL and will uniquely identify the
     # DataFrame's dataset: it will always be the DataFrame FIRST column
     # (see open_dataset). Set it to this class name + '.id'
-    uid_columns = (_SUBCLASS_COL,)
+    _uid_columns = (_SUBCLASS_COL,)
 
     classnames = (
         'ok',
@@ -414,7 +424,7 @@ class globalset(DatasetInfo):
     # The first column will replace S2S_COL and will uniquely identify the
     # DataFrame's dataset: it will always be the DataFrame FIRST column
     # (see open_dataset). Set it to this class name + '.id'
-    uid_columns = ('dataset_id', _SUBCLASS_COL, _WINDOW_TYPE_COL)
+    _uid_columns = ('dataset_id', _SUBCLASS_COL, _WINDOW_TYPE_COL)
 
     classnames = (
         'ok',  # inlier of omw or unknowns me
@@ -517,7 +527,7 @@ class allset(DatasetInfo):
     # The first column will replace S2S_COL and will uniquely identify the
     # DataFrame's dataset: it will always be the DataFrame FIRST column
     # (see open_dataset). Set it to this class name + '.id'
-    uid_columns = ('dataset_id', _SUBCLASS_COL, _WINDOW_TYPE_COL, _CHA_COL,
+    _uid_columns = ('dataset_id', _SUBCLASS_COL, _WINDOW_TYPE_COL, _CHA_COL,
                    _LOC_COL, _STAID_COL)
 
     classnames = globalset.classnames[:2] + globalset.classnames[-2:]

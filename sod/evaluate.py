@@ -43,8 +43,8 @@ def run(config):
     elif is_normal_eval == 0:
         print('Evaluating provided classifiers')
     else:
-        raise ValueError('Config file does not seem neither a cv-evaluation'
-                         'nor an evaluation config file')
+        raise ValueError('Config file does not seem neither a evaluation'
+                         'nor an clf-evaluation config file')
 
     # get destdir:
     destdir = abspath(join(EVALUATIONS_RESULTS_DIR, basename(config)))

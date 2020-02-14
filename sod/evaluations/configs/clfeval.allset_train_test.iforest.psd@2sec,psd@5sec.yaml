@@ -1,0 +1,56 @@
+# configuration for predicting classifier(s) performances against a common test dataset
+
+# the input HDF5 file path (TEST dataset)
+# it must be in sod/sod/dataset/executions/results
+input: 'allset_test.hdf'
+
+# The classifiers. Provide a list of model files (ending with '.model') with
+# path relative to sod/sod/evaluation/executions/results
+clf:
+  - 'eval.allset_train_test.iforest.yaml/models/IsolationForest?features=psd@2sec,psd@5sec&behaviour=new&contamination=auto&max_samples=512&n_estimators=200.model'
+  - 'eval.allset_train_test.iforest.yaml/models/IsolationForest?features=psd@2sec,psd@5sec&behaviour=new&contamination=auto&max_samples=512&n_estimators=100.model'
+  - 'eval.allset_train_test.iforest.yaml/models/IsolationForest?features=psd@2sec,psd@5sec&behaviour=new&contamination=auto&max_samples=512&n_estimators=50.model'
+  - 'eval.allset_train_test.iforest.yaml/models/IsolationForest?features=psd@2sec,psd@5sec&behaviour=new&contamination=auto&max_samples=2048&n_estimators=200.model'
+  - 'eval.allset_train_test.iforest.yaml/models/IsolationForest?features=psd@2sec,psd@5sec&behaviour=new&contamination=auto&max_samples=2048&n_estimators=100.model'
+  - 'eval.allset_train_test.iforest.yaml/models/IsolationForest?features=psd@2sec,psd@5sec&behaviour=new&contamination=auto&max_samples=2048&n_estimators=50.model'
+  - 'eval.allset_train_test.iforest.yaml/models/IsolationForest?features=psd@2sec,psd@5sec&behaviour=new&contamination=auto&max_samples=8192&n_estimators=200.model'
+  - 'eval.allset_train_test.iforest.yaml/models/IsolationForest?features=psd@2sec,psd@5sec&behaviour=new&contamination=auto&max_samples=8192&n_estimators=100.model'
+  - 'eval.allset_train_test.iforest.yaml/models/IsolationForest?features=psd@2sec,psd@5sec&behaviour=new&contamination=auto&max_samples=8192&n_estimators=50.model'
+
+# These are regexp mapped to a dict of <feature>: <bounds> items.
+# When any of the classifiers path above matches (using re.find, not re.match),
+# then the corresponding features are normalized (if present in the classifier file name, see above)
+input_normalize: null
+  
+# these are the bounds of oneminutewindows.hdf (pre normalization)
+# Use a juopyter notebook and open the dataset with `verbose` and `normalize`
+# set to True, then copy the output here:
+# psd@0.05sec       [-3,076.53, -18.62] 
+# psd@0.1sec        [-3,076.53, -18.54] 
+# psd@0.2sec        [-3,076.53, -18.22] 
+# psd@0.5sec        [-3,076.53, -17.80] 
+# psd@1sec          [-3,076.53, -17.36] 
+# psd@2sec          [-3,076.53, -12.55] 
+# psd@3sec          [-3,076.53,  -6.06] 
+# psd@5sec          [-3,076.53,   8.21] 
+# psd@9sec          [-3,076.53,  19.16]
+
+
+# The output root directory will always be:
+# sod/sod/evaluation/executions/results/<thisfilename>
+# where <thisfilename> is this file name, which should be informative of the
+# execution run
+
+# appending the basename of the input file above to the root path:
+# <output>/basename(<input>) (the directory will be created if non existing)
+# Therein, for any combination of features and parameters three files will be stored:
+# 1. An hdf file with all predictions (same length, in principle, of the input dataframe):
+# - <clf>?features=<features>&params=<params>.evalpredictions.hdf
+# 2. An HTML file with all confusion matrices (one per feature set, the scores of 
+# all parameters combinations are stored in the html):
+# - <clf>?features=<features>.evalreport.html
+# The model (scikit dumped model) for the given features and parameters (using
+# all instances in the set, which depends on the clf implementation, i.e.
+# for OneClassSVM 'all instances' means good segments only. See `execute.EVALUATORS`
+# for details):
+# - <clf>?features=<features>&params=<params>.model

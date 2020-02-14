@@ -37,41 +37,44 @@ rsync -auv <user>@<host>:<ROOT>/sod/datasets/<dataset>.hdf ./sod/datasets/
 scp <user>@<host>:<ROOT>/sod/datasets/<dataset>.hdf ./sod/datasets/
 
 
-# CV Evaluation results:
+# Evaluation results:
 
-Cross validation evaluation take a scikit learn classifier and a sod CVEvaluator
-(which must be implemented, see sod/evaluate.py).
-After that, we implement a config file (in sod/evaluations/configs), usually starting with
-"cv." (preferable) followed by the dataset file NAME (strongly suggested): e.g., "cv.pgapgv.yaml"
-In the file, we implement the necessary parameters and the program will train and test
-the classifier(s) for any combination of those parameters.
+Evaluate means: iterate over a set of user defined hyperparameters (HP)
+to create classifier(s), optionally run CV, optionally evaluate the classifier(s) against a provided test set.
+
+You first need to configure your run by implementing a config file (in sod/evaluations/configs) whose
+name by convention starts with "eval." followed by any useful information, e.g. ususally
+the dataset file NAME(s) used (e.g., "eval.allset_train_test.iforest.yaml").
+
+*Important*: The config file name should be unique for each run: *NEW RUN => NEW CONFIG*.
+
+Then move to ROOT, activate virtualenv and run:
+```bash
+export PYTHONPATH='.' && python sod/evaluate.py -c "<yamlfilename>"
+```
+
 Results are saved in the directory '/sod/evaluation/<configfilename>':
 - N model file (classifiers, one for each parameters set)
 - N prediction files (hdf files with the predictions of all elements in the input dataset)
 - one HTML report with % recognized and log loss (sort of)
 
-To run a CVevaluation:
 
-Move to ROOT
-Activate virtualenv
-```bash
-export PYTHONPATH='.' && python sod/evaluate.py -c <yamlfilename>
-```
+# Clf evaluation
 
-(note that we need to set the PYTHONPATH as sod is NOT installed as python package)
+Evaluate a classifier means: iterate over a set of already created classifiers (HP) and
+evaluate them against a provided test set.
 
+You first need to configure your run by implementing a config file (in sod/evaluations/configs) whose
+name by convention starts with "clfeval." followed by any useful information e.g.,
+the config file name of the evaluation used (see above) for creating the classifiers
+(e.g. "clfeval.allset_train_test.iforest.psd@5sec.yaml").
 
-<!--
+*Important*: The config file name should be unique for each run: *NEW RUN => NEW CONFIG*.
 
-# copy back data (TO BE DONE):
+Then proceed as for Evaluation, see above (the only thing that changes is the config file name.
+Internally, the program recognizes automatically from the config content if it has to run an
+Evaluation or a Clf evaluation)
 
-scp <host>:<sod_directory>/tmp/evaluation-results/pgapgv/*.html ./tmp/evaluation-results/pgapgv
-
-(replace pgapgv with the folder of your evaluation)
-
-
-
-rsync -auv <user>@<host>:<ROOT>/sod/evaluations/results/<DIRECTORY>*.html ./sod/evaluations/results/<DIRECTORY>/
-
-scp <user>@<host>:<ROOT>/sod/evaluations/results/<DIRECTORY>*.html ./sod/evaluations/results/<DIRECTORY>/
--->
+Results are saved in the directory '/sod/evaluation/<configfilename>':
+- N prediction files (hdf files with the predictions of all elements in the input dataset)
+- one HTML report with % recognized and log loss (sort of)
