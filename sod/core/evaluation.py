@@ -228,6 +228,9 @@ def log_loss(predicted_df, eps=1e-15, normalize=True):
 
     :param predicted_df: A dataframe with predictions, the output of
         `predict`
+    :param  normalize : bool, optional (default=True)
+        If true, return the mean loss per sample.
+        Otherwise, return the sum of the per-sample losses.
 
     :return: a NUMBER representing the mean (normalize=True) or sum
         (normalize=False) of all scores in predicted_df
