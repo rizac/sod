@@ -1,0 +1,49 @@
+# configuration for training, creating and optionally evaluating a model
+
+# The classifier, in the form of a Python path to the classifier path
+clf: "sklearn.ensemble.iforest.IsolationForest"
+
+# the training set (path to a dataset in HDF format):
+trainingset: 'allset_train.hdf'
+
+# the test set: str  (path to a dataset in HDF format). Null or empty: skip
+# test. Evaluation will be performed on CV if provided (see below) or not at
+# all, and only models will be created
+testset: 'allset_test.hdf'
+
+# the number of folds (>=0) for a cross validation on the training set:
+# If set to 0, no cv is run: evaluation will be performed on the test set only,
+# if provided (see above)
+cv_n_folds: 0
+
+# if input has to be normalized before evaluation. This option is supported only
+# if testset is not provided
+input_normalize: false
+
+# whether to remove na before training and testing (this might lead to slightly different
+# number of rows of the confusion matrices of the evaluations, and in the number of rows
+# of the prediction hdf files)
+remova_na: true
+
+# The features (inout dataframe columns) to iterate over:
+features:
+  -
+    - "psd@5sec"
+
+# The classifier parameters to iterate over:
+parameters:
+  n_estimators:
+    - 25
+  max_samples:
+    - 256
+    - 512
+    - 1024
+    - 2048
+    - 4096
+    - 8192
+    - 16384
+    - 32768
+  contamination:
+    - 'auto'
+  behaviour:
+    - 'new'
