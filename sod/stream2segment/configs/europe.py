@@ -92,19 +92,6 @@ def main2(segment, config):
         # This modifies the segment.stream() permanently:
         data.append(_main(segment, config, raw_trace, segment.inventory()))
 
-        if segment.station.id in config['station_ids_with_wrong_local_inventory']:
-            channels_ = config['station_ids_with_wrong_local_inventory'][segment.station.id]
-            filename = channels_.get(segment.data_seed_id, None)
-            if filename is None:
-                raise ValueError('%s not found in wrong inventories dict' % segment.data_seed_id)
-            if filename is not None:
-                inventories_dir = config['inventories_dir']
-                wrong_inventory = read_inventory(os.path.join(os.getcwd(), inventories_dir,
-                                                              filename))
-                data.append(_main(segment, config, raw_trace, wrong_inventory))
-                data[-1]['outlier'] = True
-                data[-1]['modified'] = "INVFILE:%s" % filename
-
         ret = pd.concat(data, sort=False, ignore_index=True, copy=True, axis=0)
         ret['amplitude_ratio'] = amp_ratio
         ret['event_id'] = segment.event_id
