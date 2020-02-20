@@ -609,10 +609,10 @@ advanced_settings:
     # E.g., if you have two string columns 'col1' and 'col2' and you assume to store
     # at most 10 ASCII characters in 'col1' and 20 in 'col2', then:
     min_itemsize:
-      modified: 45
+    #  modified: 45
       window_type: 1
       channel_code: 3
-    #  loc_code: 3
+      loc_code: 3
     #   col2: 20
 
 # If you want to use the GUI as hand labelling tool (for e.g. supervised classification problems)
