@@ -81,7 +81,7 @@ def main2(segment, config):
         # store channel's channel via data_seed_id (might be faster):
         # calculate it here so in case of error we avoid unnecessary calculations
         channel_code = segment.data_seed_id.split('.')[3]
-        # loc_code = segment.data_seed_id.split('.')[2]
+        loc_code = segment.data_seed_id.split('.')[2]
 
         # compute amplitude ratio only once on the raw trace:
         amp_ratio = ampratio(raw_trace)
@@ -98,7 +98,7 @@ def main2(segment, config):
         ret['event_id'] = segment.event_id
         ret['station_id'] = segment.station.id
         ret['event_time'] = segment.event.time
-        # ret['loc_code'] = loc_code
+        ret['location_code'] = loc_code
         ret['channel_code'] = channel_code
         ret['magnitude'] = segment.event.magnitude
         ret['distance_km'] = segment.event_distance_km
@@ -212,7 +212,7 @@ def _main(segment, config, raw_trace, inventory_used):
             ret['psd@%ssec' % str(period)] = float(psdval)
 
         ret['outlier'] = False
-        ret['modified'] = ''
+        # ret['modified'] = ''
         ret['window_type'] = window_type
         ret['start_time'] = raw_trace.stats.starttime.datetime
         ret['length_sec'] = raw_trace.stats.endtime - raw_trace.stats.starttime

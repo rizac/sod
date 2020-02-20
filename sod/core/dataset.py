@@ -614,6 +614,21 @@ class allset_test(allset):
             df[allset._SUBCLASS_COL].str.contains('unlabeled.')
     }
 
+class europe(allset):
+    '''
+    europe.hdf for novelty detection testing.
+    This dataset includes all non processed segment from the Europe dataset (s2s_2019)
+    which have data_seed_id not null (see stream2segment). All segments are
+    (theoretically) inliers.
+    '''
+
+    classnames = ['sd2_2019 unknown']
+
+    class_selector = {
+        classnames[0]: lambda dataframe:
+            ~is_outlier(dataframe) &
+            dataframe[globalset._SUBCLASS_COL].str.match('^$'),
+    }
 ###########################
 # Other operations
 ###########################
