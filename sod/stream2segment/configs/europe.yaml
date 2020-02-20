@@ -612,7 +612,7 @@ advanced_settings:
     #  modified: 45
       window_type: 1
       channel_code: 3
-      loc_code: 3
+      location_code: 3
     #   col2: 20
 
 # If you want to use the GUI as hand labelling tool (for e.g. supervised classification problems)
