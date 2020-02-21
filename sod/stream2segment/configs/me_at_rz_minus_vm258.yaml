@@ -1,0 +1,644 @@
+# ==========================================================================
+# stream2segment config file to tune the processing/visualization subroutine
+# ==========================================================================
+#
+# This editable template defines the configuration parameters which will
+# be accessible in the associated processing / visualization python file.
+#
+# You are free to implement here anything you need: there are no mandatory parameters but we
+# strongly suggest to keep 'segment_select' and 'sn_windows', which add also special features
+# to the GUI.
+
+# NOTE: **this file is written in YAML syntax**, which uses Python-style indentation to
+# indicate nesting, keep it in mind when editing. You can also use a more compact format that
+# uses [] for lists and {} for maps/objects.
+# For info see http://docs.ansible.com/ansible/latest/YAMLSyntax.html
+
+# The parameter 'segment_select' defines which segments to be processed or visualized. PLEASE USE
+# THIS PARAMETER. If missing, all segments will be loaded, including segment with no
+# (or malformed) waveform data: this is in practically always useless and slows down considerably
+# the processing or visualization routine. The selection is made via the list-like argument:
+#
+# segment_select:
+#   <att>: "<expression>"
+#   <att>: "<expression>"
+#   ...
+#
+# where each <att> is a segment attribute and <expression> is a simplified SQL-select string
+# expression. Example:
+#
+# 1. To select and work on segments with downloaded data (at least one byte of data):
+# segment_select:
+#   has_data: "true"
+#
+# 2. To select and work on segments of stations activated in 2017 only:
+# segment_select:
+#   station.start_time: "[2017-01-01, 2018-01-01T00:00:00)"
+# (brackets denote intervals. Square brackets include end-points, round brackets exclude endpoints)
+#
+# 3. To select segments from specified ids, e.g. 1, 4, 342, 67 (e.g., ids which raised errors during
+# a previous run and whose id where logged might need inspection in the GUI):
+# segment_select:
+#   id: "1 4 342 67"
+#
+# 4. To select segments whose event magnitude is greater than 4.2:
+# segment_select:
+#   event.magnitude: ">4.2"
+# (the same way work the operators: =, >=, <=, <, !=)
+#
+# 5. To select segments with a particular channel sensor description:
+# segment_select:
+#   channel.sensor_description: "'GURALP CMG-40T-30S'"
+# (note: for attributes with str values and spaces, we need to quote twice, as otherwise
+# "GURALP CMG-40T-30S" would match 'GURALP' and 'CMG-40T-30S', but not the whole string.
+# See attribute types below)
+#
+# The list of segment attribute names and types is:
+#
+# ============================= ==============================================================
+# attribute                     Python type and (optional) description
+# ============================= ==============================================================
+# id                            int: segment (unique) db id
+# event_distance_deg            float: distance between the segment's station and
+#                               the event, in degrees
+# event_distance_km             float: distance between the segment's station and
+#                               the event, in km, assuming a perfectly spherical earth
+#                               with a radius of 6371 km
+# start_time                    datetime.datetime: the waveform data start time
+# arrival_time                  datetime.datetime: the station's arrival time of the waveform.
+#                               Value between 'start_time' and 'end_time'
+# end_time                      datetime.datetime: the waveform data end time
+# request_start                 datetime.datetime: the requested start time of the data
+# request_end                   datetime.datetime: the requested end time of the data
+# duration_sec                  float: the waveform data duration, in seconds
+# missing_data_sec              float: the number of seconds of missing data, with respect
+#                               to the requested time window. It might also be negative
+#                               (more data received than requested). This parameter is useful
+#                               when selecting segments: e.g., if we requested 5
+#                               minutes of data and we want to process segments with at
+#                               least 4 minutes of downloaded data, then:
+#                               missing_data_sec: '< 60'
+# missing_data_ratio            float: the portion of missing data, with respect
+#                               to the request time window. It might also be negative
+#                               (more data received than requested). This parameter is useful
+#                               when selecting segments: e.g., if you want to process
+#                               segments whose real time window is at least 90% of the
+#                               requested one, then: missing_data_ratio: '< 0.1'
+# sample_rate                   float: the waveform data sample rate.
+#                               It might differ from the segment channel's sample_rate
+# has_data                      boolean: tells if the segment has data saved (at least
+#                               one byte of data). This parameter is useful when selecting
+#                               segments (in most cases, almost necessary), e.g.:
+#                               has_data: 'true'
+# download_code                 int: the code reporting the segment download status. This
+#                               parameter is useful to further refine the segment selection
+#                               skipping beforehand segments with malformed data (code -2):
+#                               has_data: 'true'
+#                               download_code: '!=-2'
+#                               (We omit all other codes because of no interest. For details,
+#                               see Table 2 in https://doi.org/10.1785/0220180314#tb2)
+# maxgap_numsamples             float: the maximum gap or overlap found in the waveform data,
+#                               in number of points. If 0, the segment has no gaps/overlaps.
+#                               Otherwise, if >=1: the segment has gaps, if <=-1: the segment
+#                               has overlaps. Values in (-1, 1) are difficult to interpret: a
+#                               rule of thumb is to consider half a point (> 0.5 or <-0.5)
+#                               a gap / overlap.
+#                               This parameter is useful when selecting segments: e.g.,
+#                               to select segments with no gaps/overlaps, then:
+#                               maxgap_numsamples: '(-0.5, 0.5)'
+# seed_id                       str: the seed identifier in the typical format
+#                               [Network.Station.Location.Channel]. For segments
+#                               with waveform data, `data_seed_id` (see below) might be
+#                               faster to fetch.
+# data_seed_id                  str: same as 'segment.seed_id', but faster because it
+#                               reads the value stored in the waveform data. The drawback
+#                               is that this value is null for segments with no waveform data
+# has_class                     boolean: tells if the segment has (at least one) class
+#                               assigned
+# data                          bytes: the waveform (raw) bytes data. Used by `segment.stream()`
+# ----------------------------- ------------------------------------------------
+# event                         object (attributes below)
+# event.id                      int
+# event.event_id                str: the id returned by the web service or catalog
+# event.time                    datetime.datetime
+# event.latitude                float
+# event.longitude               float
+# event.depth_km                float
+# event.author                  str
+# event.catalog                 str
+# event.contributor             str
+# event.contributor_id          str
+# event.mag_type                str
+# event.magnitude               float
+# event.mag_author              str
+# event.event_location_name     str
+# ----------------------------- ------------------------------------------------
+# channel                       object (attributes below)
+# channel.id                    int
+# channel.location              str
+# channel.channel               str
+# channel.depth                 float
+# channel.azimuth               float
+# channel.dip                   float
+# channel.sensor_description    str
+# channel.scale                 float
+# channel.scale_freq            float
+# channel.scale_units           str
+# channel.sample_rate           float
+# channel.band_code             str: the first letter of channel.channel
+# channel.instrument_code       str: the second letter of channel.channel
+# channel.orientation_code      str: the third letter of channel.channel
+# channel.station               object: same as segment.station (see below)
+# ----------------------------- ------------------------------------------------
+# station                       object (attributes below)
+# station.id                    int
+# station.network               str: the station's network code, e.g. 'AZ'
+# station.station               str: the station code, e.g. 'NHZR'
+# station.netsta_code           str: the network + station code, concatenated with
+#                               the dot, e.g.: 'AZ.NHZR'
+# station.latitude              float
+# station.longitude             float
+# station.elevation             float
+# station.site_name             str
+# station.start_time            datetime.datetime
+# station.end_time              datetime.datetime
+# station.has_inventory         boolean: tells if the segment's station inventory has
+#                               data saved (at least one byte of data).
+#                               This parameter is useful when selecting segments: e.g.,
+#                               to select only segments with inventory downloaded:
+#                               station.has_inventory: 'true'
+# station.datacenter            object (same as segment.datacenter, see below)
+# ----------------------------- ------------------------------------------------
+# datacenter                    object (attributes below)
+# datacenter.id                 int
+# datacenter.station_url        str
+# datacenter.dataselect_url     str
+# datacenter.organization_name  str
+# ----------------------------- ------------------------------------------------
+# download                      object (attributes below): the download execution
+# download.id                   int
+# download.run_time             datetime.datetime
+# ----------------------------- ------------------------------------------------
+# classes.id                    int: the id(s) of the classes assigned to the segment
+# classes.label                 int: the label(s) of the classes assigned to the segment
+# classes.description           int: the description(s) of the classes assigned to the
+#                               segment
+# ============================= ================================================
+#
+segment_select:
+  has_data: 'true'
+  maxgap_numsamples: '[-0.5, 0.5]'
+  download_code: '!=-2'
+  data_seed_id: '!=null'
+  station.has_inventory: 'true'
+  missing_data_sec: '<600'
+  # id: '<300'
+  # event.time: "(2014-01-01T00:00:00, 2014-12-31T23:59:59)"
+  # event.latitude: "[24, 70]"
+  # event.longitude: "[-11, 24]"
+
+# Assign a dataset id (integer) to be saved for each row of the hdf. this is also
+# useful for uniquely identofying each segment when merging all hdfs: in this
+# case each segment is uniquely identified by the columns
+# 'Segment.db.id', 'dataset_id', 'window_type'
+dataset_id: 2
+
+# Settings for computing the 'signal' and 'noise' time windows on a segment waveform.
+# Set signal_window to False to compute the features on the whole window with no split.
+# If signal_window is True, each trace to be processed
+# will be splitted in two (signal and noise part), thus doubling the available traces
+# the HDF file column 'window_type' will tell you if the segment stems from a 
+# only noise window (window_type=False) or contains signal (window_type=True, the defualt)
+sn_windows:
+  arrival_time_shift: -1  # ignored if signal_window is False, otherwsie programmatically shifts the arrival time for every segment (in seconds)
+  signal_window: True  # If True, splits each segment into noise and signal, otherwise computes the whole segment
+
+# dict of bad station ids (the mapping to null values is meaningless, but YAML does not have a Set type so we use a dict)
+# bad is a dict, for faster search (the value 'null' is meaningless)
+# All segments from these stations will have the column 'outlier' set as True
+# and the column 'hand_labelled' set as True
+bad:
+  1980: null # CB
+  1990: null
+  1993: null
+  1997: null
+  1412: null # AF
+  1421: null
+  # 3258: null # S1. This station is mapped to the (only) channel S1.AUTAR..BH? which seems to work (after second check) 
+  1014: null # IS
+  1016: null
+  1017: null
+  1018: null
+  1019: null
+  1020: null
+  1021: null
+  1022: null
+  1023: null
+  1024: null
+  1025: null
+  1026: null
+  1027: null
+  1028: null
+  1029: null
+  1030: null
+  10: null # BW
+  2772: null # KZ:
+  2785: null
+  2786: null
+  2787: null
+  2788: null
+  2789: null
+  2790: null
+  2791: null
+  2792: null
+  2793: null
+  2794: null
+  2795: null
+  2796: null
+  2797: null
+  2798: null
+  2799: null
+  2800: null
+  2801: null
+  2802: null
+  2803: null
+  2804: null
+  # 2805: null  # this is mapped to the (only) channel KZ.KUR21..BH? which seems to work (after second check)
+  718: null # CZ
+  722: null
+  723: null
+  727: null
+  728: null
+  729: null
+
+# dict of GOOD station ids (the mapping to null values is meaningless, but YAML does not have a Set type so we use a dict)
+# All segments from these stations will have the column 'outlier' set as False
+# (this is the default for every segment) but also the column 'hand_labelled' set as True
+good:
+  717: null # CZ: 
+  721: null
+  720: null
+  731: null
+  767: null # GE: 
+  768: null
+  764: null
+  765: null
+  769: null
+  770: null
+  771: null
+  773: null
+  774: null
+  776: null
+  777: null
+  778: null
+  780: null
+  775: null
+  781: null
+  783: null
+  782: null
+  784: null
+  785: null
+  786: null
+  787: null
+  788: null
+  791: null
+  792: null
+  789: null
+  793: null
+  790: null
+  794: null
+  795: null
+  798: null
+  799: null
+  800: null
+  796: null
+  801: null
+  797: null
+  803: null
+  804: null
+  805: null
+  807: null
+  806: null
+  810: null
+  811: null
+  812: null
+  809: null
+  814: null
+  818: null
+  819: null
+  820: null
+  817: null
+  816: null
+  821: null
+  822: null
+  823: null
+  825: null
+  827: null
+  828: null
+  829: null
+  826: null
+  824: null
+  815: null
+  831: null
+  832: null
+  833: null
+  835: null
+  836: null
+  837: null
+  838: null
+  844: null
+  845: null
+  839: null
+  840: null
+  846: null
+  848: null
+  847: null
+  850: null
+  851: null
+  852: null
+  2390: null
+  9: null    # BW
+  7: null
+  2: null
+  8: null
+  5: null
+  3: null
+  4: null
+  215: null  # MN
+  229: null
+  2883: null
+  2886: null
+  2889: null
+  2894: null
+  2897: null
+  2900: null
+  2901: null
+  523: null  # II
+  525: null
+  528: null
+  529: null
+  530: null
+  532: null
+  531: null
+  535: null
+  537: null
+  539: null
+  2455: null
+  2456: null
+  2458: null
+  2460: null
+  2461: null
+  2465: null
+  2466: null
+  2469: null
+  2476: null
+  2482: null
+  2483: null
+  2484: null
+  2485: null
+  2486: null
+  2487: null
+  2489: null
+  2490: null
+  2491: null
+  2492: null
+  2493: null
+  2502: null
+  2503: null
+  2504: null
+  2505: null
+  2512: null
+  2515: null
+  2516: null
+  2518: null
+  2519: null
+  2522: null
+  2524: null
+  1295: null # G
+  1296: null
+  1297: null
+  1298: null
+  1303: null
+  1304: null
+  1306: null
+  1308: null
+  1305: null
+  1311: null
+  1313: null
+  1314: null
+  1316: null
+  1315: null
+  1319: null
+  1320: null
+  1321: null
+  1323: null
+  1325: null
+  1326: null
+  1327: null
+  1328: null
+  1329: null
+  1330: null
+  1333: null
+  1334: null
+  1331: null
+  549: null  # IU
+  550: null
+  551: null
+  554: null
+  552: null
+  555: null
+  557: null
+  558: null
+  559: null
+  2617: null
+  2618: null
+  2620: null
+  2621: null
+  2622: null
+  2624: null
+  2627: null
+  2629: null
+  2630: null
+  2631: null
+  2632: null
+  2633: null
+  2634: null
+  2635: null
+  2636: null
+  2639: null
+  2641: null
+  2642: null
+  2643: null
+  2644: null
+  2647: null
+  2648: null
+  2649: null
+  2650: null
+  2651: null
+  2652: null
+  2654: null
+  2658: null
+  2660: null
+  2575: null
+  2577: null
+  2580: null
+  2582: null
+  2585: null
+  2586: null
+  2587: null
+  2589: null
+  2591: null
+  2592: null
+  2599: null
+  2600: null
+  2602: null
+  2603: null
+  2604: null
+  2609: null
+  2611: null
+  2612: null
+  2613: null
+  2614: null
+  2615: null
+  2616: null
+  2661: null
+  2663: null
+  2664: null
+  2665: null
+  2666: null
+  2668: null
+  2669: null
+  2670: null
+  2672: null
+  2674: null
+  2677: null
+  2678: null
+  2679: null
+  2680: null
+  2681: null
+  2682: null
+  2684: null
+  2685: null
+  2688: null
+  2690: null
+  2691: null
+  2692: null
+  2694: null
+  2699: null
+  2700: null
+  2701: null
+  2702: null
+  1157: null # GR
+  1158: null
+  1160: null
+  1163: null
+  1164: null
+  1165: null
+  1166: null
+  1167: null
+  1169: null
+  1174: null
+  1175: null
+  1176: null
+  1177: null
+  1178: null
+  1179: null
+  1180: null
+  1181: null
+  1182: null
+  1183: null
+  1184: null
+  1185: null
+  1186: null
+  1187: null
+  1188: null
+  1191: null
+  1193: null
+  1199: null
+  1200: null
+  1201: null
+  1202: null
+  1203: null
+  1204: null
+  1205: null
+  1206: null
+  1207: null
+  1208: null
+
+# psd interpolation values (in seconds):
+psd_periods:
+ - 0.05 # amp@20hz
+ - 0.1  # amp@10hz 
+ - 0.2  # amp@5hz
+ - 0.5  # amp@2hz
+ - 1    # amp@1hz
+ - 2    # amp@0.5hz
+ - 3 
+ - 5 
+ - 9
+# - 100
+
+
+# NOT USED: suspicious stations ids (dict, for faster search. The value 'null' is meaningless)
+suspect:
+  3225: null # S1
+  3242: null
+  3246: null
+  2410: null # GE
+  2893: null # MN
+  538: null # II
+  110: null # - VARIOUS NETWORKS:
+  434: null
+  734: null
+  1116: null
+  1126: null
+  1210: null
+  1686: null
+  2713: null
+  3047: null
+  3211: null
+  3506: null
+
+
+# Advanced settings tuning the process routine:
+advanced_settings:
+  # Use parallel sub-processes to speed up the execution.
+  multi_process: true
+  # The number of sub-processes. If null, it is set as the the number of CPUs in the
+  # system. This option is ignored if multi_process is false
+  num_processes: null
+  # Although each segment is processed one at a time, loading segments in chunks from the
+  # database is faster: the number below defines the chunk size. If multi_process is true,
+  # the chunk size also defines how many segments will be loaded in each python sub-process.
+  # Increasing this number might speed up execution but increases the memory usage.
+  # When null, the chunk size defaults to 1200 if the number N of
+  # segments to be processed is > 1200, otherwise N/10.
+  segments_chunksize: 1200
+  # Optional arguments for the output writer. Ignored for CSV output, for HDF output see:
+  # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
+  # (the parameters 'append' and 'value' will be ignored, if given here)
+  writer_options:
+    chunksize: 1200
+    # hdf needs a fixed length for all columns: for variable-length string columns,
+    # you need to tell in advance how many bytes to allocate with 'min_itemsize'.
+    # E.g., if you have two string columns 'col1' and 'col2' and you assume to store
+    # at most 10 ASCII characters in 'col1' and 20 in 'col2', then:
+    min_itemsize:
+      channel_code: 3
+      location_code: 3
+
+# If you want to use the GUI as hand labelling tool (for e.g. supervised classification problems)
+# or setup classes before processing, you can provide the parameter 'class_labels' which is a
+# dictionary of label names mapped to their description. If provided, the labels will first be
+# added to the database (updating the description, if the label name is already present) and
+# then will show up in the GUI where one or more classes can be assigned to a given segment via
+# check boxes. If missing, no class labels will show up in the GUI, unless already set by a
+# previous config. Example:
+#class_labels:
+#  Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts)"
+#  Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
+#  Ok: "Segment with no artifact"
+#  LowS2N: "Segment has a low signal-to-noise ratio"
+#  Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
+#  MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
+#  BadCoda: "Segment with a bad coda (bad decay)"
