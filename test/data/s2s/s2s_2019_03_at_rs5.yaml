@@ -192,10 +192,26 @@ segment_select:
   data_seed_id: '!=null'
   station.has_inventory: 'true'
   missing_data_sec: '<120'
-  # id: '<300'
-  # event.time: "(2014-01-01T00:00:00, 2014-12-31T23:59:59)"
-  # event.latitude: "[24, 70]"
-  # event.longitude: "[-11, 24]"
+  id: '16734740 16739852 15571737 2303846 8732087 6471312 12485487 12485488'  # FIRST TOW GOOD, THAN BAD/GOOD (WITH WRONG INVENTORY), THEN UNKNOWN
+# THIS DEBUG FILE USES THE DEFAULT CONFIG BUT PROCESSES ONLY SIX SEGMENTS: 2 GOOD, 2 BAD AND 2 UNKNOWN
+# TO GET THE IDS OF THOSE SEGMENTS I PERFORMED A SEARCH ON THE SOURCE DATABASE LIKE THIS:
+# (CHANGE THE STATION ID ACCORDING TO THE LISTS BELOW. LIMIT 2 JUST TO BE SAFER)
+#
+# The first two good where obtained with:
+# SELECT SEGMENTS.ID FROM SEGMENTS WHERE SEGMENTS.DATA_SEED_ID = 'AC.PUK..HHN' AND LENGTH(SEGMENTS.DATA) > 1000 LIMIT 2
+# But note that they have inventory with no data thus they will not be written
+# The second two good where obtained with:
+# SELECT SEGMENTS.ID FROM SEGMENTS WHERE SEGMENTS.DATA_SEED_ID = 'CH.FUSIO..HGN' AND LENGTH(SEGMENTS.DATA) > 1000 LIMIT 2
+# The bad/good (with wrong inventory) with
+# select segments.id, segments.data, stations.inventory_xml from segments join channels on channels.id = segments.channel_id join stations on stations.id = channels.station_id
+# where
+#   stations.id = 5833 and
+#    length(segments.data) > 0 and
+#    length(stations.inventory_xml) > 0  and
+#    segments.data_seed_id = 'CH.GRIMS..HHZ'
+# limit 2
+# The others by typing this, select the first two and hoping we do not fall into one of the other categories:
+# select segments.id from segments where length(segments.data)>1000 and segments.data_seed_id is not null limit 10
 
 # Assign a dataset id (integer) to be saved for each row of the hdf. this is also
 # useful for uniquely identofying each segment when merging all hdfs: in this
@@ -470,12 +486,12 @@ advanced_settings:
   # Increasing this number might speed up execution but increases the memory usage.
   # When null, the chunk size defaults to 1200 if the number N of
   # segments to be processed is > 1200, otherwise N/10.
-  segments_chunksize: 1200
+  segments_chunksize: 1
   # Optional arguments for the output writer. Ignored for CSV output, for HDF output see:
   # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
   # (the parameters 'append' and 'value' will be ignored, if given here)
   writer_options:
-    chunksize: 1200
+    chunksize: 1
     # hdf needs a fixed length for all columns: for variable-length string columns,
     # you need to tell in advance how many bytes to allocate with 'min_itemsize'.
     # E.g., if you have two string columns 'col1' and 'col2' and you assume to store

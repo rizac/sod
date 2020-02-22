@@ -203,6 +203,7 @@ segment_select:
 # 'Segment.db.id', 'dataset_id', 'window_type'
 dataset_id: 2
 
+
 # Settings for computing the 'signal' and 'noise' time windows on a segment waveform.
 # Set signal_window to False to compute the features on the whole window with no split.
 # If signal_window is True, each trace to be processed
@@ -224,7 +225,7 @@ bad:
   1997: null
   1412: null # AF
   1421: null
-  # 3258: null # S1. This station is mapped to the (only) channel S1.AUTAR..BH? which seems to work (after second check) 
+  # 3258: null # This station is mapped to the (only) channel S1.AUTAR..BH? which seems to work (after second check) 
   1014: null # IS
   1016: null
   1017: null
@@ -263,7 +264,7 @@ bad:
   2802: null
   2803: null
   2804: null
-  # 2805: null  # this is mapped to the (only) channel KZ.KUR21..BH? which seems to work (after second check)
+  # 2805: null  # This is mapped to the (only) channel KZ.KUR21..BH? which seems to work (after second check)
   718: null # CZ
   722: null
   723: null
@@ -275,6 +276,8 @@ bad:
 # All segments from these stations will have the column 'outlier' set as False
 # (this is the default for every segment) but also the column 'hand_labelled' set as True
 good:
+  2805: null  # This is mapped to the (only) channel KZ.KUR21..BH? which seems to work (after second check)
+  3258: null  # This station is mapped to the (only) channel S1.AUTAR..BH? which seems to work (after second check) 
   717: null # CZ: 
   721: null
   720: null

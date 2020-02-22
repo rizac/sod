@@ -197,6 +197,13 @@ segment_select:
   # event.latitude: "[24, 70]"
   # event.longitude: "[-11, 24]"
 
+# Assign a dataset id (integer) to be saved for each row of the hdf. this is also
+# useful for uniquely identofying each segment when merging all hdfs: in this
+# case each segment is uniquely identified by the columns
+# 'Segment.db.id', 'dataset_id', 'window_type'
+dataset_id: 3
+
+
 # Settings for computing the 'signal' and 'noise' time windows on a segment waveform.
 # Set signal_window to False to compute the features on the whole window with no split.
 # If signal_window is True, each trace to be processed
