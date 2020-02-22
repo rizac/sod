@@ -192,16 +192,21 @@ segment_select:
   data_seed_id: '!=null'
   station.has_inventory: 'true'
   missing_data_sec: '<120'
-  # id: '<300'
-  # event.time: "(2014-01-01T00:00:00, 2014-12-31T23:59:59)"
-  # event.latitude: "[24, 70]"
-  # event.longitude: "[-11, 24]"
+  id: '1 106'
+# THIS DEBUG FILE USES THE DEFAULT CONFIG BUT PROCESSES ONLY TWO SEGMENTS:
+# TO GET THE IDS OF THOSE SEGMENTS I PERFORMED A SEARCH ON THE SOURCE DATABASE LIKE THIS:
+#
+# select segments.id, segments.data, stations.inventory_xml from segments join channels on channels.id = segments.channel_id join stations on stations.id = channels.station_id
+# where
+#     length(segments.data) > 1000 and
+#     length(stations.inventory_xml) > 0    
+# limit 2
 
 # Assign a dataset id (integer) to be saved for each row of the hdf. this is also
 # useful for uniquely identofying each segment when merging all hdfs: in this
 # case each segment is uniquely identified by the columns
 # 'Segment.db.id', 'dataset_id', 'window_type'
-dataset_id: 1
+dataset_id: 3
 
 
 # Settings for computing the 'signal' and 'noise' time windows on a segment waveform.
@@ -212,236 +217,8 @@ dataset_id: 1
 # only noise window (window_type=False) or contains signal (window_type=True, the defualt)
 sn_windows:
   arrival_time_shift: -1  # ignored if signal_window is False, otherwsie programmatically shifts the arrival time for every segment (in seconds)
-  signal_window: True  # If True, splits each segment into noise and signal, otherwise computes the whole segment
+  signal_window: False  # If True, splits each segment into noise and signal, otherwise computes the whole segment
 
-
-# dict of GOOD channels (the mapping to null values is meaningless, but YAML does not have a Set type so we use a dict)
-# All segments from these stations will have the column 'outlier' set as False
-# (this is the default for every segment) but also the column 'hand_labelled' set as True
-good:
-  "AC.PUK..HHN": null
-  "BS.BLKB..HNN": null
-  "BS.VETAM..HNN": null
-  "CH.DIX..HGN": null
-  "CH.FUSIO..HGN": null
-  "CH.FUSIO..HHN": null
-  "CH.GRIMS..HHE": null
-  "CH.GRIMS..HHE": null
-  "CH.GRIMS..HHN": null
-  "CH.GRIMS..HHN": null
-  "CH.GRIMS..HHZ": null
-  "CH.GRIMS..HHZ": null
-  "CH.MMK..HGN": null
-  "CH.MUGIO..HHN": null
-  "CH.NALPS..HHN": null
-  "CL.ROD3.01.EHN": null
-  "CQ.OSC2.01.HHN": null
-  "FR.ESCA.00.HNN": null
-  "FR.ESCA.01.HHN": null
-  "FR.MON.00.HNN": null
-  "FR.MVIF.00.HHN": null
-  "FR.OGDI.00.HHN": null
-  "FR.PYLO.00.HNE": null
-  "FR.PYLO.00.HNN": null
-  "FR.PYLO.00.HNZ": null
-  "FR.SAOF.00.HNN": null
-  "GE.GVD..HHN": null
-  "GE.KARP..HHN": null
-  "GE.KARP..HNN": null
-  "GE.MATE..HHN": null
-  "GE.SANT..HHN": null
-  "GE.TIRR..HHN": null
-  "GU.ENR..HHN": null
-  "GU.FIVI..HNN": null
-  "GU.GORR..HHN": null
-  "GU.PZZ..HHN": null
-  "GU.SATI..HHN": null
-  "GU.SC2M..HHN": null
-  "HA.EPID..HHN": null
-  "HA.EREA..HHN": null
-  "HA.KARY..HHN": null
-  "HA.LOUT..HHN": null
-  "HA.MAKR..HHN": null
-  "HA.PROD..HHN": null
-  "HA.SNT1..HHN": null
-  "HC.FRMA..HHN": null
-  "HC.GVDS..HHN": null
-  "HC.KNDR..HHN": null
-  "HC.KSTL..HHN": null
-  "HI.KRI1..HNN": null
-  "HL.AMGA..HHN": null
-  "HL.ARG..HHN": null
-  "HL.ATH..HHN": null
-  "HL.DION..HHN": null
-  "HL.DION..HNN": null
-  "HL.GVD..HHN": null
-  "HL.GVD.00.HNN": null
-  "HL.JAN..HHN": null
-  "HL.KARP..HHN": null
-  "HL.KARP..HNN": null
-  "HL.KASA.00.HNN": null
-  "HL.KEK..HHN": null
-  "HL.LIA..HHN": null
-  "HL.LKR..HHN": null
-  "HL.MGNA.00.HNN": null
-  "HL.NEO..HHN": null
-  "HL.NOAC.00.HNN": null
-  "HL.PATC.00.HNN": null
-  "HL.PRK..HHN": null
-  "HL.PRK..HNN": null
-  "HL.SANT..HHN": null
-  "HL.SMG..HHN": null
-  "HL.VAM..HHN": null
-  "HL.YDRA.00.HNN": null
-  "HP.AMT.00.HHN": null
-  "HP.ANX..HHN": null
-  "HP.ANX..HNN": null
-  "HP.DRO..HHN": null
-  "HP.FSK..HNN": null
-  "HP.GUR..HHN": null
-  "HP.LTHK..HHN": null
-  "HP.PDO..HHN": null
-  "HP.PVO..HHN": null
-  "HP.SERG..HHN": null
-  "HT.CMBO..HHN": null
-  "HT.LKD2..HHN": null
-  "HT.NIS1..HHN": null
-  "HT.SOH..HHN": null
-  "HT.TSLK..HHN": null
-  "IV.ACER..HHN": null
-  "IV.AIO..HHN": null
-  "IV.APEC..HHN": null
-  "IV.ATCC..EHN": null
-  "IV.ATPC..HHN": null
-  "IV.ATPC..HNN": null
-  "IV.ATVO..HNN": null
-  "IV.BORM..HNN": null
-  "IV.BRMO..HHN": null
-  "IV.CAFE..HNN": null
-  "IV.CAFR..HHN": null
-  "IV.CAR1..HHN": null
-  "IV.DOI..HHN": null
-  "IV.FAGN..HHN": null
-  "IV.FIU..EHN": null
-  "IV.FNVD..HHN": null
-  "IV.FOSV..HNN": null
-  "IV.FRON..EHN": null
-  "IV.HCRL..HHN": null
-  "IV.IMI..HHN": null
-  "IV.LNSS..HHN": null
-  "IV.LTRZ..HNN": null
-  "IV.MABI..HHN": null
-  "IV.MCEL..HNN": null
-  "IV.MCRV..HHN": null
-  "IV.MGAB..HNN": null
-  "IV.MOMA..HHN": null
-  "IV.MRB1..HHN": null
-  "IV.MSAG..HHN": null
-  "IV.MSRU..HHN": null
-  "IV.MTCR..EHN": null
-  "IV.NOCI..HHN": null
-  "IV.NOV..HHN": null
-  "IV.NOVE..EHN": null
-  "IV.ORI..HHN": null
-  "IV.PALZ..HHN": null
-  "IV.PII..HHN": null
-  "IV.PIO1..HNN": null
-  "IV.PIPA..HHN": null
-  "IV.PR02..HHN": null
-  "IV.RCAV..EHN": null
-  "IV.RM05..HNN": null
-  "IV.RM10..EHN": null
-  "IV.RM10..HNN": null
-  "IV.RM28..EHN": null
-  "IV.ROVR..HHN": null
-  "IV.SCTE..HHN": null
-  "IV.SFI..HNN": null
-  "IV.SGRT..HHN": null
-  "IV.SIRI..HNN": null
-  "IV.SMA1..EHN": null
-  "IV.T0502..EHN": null
-  "IV.T0502..HNN": null
-  "IV.T0503..EHN": null
-  "IV.T0702..EHN": null
-  "IV.T0711..EHN": null
-  "IV.T0711..HNN": null
-  "IV.VARE..HHN": null
-  "IV.VITU..HHN": null
-  "IV.ZEN8..HNN": null
-  "KO.ARMT..HHN": null
-  "KO.BALB..HHN": null
-  "KO.BGKT..HHN": null
-  "KO.CAVI..HHN": null
-  "KO.CRLT..HHN": null
-  "KO.CTKS..HHN": null
-  "KO.CTYL..HHN": null
-  "KO.ERIK..HHN": null
-  "KO.EZN..HHN": null
-  "KO.GEMT..HHN": null
-  "KO.GULA..HHN": null
-  "KO.GURO..HHN": null
-  "KO.HRTX..HHN": null
-  "KO.KAVV..HHN": null
-  "KO.KCTX..HHN": null
-  "KO.KRBG..HHN": null
-  "KO.KURC..HHN": null
-  "KO.LAP..HHN": null
-  "KO.PHSR..HHN": null
-  "KO.RKY..HHN": null
-  "KO.SAUV..HHN": null
-  "KO.SLVT..HHN": null
-  "KO.YLV..HHN": null
-  "ME.KOME..HHN": null
-  "MN.BLY..HHN": null
-  "MN.BLY..HLN": null
-  "MN.PDG..HHN": null
-  "MN.PDG..HLN": null
-  "MN.TUE..HHN": null
-  "MN.TUE..HLN": null
-  "NI.AGOR..BHN": null
-  "NI.AGOR..HHN": null
-  "OT.TAR1..HHN": null
-  "OX.CGRP..HNN": null
-  "PZ.BRGZ..EHN": null
-  "PZ.EASY..EHN": null
-  "PZ.HYBL..EHN": null
-  "PZ.PIER..EHN": null
-  "PZ.SCRP..EHN": null
-  "RA.BELV.00.HNN": null
-  "SI.KOSI..HHN": null
-  "SK.MODS..HHE": null
-  "SK.MODS..HHN": null
-  "SK.MODS..HHZ": null
-  "SK.ZST..HHE": null
-  "SK.ZST..HHN": null
-  "SK.ZST..HHZ": null
-  "TU.BORA..HHN": null
-  "TV.A001..EHN": null
-  "TV.AT01..EHN": null
-  "TV.CCN3..EHN": null
-  "XW.W02.00.BHN": null
-  "XW.W03.00.HHN": null
-  "XW.W04.00.BHN": null
-  "XW.W04.00.HHN": null
-  "XW.W05.00.BHN": null
-  "XW.W05.00.HHN": null
-  "XW.W08.00.BHN": null
-  "XW.W12.00.HHN": null
-  "XW.W13.00.BHN": null
-  "XW.W14.00.HHN": null
-  "XW.W16.00.HHN": null
-  "XY.ERE.00.HHN": null
-  "XY.KOY.00.HHN": null
-  "XY.UMT.00.HHN": null
-  "YI.E01.00.BHN": null
-  "YI.E02.00.BHN": null
-  "YI.E05.00.BHN": null
-  "YI.E12.00.BHN": null
-  "YI.E20.00.BHN": null
-  "Z3.AMOE..HHN": null
-  "ZZ.AMOE..HHN": null
-  "ZZ.PARO..HHN": null
-  "ZZ.SIFN..HHN": null
 
 # psd interpolation values (in seconds):
 psd_periods:
@@ -457,6 +234,27 @@ psd_periods:
 # - 100
 
 
+# NOT USED: suspicious stations ids (dict, for faster search. The value 'null' is meaningless)
+suspect:
+  3225: null # S1
+  3242: null
+  3246: null
+  2410: null # GE
+  2893: null # MN
+  538: null # II
+  110: null # - VARIOUS NETWORKS:
+  434: null
+  734: null
+  1116: null
+  1126: null
+  1210: null
+  1686: null
+  2713: null
+  3047: null
+  3211: null
+  3506: null
+
+
 # Advanced settings tuning the process routine:
 advanced_settings:
   # Use parallel sub-processes to speed up the execution.
@@ -470,12 +268,12 @@ advanced_settings:
   # Increasing this number might speed up execution but increases the memory usage.
   # When null, the chunk size defaults to 1200 if the number N of
   # segments to be processed is > 1200, otherwise N/10.
-  segments_chunksize: 1200
+  segments_chunksize: 1
   # Optional arguments for the output writer. Ignored for CSV output, for HDF output see:
   # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
   # (the parameters 'append' and 'value' will be ignored, if given here)
   writer_options:
-    chunksize: 1200
+    chunksize: 1
     # hdf needs a fixed length for all columns: for variable-length string columns,
     # you need to tell in advance how many bytes to allocate with 'min_itemsize'.
     # E.g., if you have two string columns 'col1' and 'col2' and you assume to store

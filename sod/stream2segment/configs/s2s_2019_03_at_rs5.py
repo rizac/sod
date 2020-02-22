@@ -45,6 +45,7 @@ HANDLABELLED_COL = 'hand_labelled'
 OUTLIER_COL = 'outlier'
 WINDOWTYPE_COL = 'window_type'
 
+
 # Instead of implementing the old wrong inventories in the config,
 # Put them here at module level, so that we load the inventories once per
 # module hopefully speeding up calculations:
@@ -170,6 +171,7 @@ def main(segment, config):
         ret['channel_code'] = net_sta_loc_cha[3]
         ret['magnitude'] = segment.event.magnitude
         ret['distance_km'] = segment.event_distance_km
+        ret['dataset_id'] = config['dataset_id']
         return ret
     finally:
         sys.stdout = temp
@@ -223,7 +225,11 @@ def get_psd_values_df(segment, config):
         for period, psdval in zip(required_psd_periods, required_psd_values):
             ret['psd@%ssec' % str(period)] = float(psdval)
 
-        ret = {**params, **ret}
+        ret = {
+            **params,
+            'length_sec': tra.stats.endtime - tra.stats.starttime,  # <- float
+            **ret
+        }
 
         # if all psd values are abnormally big or low,
         # set them to outlier. This is usually due to a segment
