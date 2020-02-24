@@ -719,6 +719,36 @@ def dfinfo(dataframe, asstring=True):
     return '\n'.join(allstrs)
 
 
+def _dfinfo(dataframe, asstring=True):
+    '''Returns a a dataframe with info about the given `dataframe`
+    '''
+
+    infocols = ['Min', 'Median', 'Max', '#NAs', '#<1Perc.', '#>99Perc.']
+    sum_df = odict()
+    # if _dfr.empty
+    for col in floatingcols(dataframe):
+        q01 = np.nanquantile(dataframe[col], 0.01)
+        q99 = np.nanquantile(dataframe[col], 0.99)
+        df1, df99 = dataframe[(dataframe[col] < q01)], dataframe[(dataframe[col] > q99)]
+        # segs1 = len(pd.unique(df1[ID_COL]))
+        # segs99 = len(pd.unique(df99[ID_COL]))
+        # stas1 = len(pd.unique(df1['station_id']))
+        # stas99 = len(pd.unique(df99['station_id']))
+
+        sum_df[col] = {
+            infocols[0]: np.nanmin(dataframe[col]),
+            infocols[1]: np.nanquantile(dataframe[col], 0.5),
+            infocols[2]: np.nanmax(dataframe[col]),
+            infocols[3]: (~np.isfinite(dataframe[col])).sum(),
+            infocols[4]: len(df1),
+            infocols[5]: len(df99)
+            # columns[5]: stas1 + stas99,
+        }
+    return pd.DataFrame(data=list(sum_df.values()),
+                        columns=infocols,
+                        index=list(sum_df.keys()))
+
+
 # def df2str(dataframe):
 #     ''':return: the string representation of `dataframe`, with numeric values
 #     formatted with comma as decimal separator
