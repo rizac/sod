@@ -186,14 +186,15 @@ def get_psd_values_df(segment, config):
             **ret
         }
 
-        # if all psd values are abnormally big or low,
-        # set them to outlier. This is usually due to a segment
-        # with constant value:
-        # The value -1000 is set after inspecting the datasets after a
-        # "first try" run
-        if (required_psd_values[~np.isnan(required_psd_values)] <= -1000).all():
-            params[HANDLABELLED_COL] = True
-            params[OUTLIER_COL] = True
+        # # Here we tried to programmatically label artifacts as outliers
+        # # But we realised later that the lines below have no effect as
+        # # they should be executed BEFORE the creation of `ret` above.
+        # # We also realised that it is better to handle these artifacts later
+        # # in a Jupyter notebook and put them in a specified data frame.
+        # # So, all in all, let's comment them out:
+        # if (required_psd_values[~np.isnan(required_psd_values)] <= -1000).all():
+        #    params[HANDLABELLED_COL] = True
+        #    params[OUTLIER_COL] = True
 
         ret_dfs.append(ret)
 
