@@ -21,7 +21,7 @@ from sklearn.metrics.classification import (confusion_matrix,
                                             log_loss as scikit_log_loss)
 
 from sod.core import pdconcat, odict
-from sod.core.dataset import (is_outlier, OUTLIER_COL, dataset_info)
+from sod.core.dataset import is_outlier, OUTLIER_COL, dataset_info
 import re
 from sklearn.ensemble.iforest import IsolationForest
 from sklearn.svm.classes import OneClassSVM
