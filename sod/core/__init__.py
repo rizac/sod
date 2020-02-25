@@ -10,3 +10,14 @@ else:
 def pdconcat(dataframes, **kwargs):
     '''forwards to pandas concat with standard arguments'''
     return pd.concat(dataframes, sort=False, axis=0, copy=True, **kwargs)
+
+
+CLASSNAMES = (
+    'inlier',
+    'outlier'
+)
+
+CLASS_SELECTORS = (
+    lambda d: ~d.outlier,
+    lambda d: d.outlier
+)

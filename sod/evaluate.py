@@ -3,21 +3,21 @@ Created on 28 Oct 2019
 
 @author: riccardo
 '''
-import importlib
+import importlib, sys
 
 from os import makedirs
 from os.path import (isabs, abspath, isdir, isfile, dirname, join, basename,
-                     splitext)
+                     splitext, split)
 
 from yaml import safe_load
 import click
 
-from sod.core.dataset import (dataset_path, open_dataset, magnitudeenergy,
-                              globalset)
-from sod.core.evaluation import Evaluator, ClfEvaluator, is_outlier
-from sklearn.svm.classes import OneClassSVM
-from sklearn.ensemble.iforest import IsolationForest
+from sod.core.dataset import open_dataset
+from sod.core.evaluation import Evaluator, ClfEvaluator
+# from sklearn.svm.classes import OneClassSVM
+# from sklearn.ensemble.iforest import IsolationForest
 from sod.core.paths import EVALUATIONS_CONFIGS_DIR, EVALUATIONS_RESULTS_DIR
+import traceback
 
 
 def load_cfg(fname):
@@ -28,6 +28,22 @@ def load_cfg(fname):
         return safe_load(stream)
 
 
+def _open_dataset(filepath, columns2save, categorical_columns=None):
+    print()
+    title = 'Opening %s' % filepath
+    print(title)
+    print('-' * len(title))
+    dfr = open_dataset(filepath,
+                       categorical_columns=categorical_columns,
+                       verbose=True)
+    _ = [_ for _ in columns2save if _ not in dfr.columns]
+    if _:
+        raise ValueError('These columns under the parameter '
+                         '"columns2save" are not in the testset: '
+                         '%s' % str(_))
+    return dfr
+
+
 @click.command()
 @click.option(
     '-c', '--config',
@@ -36,6 +52,12 @@ def load_cfg(fname):
 )
 def run(config):
     cfg_dict = load_cfg(config)
+
+    try:
+        columns2save = cfg_dict['columns2save']
+    except KeyError:
+        raise ValueError('Missing argument "columns2save" '
+                         '(specify a list of stirings)')
 
     is_normal_eval = ('features' in cfg_dict) + ('parameters' in cfg_dict)
     if is_normal_eval == 2:
@@ -58,6 +80,7 @@ def run(config):
                          "Rename yaml file or remove directory" % destdir)
     print('Saving results (HDF, HTML files) to: %s' % str(destdir))
 
+    categorical_columns = cfg_dict.get('categorical_columns', None)
     if is_normal_eval:
 
         clf_class = None
@@ -75,39 +98,43 @@ def run(config):
         print('Using classifier: %s' % clf_class.__name__)
         test_df = None
         test_dataframe_path = cfg_dict['testset']
+
         if test_dataframe_path:
-            if cfg_dict['input_normalize']:
-                raise ValueError('No `test` allowed with `input_normalize`='
-                                 'true. Set the `test` to "" (or null), or '
-                                 'normalize the test dataframe first, and '
-                                 'then run the evaluation with '
-                                 '`input_normalize`=False')
-            test_df = open_dataset(test_dataframe_path, normalize=False)
-            print('')
+            test_df = _open_dataset(test_dataframe_path,
+                                    columns2save,
+                                    categorical_columns)
 
-        train_df = open_dataset(cfg_dict['trainingset'],
-                                normalize=cfg_dict['input_normalize'])
+        train_df = _open_dataset(cfg_dict['trainingset'],
+                                 columns2save,
+                                 categorical_columns)
 
-        evl = Evaluator(clf_class, cfg_dict['parameters'],
-                        cfg_dict['cv_n_folds'])
-        # run(self, train_df, columns, destdir, test_df=None, remove_na=True):
-        evl.run(train_df, columns=cfg_dict['features'], destdir=destdir,
-                test_df=test_df, remove_na=cfg_dict.get('remove_na', True))
+        try:
+            evl = Evaluator(clf_class, parameters=cfg_dict['parameters'],
+                            columns2save=columns2save,
+                            cv_n_folds=cfg_dict['cv_n_folds'])
+    
+            # run(self, train_df, columns, destdir, test_df=None, remove_na=True):
+            evl.run(train_df, columns=cfg_dict['features'], destdir=destdir,
+                    test_df=test_df, remove_na=cfg_dict.get('remove_na', True))
+        except Exception as exc:
+            raise Exception(traceback.format_exc())
     else:
-        classifier_paths = [abspath(join(EVALUATIONS_RESULTS_DIR, _))
-                            for _ in cfg_dict['clf']]
-
-        dataframe = open_dataset(cfg_dict['input'], False)
-
-        nrm_df = None
-        if cfg_dict.get('input_normalize', None):
-            nrm_df = open_dataset(cfg_dict['input_normalize'], False)
-
-        evl = ClfEvaluator(classifier_paths, normalizer_df=nrm_df)
-        evl.run(dataframe, destdir)
+        try:
+            classifier_paths = [abspath(join(EVALUATIONS_RESULTS_DIR, _))
+                                for _ in cfg_dict['clf']]
+    
+            dataframe = _open_dataset(cfg_dict['testset'],
+                                      columns2save,
+                                      categorical_columns)
+    
+            evl = ClfEvaluator(classifier_paths,
+                               columns2save=columns2save)
+            evl.run(dataframe, cfg_dict['testset'], destdir)
+        except Exception as exc:
+            raise Exception(traceback.format_exc())
 
     return 0
-
+    
 
 if __name__ == '__main__':
     run()  # pylint: disable=no-value-for-parameter
