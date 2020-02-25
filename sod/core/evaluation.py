@@ -20,48 +20,14 @@ from joblib import dump, load
 from sklearn.metrics.classification import (confusion_matrix,
                                             log_loss as scikit_log_loss)
 
-from sod.core import pdconcat, odict
-from sod.core.dataset import is_outlier, OUTLIER_COL, dataset_info
+from sod.core import pdconcat, odict, CLASS_SELECTORS, CLASSNAMES
+from sod.core.dataset import is_outlier, OUTLIER_COL
 import re
 from sklearn.ensemble.iforest import IsolationForest
 from sklearn.svm.classes import OneClassSVM
 
 
 PREDICT_COL = 'predicted_anomaly_score'
-
-
-def drop_duplicates(dataframe, columns, decimals=0, verbose=True):
-    '''Drops duplicates per class
-
-    :return: a VIEW of `dataframe`. If you want
-        to modify the returned dataframe safely (no pandas warnings), call
-        `copy()` on it first.
-    '''
-    dinfo = dataset_info(dataframe)
-    o_dataframe = dataframe
-    dataframe = keep_cols(o_dataframe, columns).copy()
-
-    class_index = np.zeros(len(o_dataframe))
-    for i, cname in enumerate(dinfo.classnames, 1):
-        selector = dinfo.class_selector[cname]
-        class_index[selector(dataframe)] = i
-    dataframe['_t'] = class_index
-
-    if decimals > 0:
-        for col in columns:
-            dataframe[col] = np.around(dataframe[col], decimals)
-    cols = list(columns) + ['_t']
-    dataframe.drop_duplicates(subset=cols, inplace=True)
-    if len(dataframe) == len(o_dataframe):
-        if verbose:
-            print('No duplicated row (per class) found')
-        return o_dataframe
-    dataframe = o_dataframe.loc[dataframe.index, :]
-    if verbose:
-        print('Duplicated (per class) found: %d rows removed' %
-              (len(o_dataframe) - len(dataframe)))
-        # print(dfinfo(dataframe))
-    return dataframe
 
 
 def drop_na(dataframe, columns, verbose=True):
@@ -86,23 +52,6 @@ def drop_na(dataframe, columns, verbose=True):
     return dataframe
 
 
-def keep_cols(dataframe, columns):
-    '''
-    Drops all columns of dataframe not in `columns` (preserving in any case
-    the columns in `UNIQUE_ID_COLUMNS` found in dataframe's columns)
-
-    :return: a VIEW of the original dataframe (does NOT return a copy)
-        keeping the specified columns only
-    '''
-    dinfo = dataset_info(dataframe)
-    cols = set(columns) | set(dinfo.uid_columns)
-    # return the dataframe with only `cols` columns, but assure that
-    # dinfo.uid_columns[0] is in the first position otherwise
-    # dataset_info called on the returned dataframe won't work
-    return dataframe[[dinfo.uid_columns[0]] +
-                     list(_ for _ in cols if _ != dinfo.uid_columns[0])]
-
-
 def classifier(clf_class, dataframe, **clf_params):
     '''Returns a OneClassSVM classifier fitted with the data of
     `dataframe`.
@@ -117,27 +66,31 @@ def classifier(clf_class, dataframe, **clf_params):
     return clf
 
 
-def predict(clf, dataframe, *columns):
+def predict(clf, dataframe, features, columns=None):
     '''
-    Builds and returns a PRDICTED DATAFRAME (predicted_df) representing
-    the predictions of `cls` on the test dataframe.
+    Builds and returns a PRDICTED DATAFRAME (predicted_df) with the predicted
+    scores of the given classifier `clf` on the given `dataframe`.
+
+    :param features: the columns of the dataframe to be used as features.
+
+    :param columns: list/tuple/None. The columns of the dataframe to be kept
+        and returned in the predicted dataframe together with the predicted
+        scores. It is usually a subset of
+        `dataframe` columns for memory performances. None (the default) or
+        empty list/tuple: use all columns
 
     :return: a DataFrame with the columns 'outlier' (boolean) and
-    'prediction' (float in [0, 1]) plus the columns implemented in the
-    dataset type associated to dataframe (see module `dataset`)
+    'predicted_anomaly_score' (float in [0, 1]) plus the columns specified
+    in the `columns` parameter
     '''
     predicted = _predict(
         clf,
-        dataframe if not columns else dataframe[list(columns)]
+        dataframe if not features else dataframe[list(features)]
     )
-    dinfo = dataset_info(dataframe)
-    # return the dataframe with only `cols` columns, but assure that
-    # dinfo.uid_columns[0] is in the first position otherwise
-    # dataset_info called on the returned dataframe won't work
+    cols = columns if columns else dataframe.columns.tolist()
     data = {
-        dinfo.uid_columns[0]: dataframe[dinfo.uid_columns[0]],
-        PREDICT_COL: predicted,
-        **{k: dataframe[k] for i, k in enumerate(dinfo.uid_columns) if i > 0}
+        **{c: dataframe[c] for c in cols},
+        PREDICT_COL: predicted
     }
     return pd.DataFrame(data, index=dataframe.index)
 
@@ -183,43 +136,38 @@ def _predict(clf, dataframe):
 # NOTE: IF YOU WANT TO CHANGE 'ok' or 'outlier' THEN CONSIDER CHANGING
 # ALSO THE ROWS (SEE `_CLASSNAMES`). If you want to add new columns,
 # also ADD a sort order in CMATRIX_SCORE_COLUMNS (see below)
-CMATRIX_COLUMNS = ('ok', 'outlier', '% rec.', 'Mean log_loss')
+CMATRIX_COLUMNS = ('% rec.', 'Mean log_loss')
 
 
 def cmatrix_df(predicted_df):
     '''Returns a (custom) confusion matrix in the form of a dataframe
-    The rows of the dataframe will be the keys of `CLASSES` (== `CLASSNAMES`),
+    The rows of the dataframe will be ['inlier', 'outlier'],
     the columns 'ok' (inlier), 'outlier' '%rec', 'Mean log loss'.
     '''
-    dinfo = dataset_info(predicted_df)
-    classnames = dinfo.classnames
+    classnames = CLASSNAMES
+    class_selectors = CLASS_SELECTORS
     # NOTE: IF YOU WANT TO CHANGE 'ok' or 'outlier' THEN CONSIDER CHANGING
     # ALSO THE ROWS (SEE `CLASSNAMES`)
-    sum_df_cols = CMATRIX_COLUMNS
+    sum_df_cols = tuple(list(classnames) + list(CMATRIX_COLUMNS))
     sum_df = pd.DataFrame(index=classnames,
                           data=[[0] * len(sum_df_cols)] * len(classnames),
                           columns=sum_df_cols,
                           dtype=int)
 
-    for cname in classnames:
-        cls_df = predicted_df[dinfo.class_selector[cname](predicted_df)]
+    for cname, class_sel in zip(classnames, class_selectors):
+        cls_df = predicted_df[class_sel(predicted_df)]
         if cls_df.empty:
             continue
+        cname2 = classnames[0] if cname == classnames[1] else classnames[1]
         correctly_pred = correctly_predicted(cls_df).sum()
         avg_log_loss = log_loss(cls_df)
-        # map any class defined here to the index of the column above which denotes
-        # 'correctly classified'. Basically, map 'ok' to zero and any other class
-        # to 1:
-        col_idx = 1 if cls_df.iloc[0][OUTLIER_COL] else 0
         # assign value and caluclate percentage recognition:
-        sum_df.loc[cname, sum_df_cols[col_idx]] += correctly_pred
-        sum_df.loc[cname, sum_df_cols[1-col_idx]] += \
-            len(cls_df) - correctly_pred
+        sum_df.loc[cname, cname] += correctly_pred
+        sum_df.loc[cname, cname2] += len(cls_df) - correctly_pred
         sum_df.loc[cname, sum_df_cols[2]] = \
             np.around(100 * np.true_divide(correctly_pred, len(cls_df)), 3)
         sum_df.loc[cname, sum_df_cols[3]] = np.around(avg_log_loss, 5)
 
-    sum_df.dataset_info = dinfo
     return sum_df
 
 
@@ -241,7 +189,7 @@ def log_loss(predicted_df, eps=1e-15, normalize=True):
                            labels=[False, True])
 
 
-def correctly_predicted(predicted_df):
+def correctly_predicted(predicted_df, threshold=0.5):
     '''Returns a numpy array of boolean representing the correctly
     predicted instances of `predicted_df`
 
@@ -253,7 +201,7 @@ def correctly_predicted(predicted_df):
     '''
     outliers = predicted_df[OUTLIER_COL]
     preds = predicted_df[PREDICT_COL]
-    return (outliers & (preds > 0.5)) | ((~outliers) & (preds <= 0.5))
+    return (outliers & (preds > threshold)) | ((~outliers) & (preds <= threshold))
 
 
 def _get_eval_report_html_template():
@@ -274,8 +222,6 @@ def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
 
     :return: the HTML formatted string containing the evaluation report
     '''
-    first_cm = next(iter(cmatrix_dfs.values()))
-    dinfo = first_cm.dataset_info
     # score columns: list of 'asc', 'desc' or None relative to each element of
     # CMATRIX_COLUMNS
     score_columns = {
@@ -286,14 +232,14 @@ def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
         {'key': params, 'data': sumdf.values.tolist()}
         for (params, sumdf) in cmatrix_dfs.items()
     ]
-    classnames = dinfo.classnames
+    classnames = CLASSNAMES
     content = _get_eval_report_html_template() % {
         'title': title,
         'evaluations': json.dumps(evl),
         'columns': json.dumps(CMATRIX_COLUMNS),
         'scoreColumns': json.dumps(score_columns),
         'currentScoreColumn': json.dumps(CMATRIX_COLUMNS[-1]),
-        'weights': json.dumps([dinfo.class_weight[_] for _ in classnames]),
+        'weights': json.dumps([100 for _ in classnames]),
         'classes': json.dumps(classnames)
     }
     if outfilepath is not None:
@@ -380,7 +326,7 @@ class Evaluator:
     # a dict of default params for the classifier:
     default_clf_params = {}
 
-    def __init__(self, clf_class, parameters, cv_n_folds=5):
+    def __init__(self, clf_class, parameters, columns2save=None, cv_n_folds=5):
         '''
 
         :param parameters: a dict mapping each parameter name (strings) to its
@@ -389,6 +335,7 @@ class Evaluator:
         '''
         self.clf_class = clf_class
         self.n_folds = max(0, cv_n_folds)
+        self.columns2save = columns2save
         # setup self.parameters:
         __p = []
         for pname, vals in parameters.items():
@@ -486,13 +433,12 @@ class Evaluator:
 
                     pool = Pool(processes=int(cpu_count()))
 
-                    # purge the dataframe from duplicates (drop_duplicates)
-                    # and unnecessary columns (keep_cols). Return a copy at the end
+                    # purge the dataframe unnecessary columns.
+                    # Return a copy at the end
                     # of the process. This helps memory mamagement in
                     # sub-processes (especialy keep_cols + copy)
-                    _traindf = keep_cols(train_df, cols)
-                    _testdf = None if test_df is None else \
-                        keep_cols(test_df, cols)
+                    _traindf = _keepcols(train_df, cols, self.columns2save)
+                    _testdf = _keepcols(test_df, cols, self.columns2save)
                     for params in self.parameters:
                         prms = {**self.default_clf_params, **dict(params)}
                         fpath = self.uniquefilepath(destdir, *cols, **prms)
@@ -500,7 +446,8 @@ class Evaluator:
                                      basename(fpath)) + '.model'
                         pool.apply_async(
                             _fit_and_predict,
-                            (self.clf_class, cpy(_traindf), cols, prms,
+                            (self.clf_class, cpy(_traindf), cols,
+                             prms, self.columns2save,
                              _testdf, fpath),
                             callback=aasync_callback,
                             error_callback=kill_pool
@@ -511,7 +458,7 @@ class Evaluator:
                                 pool.apply_async(
                                     _fit_and_predict,
                                     (self.clf_class, cpy(cv_train_df), cols,
-                                     prms,
+                                     prms, self.columns2save,
                                      cv_test_df, None),
                                     callback=aasync_callback,
                                     error_callback=kill_pool
@@ -627,7 +574,16 @@ class Evaluator:
         return False
 
 
-def _fit_and_predict(clf_class, train_df, columns, params, test_df=None,
+def _keepcols(dataframe, features, columns):
+    if dataframe is None:
+        return None
+    feats = list(features)
+    keep_cols = feats + [_ for _ in columns if _ not in features]
+    return dataframe[keep_cols]
+
+
+def _fit_and_predict(clf_class, train_df, columns, params,
+                     columns2save, test_df=None,
                      filepath=None):
     '''Fits a model with `train_df[columns]` and returns the tuple
     clf, params, columns, predictions. Called from within apply_async
@@ -642,7 +598,7 @@ def _fit_and_predict(clf_class, train_df, columns, params, test_df=None,
     predictions = None
     if test_df is not None and not test_df.empty:
         # evres.predict(test_df)
-        predictions = predict(clf, test_df, *columns)
+        predictions = predict(clf, test_df, columns, columns2save)
     if filepath is not None and not isfile(filepath):
         dump(clf, filepath)
     return clf, params, columns, predictions
@@ -663,7 +619,9 @@ def aggeval(indir, format='html', save=True):  # @ReservedAssignment
     raise ValueError('format can be either "hdf" or "html", not "%s"'
                      % str(format))
 
-AGGEVAL_BASENAME= 'evaluation.all'
+
+AGGEVAL_BASENAME = 'evaluation.all'
+
 
 def aggeval_hdf(indir, save=True):
     '''Asuming `indir` is the directory where CV reports in HTML format
@@ -793,7 +751,7 @@ class ClfEvaluator:
     dataset of instances, saving to file the predictions and an html report
     of the classifiers performances
     '''
-    def __init__(self, classifier_paths, normalizer_df=None):
+    def __init__(self, classifier_paths, columns2save=None):
         if len(set(basename(clfpath) for clfpath in classifier_paths)) != \
                 len(classifier_paths):
             raise ValueError('You need to pass a list of unique file names')
@@ -819,23 +777,9 @@ class ClfEvaluator:
             except Exception as exc:
                 raise ValueError('Error reading "%s": %s' % (_, str(exc)))
 
-        # if normalizer_df is provided get min and max for all features:
-        bounds = None
-        if normalizer_df is not None:
-            bounds = {}
-            for features in self.clf_features.values():
-                for feat in features:
-                    bounds[feat] = (None, None)
-            normalizer_df_columns = set(normalizer_df.columns)
-            ndf = normalizer_df[~is_outlier(normalizer_df)]
-            for feat in list(bounds.keys()):
-                if feat not in normalizer_df_columns:
-                    raise ValueError('"%s" not in normalizer dataframe' % feat)
-                bounds[feat] = np.nanmin(ndf[feat]), np.nanmax(ndf[feat])
-        self.bounds = bounds
+        self.columns2save = columns2save
 
-    def run(self, test_df, destdir):
-        test_dataset_name = dataset_info(test_df).__name__
+    def run(self, test_df, test_df_name, destdir):
 
         predictions_destdir = abspath(join(destdir,
                                            Evaluator.PREDICTIONSDIRNAME))
@@ -846,7 +790,7 @@ class ClfEvaluator:
                              predictions_destdir)
 
         print('Evaluating %d classifiers on test dataset "%s"'
-              % (len(self.clfs), test_dataset_name))
+              % (len(self.clfs), test_df_name))
 
         pool = Pool(processes=int(cpu_count()))
 
@@ -872,7 +816,7 @@ class ClfEvaluator:
                         raise predicted_df
                     pbar.update(1)
                     pred_basename = splitext(clfname)[0]
-                    pred_basename += "&testset=%s" % test_dataset_name + '.hdf'
+                    pred_basename += "&testset=%s" % test_df_name
                     save_df(predicted_df,
                             join(predictions_destdir, pred_basename),
                             key='predictions')
@@ -889,7 +833,7 @@ class ClfEvaluator:
             outfilepath = join(destdir, 'evalreport.html')
             title = ('Evalation results comparing '
                      '%d classifiers on test dataset "%s"') % \
-                    (len(self.clfs), test_dataset_name)
+                    (len(self.clfs), test_df_name)
             return create_evel_report(cmatrix_dfs, outfilepath, title=title)
 
     def iterator(self, dataframe):
@@ -899,24 +843,19 @@ class ClfEvaluator:
         for name, clf in self.clfs.items():
             features = self.clf_features[name]
             dataframe_ = drop_na(dataframe, features, verbose=False)
-            dataframe_ = keep_cols(dataframe_, features).copy()
-            # normalize:
-            if self.bounds is not None:
-                for feat in features:
-                    min_, max_ = self.bounds[feat]
-                    dataframe_.loc[:, feat] = \
-                        (dataframe_[feat] - min_) / (max_ - min_)
+            dataframe_ = \
+                _keepcols(dataframe_, features, self.columns2save).copy()
 
-            yield name, clf, dataframe_, features
+            yield name, clf, dataframe_, features, self.columns2save
 
 
 def _imap_predict(arg):
     '''Predicts teh given classifier and returns the classifier name and
     the prediction dataframe. Called from within imap in Evaluator
     '''
-    name, clf, dfr, feats = arg
+    name, clf, dfr, feats, columns = arg
     try:
-        return name, predict(clf, dfr, *feats)
+        return name, predict(clf, dfr, feats, columns)
     except Exception as exc:
         return name, exc
 

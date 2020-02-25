@@ -22,16 +22,14 @@ from sklearn.ensemble.iforest import IsolationForest
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics.scorer import brier_score_loss_scorer
 
-from sod.core.evaluation import (split, classifier, predict, _predict,
-                                 Evaluator, train_test_split,
-                                 drop_duplicates,
-                                 keep_cols, drop_na, cmatrix_df, ParamsEncDec,
+from sod.core.evaluation import (Evaluator, train_test_split,
+                                 drop_na, cmatrix_df, ParamsEncDec,
                                  aggeval_hdf, aggeval_html, correctly_predicted,
     PREDICT_COL, save_df, log_loss, AGGEVAL_BASENAME)
-from sod.core.dataset import (open_dataset, groupby_stations, allset,
-    oneminutewindows, pgapgv)
-from sod.evaluate import run
+from sod.core.dataset import open_dataset
+from sod.evaluate import run, load_cfg as original_load_cfg
 from sod.core import paths, pdconcat
+from datetime import datetime
 
 
 class PoolMocker:
@@ -65,17 +63,43 @@ class PoolMocker:
 
 class Tester:
 
-    datadir = join(dirname(__file__), 'data')
+    root = dirname(__file__)
+    datadir = join(root, 'data')
 
-    evalconfig_cv_notest = join(dirname(__file__), 'data', 'eval.allset.iforest.5cv.notest.yaml')
-    evalconfig_cv_test = join(dirname(__file__), 'data', 'eval.allset.iforest.5cv.test.yaml')
-    evalconfig_nocv_notest = join(dirname(__file__), 'data', 'eval.allset.iforest.nocv.notest.yaml')
-    evalconfig_nocv_test = join(dirname(__file__), 'data', 'eval.allset.iforest.nocv.test.yaml')
+    evalconfig = join(root, 'data',
+                      'eval.allset_train_test.iforest.yaml')
+    clfevalconfig = join(root, 'data',
+                         'clfeval.allset_train_test.iforest.psd@5sec.yaml')
     
-#     evalconfig2 = join(dirname(__file__), 'data', 'eval.pgapgv.yaml')
-#     cv_evalconfig3 = join(dirname(__file__), 'data', 'cv.allset_train.iforest.yaml')
-    clf_evalconfig1 = join(dirname(__file__), 'data', 'eval.allset_train.yaml')
+    
+    if not isfile(join(datadir, 'allset_train.hdf_')):
+        N = 200
+        d = pd.DataFrame(
+            {
+                'Segment.db.id': list(range(N)),
+                'dataset_id': 3,
+                'channel_code': 'c',
+                'location_code': 'l',
+                'outlier': False,
+                'hand_labelled': True,
+                'window_type': True,
+                'event_time': datetime.utcnow(),
+                'station_id': 5,
+                # add nan to the features to check we drop na:
+                'psd@2sec': np.append([np.nan, np.nan], np.random.random(N-2)),
+                'psd@5sec': np.random.random(N),
+            }
+        )
+        # save with extension hdf_ BECAUSE hdf IS GITIGNORED!!!
+        d.to_hdf(join(datadir, 'allset_train.hdf_'), 'a', mode='w',
+                 format='table')
+        N2 = int(N/2)
+        d['psd@2sec'] = np.append(np.random.random(N2), -np.random.random(N2))
+        d['psd@5sec'] = np.append(np.random.random(N2), -np.random.random(N2))
+        d['outlier'] = [True] * (N2-1) + [False, True] + [False] * (N2-1)
 
+        d.loc[N2-5:N2+5, :].to_hdf(join(datadir, 'allset_test.hdf_'), 'a', mode='w',
+                 format='table')
     tmpdir = join(dirname(__file__), 'tmp')
 
 
@@ -93,22 +117,33 @@ class Tester:
     @patch('sod.core.dataset.dataset_path')
     @patch('sod.core.evaluation.Pool',
            side_effect=lambda *a, **v: PoolMocker())
+    @patch('sod.evaluate.load_cfg')
     def test_evaluator(self,
                        # pytest fixutres:
-                       #tmpdir
+                       # tmpdir
+                       mock_load_cfg,
                        mock_pool,
                        mock_dataset_in_path
                        ):
         if isdir(self.tmpdir):
             shutil.rmtree(self.tmpdir)
- 
+
+        def load_cfg_side_effect(*a, **kw):
+            dic = original_load_cfg(*a, **kw)
+            dic['features'] = [['psd@5sec'], ['psd@2sec', 'psd@5sec']]
+            dic['parameters']['n_estimators'] = [10, 20]
+            dic['parameters']['max_samples'] = [5]
+            dic['trainingset'] = 'allset_train.hdf_'
+            dic['testset'] = 'allset_test.hdf_'
+            return dic
+
+        mock_load_cfg.side_effect = load_cfg_side_effect
+
         INPATH, OUTPATH = self.datadir, self.tmpdir
 
         configs = [
-            (self.evalconfig_nocv_notest, None, 0),
-            (self.evalconfig_cv_test, self.clf_evalconfig1, 688),
-            (self.evalconfig_nocv_test, self.clf_evalconfig1, 344),
-            (self.evalconfig_cv_notest, self.clf_evalconfig1, 344)
+            # eval_cfg_path, clfeval_cfg_path, expected_evaluated_instances:
+            (self.evalconfig, None, 0)
         ]
 
         with patch('sod.evaluate.EVALUATIONS_CONFIGS_DIR', INPATH):
@@ -162,24 +197,4 @@ class Tester:
                     cols = allset.uid_columns
                     cols = sorted(list(cols) + [PREDICT_COL])
                     assert sorted(prediction_df.columns) == cols
-                    
-                    
 
-#                 for (eval_cfg_path, clfeval_cfg_path) in configs:
-#                     if clfeval_cfg_path is None:
-#                         continue
-# 
-#                     runner = CliRunner()
-#                     result = runner.invoke(run, ["-c", basename(eval_cfg_path)])
-#                     # directory exists:
-#                     assert result.exception
-# 
-#                     # now run evaluations with the generated files:
-#                     runner = CliRunner()
-#                     result = runner.invoke(run, ["-c", basename(clfeval_cfg_path)])
-#                     assert not result.exception
-# 
-#         aggeval_html(join(OUTPATH, basename(self.cv_evalconfig2),
-#                           'evalreports'))
-#         aggeval_hdf(join(OUTPATH, basename(self.cv_evalconfig2),
-#                          'evalreports'))
