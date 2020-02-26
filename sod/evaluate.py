@@ -13,10 +13,11 @@ from yaml import safe_load
 import click
 
 from sod.core.dataset import open_dataset
-from sod.core.evaluation import Evaluator, ClfEvaluator
+from sod.core.evaluation import TrainingParam, TestParam, run_evaluation
 # from sklearn.svm.classes import OneClassSVM
 # from sklearn.ensemble.iforest import IsolationForest
-from sod.core.paths import EVALUATIONS_CONFIGS_DIR, EVALUATIONS_RESULTS_DIR
+from sod.core.paths import EVALUATIONS_CONFIGS_DIR, EVALUATIONS_RESULTS_DIR,\
+    DATASETS_DIR
 import traceback
 
 
@@ -52,87 +53,23 @@ def _open_dataset(filepath, columns2save, categorical_columns=None):
 )
 def run(config):
     cfg_dict = load_cfg(config)
-
     try:
-        columns2save = cfg_dict['columns2save']
-    except KeyError:
-        raise ValueError('Missing argument "columns2save" '
-                         '(specify a list of stirings)')
+        trn, tst = cfg_dict['training'], cfg_dict['test']
 
-    is_normal_eval = ('features' in cfg_dict) + ('parameters' in cfg_dict)
-    if is_normal_eval == 2:
-        print('Creating and optionally evaluating models from parameter sets')
-    elif is_normal_eval == 0:
-        print('Evaluating provided classifiers')
-    else:
-        raise ValueError('Config file does not seem neither a evaluation'
-                         'nor an clf-evaluation config file')
+        training_param = TrainingParam(
+            trn['classifier']['classname'],
+            trn['classifier']['parameters'],
+            join(DATASETS_DIR, trn['input']['filename']),
+            trn['input']['features'],
+            cfg_dict['drop_na'])
 
-    # get destdir:
-    destdir = abspath(join(EVALUATIONS_RESULTS_DIR, basename(config)))
-    if not isdir(destdir):
-        makedirs(destdir)
-        if not isdir(destdir):
-            raise ValueError('Could not create %s' % destdir)
-    elif isdir(destdir):
-        raise ValueError("Output directory exists:\n"
-                         "'%s'\n"
-                         "Rename yaml file or remove directory" % destdir)
-    print('Saving results (HDF, HTML files) to: %s' % str(destdir))
-
-    categorical_columns = cfg_dict.get('categorical_columns', None)
-    if is_normal_eval:
-
-        clf_class = None
-        try:
-            modname = cfg_dict['clf'][:cfg_dict['clf'].rfind('.')]
-            module = importlib.import_module(modname)
-            classname = cfg_dict['clf'][cfg_dict['clf'].rfind('.')+1:]
-            clf_class = getattr(module, classname)
-            if clf_class is None:
-                raise Exception('classifier class is None')
-        except Exception as exc:
-            raise ValueError('Invalid `clf`: check paths and names.'
-                             '\nError : %s' % str(exc))
-
-        print('Using classifier: %s' % clf_class.__name__)
-        test_df = None
-        test_dataframe_path = cfg_dict['testset']
-
-        if test_dataframe_path:
-            test_df = _open_dataset(test_dataframe_path,
-                                    columns2save,
-                                    categorical_columns)
-
-        train_df = _open_dataset(cfg_dict['trainingset'],
-                                 columns2save,
-                                 categorical_columns)
-
-        try:
-            evl = Evaluator(clf_class, parameters=cfg_dict['parameters'],
-                            columns2save=columns2save,
-                            cv_n_folds=cfg_dict['cv_n_folds'])
-    
-            # run(self, train_df, columns, destdir, test_df=None, remove_na=True):
-            evl.run(train_df, columns=cfg_dict['features'], destdir=destdir,
-                    test_df=test_df, remove_na=cfg_dict.get('remove_na', True))
-        except Exception as exc:
-            raise Exception(traceback.format_exc())
-    else:
-        try:
-            classifier_paths = [abspath(join(EVALUATIONS_RESULTS_DIR, _))
-                                for _ in cfg_dict['clf']]
-    
-            dataframe = _open_dataset(cfg_dict['testset'],
-                                      columns2save,
-                                      categorical_columns)
-    
-            evl = ClfEvaluator(classifier_paths,
-                               columns2save=columns2save)
-            evl.run(dataframe, cfg_dict['testset'], destdir)
-        except Exception as exc:
-            raise Exception(traceback.format_exc())
-
+        test_param = TestParam(join(DATASETS_DIR, tst['filename']),
+                               tst['categorical_columns'],
+                               tst['columns2save'],
+                               cfg_dict['drop_na'])
+        run_evaluation(training_param, test_param, EVALUATIONS_RESULTS_DIR)
+    except KeyError as kerr:
+        raise ValueError('Key not implemented in config.: "%s"' % str(kerr))
     return 0
     
 

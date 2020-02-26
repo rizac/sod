@@ -1,175 +1,160 @@
-# configuration for training, creating and optionally evaluating a model
-
-# The classifier, in the form of a Python path to the classifier path
-clf: "sklearn.ensemble.iforest.IsolationForest"
-
-# the training set (path to a dataset in HDF format):
-trainingset: 'allset_train.hdf'
-
-# the test set: str  (path to a dataset in HDF format). Null or empty: skip
-# test. Evaluation will be performed on CV if provided (see below) or not at
-# all, and only models will be created
-testset: 'allset_test.hdf'
-
-# the number of folds (>=0) for a cross validation on the training set:
-# If set to 0, no cv is run: evaluation will be performed on the test set only,
-# if provided (see above)
-cv_n_folds: 0
-
-# The columns to be saved from each predictions. It must be a subset of the
-# testset DataaFrame columns and (if cv_n_folds>0) of the trainingset DataFrame columns
-columns2save:
-  - 'Segment.db.id'  # the segment id
-  - 'dataset_id'     # int (int8 could be used)
-  - 'station_id'     # int
-  - 'channel_code'   # str (categorical)
-  - 'location_code'  # str (categorical)
-  - 'window_type'    # bool
-  - 'event_time'     # datetime
-  - 'hand_labelled'  # bool
-  - 'outlier'        # bool
-
-# specify a list of DataFrame string columns to be set as categorical. For each dataset
-# (trainingset, testset), columns found with the names below will be set as categorical,
-# reducing the memory used considerably when datasets are huge.
-# Columns not found in a dataframe will be silently skipped.
-# Set as null to ignore this parameter
-categorical_columns:
-  - 'channel_code'
-  - 'location_code'
+# configuration for creating and optionally evaluating a model
 
 # whether to remove na before training and testing (this might lead to slightly different
 # number of rows of the confusion matrices of the evaluations, and in the number of rows
 # of the prediction hdf files)
-remova_na: true
+drop_na: true
 
-# The features (inout dataframe columns) to iterate over:
-features:
-  -
-    - "psd@0.2sec"
-    - "psd@0.5sec"
-  -
-    - "psd@0.2sec"
-    - "psd@1sec"
-  -
-    - "psd@0.2sec"
-    - "psd@2sec"
-  -
-    - "psd@0.2sec"
-    - "psd@5sec"
-  -
-    - "psd@0.5sec"
-    - "psd@1sec"
-  -
-    - "psd@0.5sec"
-    - "psd@2sec"
-  -
-    - "psd@0.5sec"
-    - "psd@5sec"
-  -
-    - "psd@1sec"
-    - "psd@2sec"
-  -
-    - "psd@1sec"
-    - "psd@5sec"
-  -
-    - "psd@2sec"
-    - "psd@5sec"
-  -
-    - "psd@0.2sec"
-    - "psd@0.5sec"
-    - "psd@1sec"
-  -
-    - "psd@0.2sec"
-    - "psd@0.5sec"
-    - "psd@2sec"
-  -
-    - "psd@0.2sec"
-    - "psd@0.5sec"
-    - "psd@5sec"
-  -
-    - "psd@0.2sec"
-    - "psd@1sec"
-    - "psd@2sec"
-  -
-    - "psd@0.2sec"
-    - "psd@1sec"
-    - "psd@5sec"
-  -
-    - "psd@0.2sec"
-    - "psd@2sec"
-    - "psd@5sec"
-  -
-    - "psd@0.5sec"
-    - "psd@1sec"
-    - "psd@2sec"
-  -
-    - "psd@0.5sec"
-    - "psd@1sec"
-    - "psd@5sec"
-  -
-    - "psd@0.5sec"
-    - "psd@2sec"
-    - "psd@5sec"
-  -
-    - "psd@1sec"
-    - "psd@2sec"
-    - "psd@5sec"
-  -
-    - "psd@0.2sec"
-    - "psd@0.5sec"
-    - "psd@1sec"
-    - "psd@2sec"
-  -
-    - "psd@0.2sec"
-    - "psd@0.5sec"
-    - "psd@1sec"
-    - "psd@5sec"
-  -
-    - "psd@0.2sec"
-    - "psd@0.5sec"
-    - "psd@2sec"
-    - "psd@5sec"
-  -
-    - "psd@0.2sec"
-    - "psd@1sec"
-    - "psd@2sec"
-    - "psd@5sec"
-  -
-    - "psd@0.5sec"
-    - "psd@1sec"
-    - "psd@2sec"
-    - "psd@5sec"
-  -
-    - "psd@0.2sec"
-    - "psd@0.5sec"
-    - "psd@1sec"
-    - "psd@2sec"
-    - "psd@5sec"
-  -
-    - "psd@0.2sec"
-  -
-    - "psd@0.5sec"
-  -
-    - "psd@1sec"
-  -
-    - "psd@2sec"
-  -
-    - "psd@5sec"
+# Parameters to test the model files. Already existing models will NOT be re-created, saving time
+test:
+  filename: 'allset_test.hdf'  # null (no test, just create the models), or the test set to predict (HDF format) relative to the 'datasets' directory
+  columns2save:  # The columns of the input test above to be saved from each predictions
+    - 'Segment.db.id'  # the segment id
+    - 'dataset_id'     # int (int8 could be used)
+    - 'station_id'     # int
+    - 'channel_code'   # str (categorical)
+    - 'location_code'  # str (categorical)
+    - 'window_type'    # bool
+    - 'event_time'     # datetime
+    - 'hand_labelled'  # bool
+    - 'outlier'        # bool
+  categorical_columns:  # the columns of the input test above to be converted as categorical when opening
+    - 'channel_code'    # set to null to ignore
+    - 'location_code'
 
-# The classifier parameters to iterate over:
-parameters:
-  n_estimators:
-    - 50
-    - 100
-    - 200
-  max_samples:
-    - 512
-    # - 1024
-    - 2048
-    # - 4096
-    - 8192
-  contamination:
-    - 'auto'
-  behaviour:
-    - 'new'
+# Parameters to create the model files. Already existing models will NOT be re-created, saving time
+training:
+  classifier:
+    classname: "sklearn.ensemble.iforest.IsolationForest"  # The model, in the form of a Python path to the classifier object
+    parameters:  # The classifier parameters to iterate over:
+      n_estimators:
+        - 50
+        - 100
+        - 200
+      max_samples:
+        - 512
+        # - 1024
+        - 2048
+        # - 4096
+        - 8192
+      contamination:
+        - 'auto'
+      behaviour:
+        - 'new'
+      random_state:
+        - 42
+  input:
+    filename: 'allset_train.hdf'  # the training set (HDF format relative to the 'datasets' directory)
+    features:  # The input features (pandas dataframe columns) to iterate over:
+      -
+        - "psd@0.2sec"
+        - "psd@0.5sec"
+      -
+        - "psd@0.2sec"
+        - "psd@1sec"
+      -
+        - "psd@0.2sec"
+        - "psd@2sec"
+      -
+        - "psd@0.2sec"
+        - "psd@5sec"
+      -
+        - "psd@0.5sec"
+        - "psd@1sec"
+      -
+        - "psd@0.5sec"
+        - "psd@2sec"
+      -
+        - "psd@0.5sec"
+        - "psd@5sec"
+      -
+        - "psd@1sec"
+        - "psd@2sec"
+      -
+        - "psd@1sec"
+        - "psd@5sec"
+      -
+        - "psd@2sec"
+        - "psd@5sec"
+      -
+        - "psd@0.2sec"
+        - "psd@0.5sec"
+        - "psd@1sec"
+      -
+        - "psd@0.2sec"
+        - "psd@0.5sec"
+        - "psd@2sec"
+      -
+        - "psd@0.2sec"
+        - "psd@0.5sec"
+        - "psd@5sec"
+      -
+        - "psd@0.2sec"
+        - "psd@1sec"
+        - "psd@2sec"
+      -
+        - "psd@0.2sec"
+        - "psd@1sec"
+        - "psd@5sec"
+      -
+        - "psd@0.2sec"
+        - "psd@2sec"
+        - "psd@5sec"
+      -
+        - "psd@0.5sec"
+        - "psd@1sec"
+        - "psd@2sec"
+      -
+        - "psd@0.5sec"
+        - "psd@1sec"
+        - "psd@5sec"
+      -
+        - "psd@0.5sec"
+        - "psd@2sec"
+        - "psd@5sec"
+      -
+        - "psd@1sec"
+        - "psd@2sec"
+        - "psd@5sec"
+      -
+        - "psd@0.2sec"
+        - "psd@0.5sec"
+        - "psd@1sec"
+        - "psd@2sec"
+      -
+        - "psd@0.2sec"
+        - "psd@0.5sec"
+        - "psd@1sec"
+        - "psd@5sec"
+      -
+        - "psd@0.2sec"
+        - "psd@0.5sec"
+        - "psd@2sec"
+        - "psd@5sec"
+      -
+        - "psd@0.2sec"
+        - "psd@1sec"
+        - "psd@2sec"
+        - "psd@5sec"
+      -
+        - "psd@0.5sec"
+        - "psd@1sec"
+        - "psd@2sec"
+        - "psd@5sec"
+      -
+        - "psd@0.2sec"
+        - "psd@0.5sec"
+        - "psd@1sec"
+        - "psd@2sec"
+        - "psd@5sec"
+      -
+        - "psd@0.2sec"
+      -
+        - "psd@0.5sec"
+      -
+        - "psd@1sec"
+      -
+        - "psd@2sec"
+      -
+        - "psd@5sec"
+    
