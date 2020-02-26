@@ -2,6 +2,7 @@
 tmp/
 jnconfig.yaml
 *.model
+*.sklmodel
 *.hdf
 
 # Byte-compiled / optimized / DLL files
