@@ -5,7 +5,7 @@ Created on 11 Oct 2019
 '''
 import numpy as np
 import pytest
-from os import makedirs, listdir
+from os import makedirs, listdir, stat
 from os.path import join, abspath, dirname, isdir, isfile, basename, splitext
 import pandas as pd
 import shutil
@@ -139,60 +139,27 @@ class Tester:
 
         mock_load_cfg.side_effect = load_cfg_side_effect
 
-        configs = [
-            # eval_cfg_path, clfeval_cfg_path, expected_evaluated_instances:
-            (self.evalconfig, None, 0)
-        ]
-
         with patch('sod.evaluate.DATASETS_DIR', self.datadir):
             with patch('sod.evaluate.EVALUATIONS_RESULTS_DIR', self.tmpdir):
     
-#                 mock_dataset_in_path.side_effect = \
-#                     lambda filename, *a, **v: join(INPATH, filename)
-    
-                for (eval_cfg_path, clfeval_cfg_path,
-                     expected_evaluated_instances) in configs:
-                    cvconfigname = basename(eval_cfg_path)
-                    runner = CliRunner()
-                    result = runner.invoke(run, ["-c", cvconfigname])
-                    assert not result.exception
+                eval_cfg_path = self.evalconfig
+                cvconfigname = basename(eval_cfg_path)
+                evalsumpath = join(self.tmpdir,
+                                   'summary_evaluationmetrics.hdf')
 
-#                     # check directory is created:
-#                     assert listdir(join(OUTPATH, cvconfigname))
-#                     # check subdirs are created:
-#                     subdirs = (Evaluator.EVALREPORTDIRNAME,
-#                                Evaluator.PREDICTIONSDIRNAME,
-#                                Evaluator.MODELDIRNAME)
-#                     assert sorted(listdir(join(OUTPATH, cvconfigname))) == \
-#                         sorted(subdirs)
-#                     # check for files in subdirs, but wait: if no cv
-#                     # and no test set, check only the model subdir:
-#                     if expected_evaluated_instances < 1:
-#                         # no saved file, check only for model files saved:
-#                         subdirs = [Evaluator.MODELDIRNAME]
-# 
-#                     # CHECK FOR FILES CREATED:
-#                     for subdir in subdirs:
-#                         filez = listdir(join(OUTPATH, cvconfigname, subdir))
-#                         assert filez
-#                         if subdir == Evaluator.EVALREPORTDIRNAME:
-#                             assert ('%s.html' % AGGEVAL_BASENAME) in filez
-#                             assert ('%s.hdf' % AGGEVAL_BASENAME) in filez
-# 
-#                     if expected_evaluated_instances < 1:
-#                         continue
-# 
-#                     # CHECK AND INSPECT PREDICTION DATAFRAMES:
-#                     prediction_file = \
-#                         listdir(join(OUTPATH, cvconfigname,
-#                                      Evaluator.PREDICTIONSDIRNAME))[0]
-#                     prediction_file = join(OUTPATH, cvconfigname,
-#                                            Evaluator.PREDICTIONSDIRNAME,
-#                                            prediction_file)
-#                     prediction_df = pd.read_hdf(prediction_file)
-#                     assert len(prediction_df) == expected_evaluated_instances
-# 
-#                     cols = allset.uid_columns
-#                     cols = sorted(list(cols) + [PREDICT_COL])
-#                     assert sorted(prediction_df.columns) == cols
+                runner = CliRunner()
+                result = runner.invoke(run, ["-c", cvconfigname])
+                assert not result.exception
+                assert "4 of 4 models created " in result.output
+                assert "4 of 4 predictions created " in result.output
+                evalsum_df = pd.read_hdf(evalsumpath)
+                assert len(evalsum_df) == 4
+                mtime = stat(evalsumpath).st_mtime
 
+                result = runner.invoke(run, ["-c", cvconfigname])
+                assert not result.exception
+                assert "0 of 4 models created " in result.output
+                assert "0 of 4 predictions created " in result.output
+                evalsum_df = pd.read_hdf(evalsumpath)
+                assert len(evalsum_df) == 4
+                assert stat(evalsumpath).st_mtime == mtime

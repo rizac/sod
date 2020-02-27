@@ -428,6 +428,8 @@ def run_evaluation(training_param, testing_param, destdir):
           (len(pred_filepaths), len(classifier_paths)))
 
     print()
+    print('Creating evaluation metrics')
+    create_summary_evaluationmetrics(destdir)
     print('DONE')
 
 
@@ -440,8 +442,17 @@ def _kill_pool(pool, err_msg):
         pass
 
 
-def create_summary_evaluation(destdir):
-    eval_df_path = join(destdir, 'evaluation.hdf')
+def create_summary_evaluationmetrics(destdir):
+    '''Creates a new HDF file storing some metrics for all precidtions
+    (HDF files) found inside `destdir` and subfolders
+
+    :param destdir: a destination directory **whose FILE SUBTREE STRUCTURE
+        MUST HAVE BEEN CREATED BY `run_evaluation` or (if calling from scrippt file)
+        `evaluate.py`: a list of scikit model files with associated directories
+        (the model name without the extension '.sklmodel') storing each
+        prediction run on HDF datasets.
+    `'''
+    eval_df_path = join(destdir, 'summary_evaluationmetrics.hdf')
 
     cols = [
         'model',
@@ -464,7 +475,7 @@ def create_summary_evaluation(destdir):
         set((tuple(_) for _ in zip(dfr.model, dfr.test_set)))
     newrows = []
     for clfname in [] if not isdir(destdir) else listdir(destdir):
-        clfdir, ext = splitext(clfname)[0]
+        clfdir, ext = splitext(clfname)
         if ext != '.sklmodel':
             continue
         clfdir = join(destdir, clfdir)
