@@ -17,14 +17,10 @@ from sod.core import pdconcat, odict, CLASSNAMES, CLASS_SELECTORS
 from sod.core.paths import DATASETS_DIR
 
 
-# column names definition
-# ID_COL = 'id'  # every read operation will convert 'Segment.db.id' into this
-OUTLIER_COL = 'outlier'  # MUST be defined in all datasets
 
-
-def is_outlier(dataframe):
-    '''pandas series of boolean telling where dataframe rows are outliers'''
-    return dataframe['outlier']  # simply return the column
+# def is_outlier(dataframe):
+#     '''pandas series of boolean telling where dataframe rows are outliers'''
+#     return dataframe['outlier']  # simply return the column
 
 
 ##########################
@@ -41,10 +37,9 @@ def open_dataset(filename, categorical_columns=None,
         title = 'Opening "%s"' % filepath
         print(title)
         print('=' * len(title))
-    
+
     dataframe = pd.read_hdf(filepath)
-    
-    
+
     if categorical_columns is not None:
         dfcols = set(dataframe.columns.tolist())
         cols_not_found = []
@@ -111,6 +106,48 @@ def capture_stderr(verbose=False):
         finally:
             # restore standard error:
             sys.stderr = syserr
+
+
+def dfnormalize(dataframe, norm_df=None, columns=None, verbose=True):
+    '''Normalizes dataframe under the sepcified columns and the specified
+    `norm_df` as benchmark dataframe where to take the endpoints (min and max)
+    of each column. If `norm_df` is None, it defaults to
+    `dataframe` itself. If `columns` is None, it defaults to all floating point
+    columns of dataframe.
+
+    :parm norm_df: DataFrame or None. The benchmark dataframe where to take the
+        endpoints of each column (min and max) to be normalized. It must have
+        the columns specified by `columns`, or the same floating point
+        columns of `dataframe`, if `columns` is None or missing. If None,
+        defaults to `dataframe`.
+    :param columns: if None (the default), nornmalizes on floating columns
+        only. Otherwise, it is a list of strings denoting the columns on
+        which to normalize
+    '''
+    if verbose:
+        if columns is None:
+            print('Normalizing numeric columns (floats only)')
+        else:
+            print('Normalizing %s' % str(columns))
+        print('Normalization is a Rescaling (min-max normalization) where '
+              'mina and max are calculated on inliers only'
+              'and applied to all instances)')
+
+    if norm_df is None:
+        norm_df = dataframe
+
+    with capture_stderr(verbose):
+        itercols = floatingcols(dataframe) if columns is None else columns
+        for col in itercols:
+            # for calculating min and max, we need to drop also infinity, tgus
+            # np.nanmin and np.nanmax do not work. Hence:
+            finite_values = norm_df[col][np.isfinite(norm_df[col])]
+            min_, max_ = np.min(finite_values), np.max(finite_values)
+            dataframe[col] = (dataframe[col] - min_) / (max_ - min_)
+        if verbose:
+            print(dfinfo(dataframe))
+
+    return dataframe
 
 
 def dfinfo(dataframe, asstring=True):
@@ -182,48 +219,6 @@ def _dfformat(dataframe, n_decimals=2):
     return pd.DataFrame({c: dataframe[c].map(strformat[c].format)
                          for c in dataframe.columns},
                         index=dataframe.index)
-
-
-def dfnormalize(dataframe, norm_df=None, columns=None, verbose=True):
-    '''Normalizes dataframe under the sepcified columns and the specified
-    `norm_df` as benchmark dataframe where to take the endpoints (min and max)
-    of each column. If `norm_df` is None, it defaults to
-    `dataframe` itself. If `columns` is None, it defaults to all floating point
-    columns of dataframe.
-
-    :parm norm_df: DataFrame or None. The benchmark dataframe where to take the
-        endpoints of each column (min and max) to be normalized. It must have
-        the columns specified by `columns`, or the same floating point
-        columns of `dataframe`, if `columns` is None or missing. If None,
-        defaults to `dataframe`.
-    :param columns: if None (the default), nornmalizes on floating columns
-        only. Otherwise, it is a list of strings denoting the columns on
-        which to normalize
-    '''
-    if verbose:
-        if columns is None:
-            print('Normalizing numeric columns (floats only)')
-        else:
-            print('Normalizing %s' % str(columns))
-        print('Normalization is a Rescaling (min-max normalization) where '
-              'mina and max are calculated on inliers only'
-              'and applied to all instances)')
-
-    if norm_df is None:
-        norm_df = dataframe
-
-    with capture_stderr(verbose):
-        itercols = floatingcols(dataframe) if columns is None else columns
-        for col in itercols:
-            # for calculating min and max, we need to drop also infinity, tgus
-            # np.nanmin and np.nanmax do not work. Hence:
-            finite_values = norm_df[col][np.isfinite(norm_df[col])]
-            min_, max_ = np.min(finite_values), np.max(finite_values)
-            dataframe[col] = (dataframe[col] - min_) / (max_ - min_)
-        if verbose:
-            print(dfinfo(dataframe))
-
-    return dataframe
 
 
 def floatingcols(dataframe):

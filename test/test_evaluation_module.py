@@ -12,8 +12,8 @@ import shutil
 from itertools import repeat, product
 from collections import defaultdict
 from sklearn.model_selection._split import KFold
-from sklearn.metrics.classification import (confusion_matrix, brier_score_loss,
-                                            log_loss as sk_log_loss)
+# from sklearn.metrics.classification import (brier_score_loss,
+#                                             log_loss as sk_log_loss)
 import mock
 from sklearn.svm.classes import OneClassSVM
 from mock import patch
@@ -23,33 +23,33 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics.scorer import brier_score_loss_scorer
 
 from sod.core.evaluation import (split, classifier, predict, _predict,
-                                 Evaluator, train_test_split,
-                                 drop_duplicates,
-                                 keep_cols, drop_na, cmatrix_df, ParamsEncDec,
-                                 aggeval_hdf, aggeval_html, correctly_predicted,
-    PREDICT_COL, save_df, log_loss)
-from sod.core.dataset import (open_dataset, groupby_stations, allset,
-    oneminutewindows, pgapgv)
+                                 train_test_split, TrainingParam, TestParam)
+from sod.core.dataset import open_dataset
 from sod.evaluate import run
-from sod.core import paths, pdconcat
+from sod.core import paths, pdconcat, OUTLIER_COL, PREDICT_COL
+from sod.core.metrics import log_loss, confusion_matrix, roc_auc_score,\
+    average_precision_score
 
 
 class Tester:
 
     datadir = join(dirname(__file__), 'data')
 
-    with patch('sod.core.dataset.DATASETS_DIR', datadir):
-        dfr = open_dataset(join(datadir, 'pgapgv.hdf_'), False)
+    N = 200
+    dfr = pd.DataFrame({
+        'psd@5sec': np.random.random(N),
+        'psd@2sec': np.random.random(N),
+        'outlier': [False] * N
+    })
+    clf = classifier(IsolationForest, dfr[['psd@2sec', 'psd@5sec']])
 
-    clf = classifier(OneClassSVM, dfr.iloc[:5, :][['delta_pga', 'delta_pgv']])
-
-    def test_to_matrix(self):
-        val0 = self.dfr.loc[0, 'magnitude']
-        val1 = self.dfr.loc[0, 'distance_km']
-        data = self.dfr[['magnitude', 'distance_km']].values
-        assert data[0].tolist() == [val0, val1]
-        data = self.dfr[['distance_km', 'magnitude']].values
-        assert data[0].tolist() == [val1, val0]
+#     def test_to_matrix(self):
+#         val0 = self.dfr.loc[0, 'magnitude']
+#         val1 = self.dfr.loc[0, 'distance_km']
+#         data = self.dfr[['magnitude', 'distance_km']].values
+#         assert data[0].tolist() == [val0, val1]
+#         data = self.dfr[['distance_km', 'magnitude']].values
+#         assert data[0].tolist() == [val1, val0]
 
     def test_traintest(self):
         test_indices = []
@@ -132,26 +132,16 @@ class Tester:
         dfr = pd.DataFrame([
             {
                 'outlier': False,
-                'subclass': '',
-                'window_type': '',
-                'location_code': '',
-                'channel_code': 'BV',
-                'station_id': 1,
-                'dataset_id': 1,
-                'allset.id': 1
+                'psd@2sec': .0,
+                'psd@5sec': 1.
              },
             {
                 'outlier': True,
-                'subclass': '',
-                'window_type': '',
-                'location_code': '',
-                'channel_code': 'BV',
-                'station_id': 1,
-                'dataset_id': 1,
-                'allset.id': 1
+                'psd@2sec': .0,
+                'psd@5sec': 1.
              },
         ])
-        pred_df = predict(None, dfr)
+        pred_df = predict(None, dfr, ['psd@2sec', 'psd@5sec'])
         ll = log_loss(pred_df)
         assert np.isclose(ll, MINVAL)
 
@@ -160,52 +150,34 @@ class Tester:
         dfr = pd.DataFrame([
             {
                 'outlier': 0.0,
-                'subclass': '',
-                'window_type': '',
-                'location_code': '',
-                'channel_code': 'BV',
-                'station_id': 1,
-                'dataset_id': 1,
-                'allset.id': 1
+                'psd@2sec': .0,
+                'psd@5sec': 1.
              },
             {
                 'outlier': 1.0,
-                'subclass': '',
-                'window_type': '',
-                'location_code': '',
-                'channel_code': 'BV',
-                'station_id': 1,
-                'dataset_id': 1,
-                'allset.id': 1
+                'psd@2sec': .0,
+                'psd@5sec': 1.
              },
         ])
-        pred_df = predict(None, dfr)
+        pred_df = predict(None, dfr, ['psd@2sec', 'psd@5sec'])
         ll = log_loss(pred_df)
         assert np.isclose(ll, MINVAL)
         
+        # test that now we have a better log loss.
+        # Swap the ground truth labels (True False):
         dfr = pd.DataFrame([
             {
                 'outlier': True,
-                'subclass': '',
-                'window_type': '',
-                'location_code': '',
-                'channel_code': 'BV',
-                'station_id': 1,
-                'dataset_id': 1,
-                'allset.id': 1
+                'psd@2sec': .0,
+                'psd@5sec': 1.
              },
             {
                 'outlier': False,
-                'subclass': '',
-                'window_type': '',
-                'location_code': '',
-                'channel_code': 'BV',
-                'station_id': 1,
-                'dataset_id': 1,
-                'allset.id': 1
+                'psd@2sec': .0,
+                'psd@5sec': 1.
              },
         ])
-        pred_df = predict(None, dfr)
+        pred_df = predict(None, dfr, ['psd@2sec', 'psd@5sec'])
         ll = log_loss(pred_df)
         assert np.isclose(ll, MAXVAL, rtol=1e-3)
 
@@ -213,26 +185,16 @@ class Tester:
         dfr = pd.DataFrame([
             {
                 'outlier': False,
-                'subclass': '',
-                'window_type': '',
-                'location_code': '',
-                'channel_code': 'BV',
-                'station_id': 1,
-                'dataset_id': 1,
-                'allset.id': 1
+                'psd@2sec': .0,
+                'psd@5sec': 1.
              },
             {
                 'outlier': False,
-                'subclass': '',
-                'window_type': '',
-                'location_code': '',
-                'channel_code': 'BV',
-                'station_id': 1,
-                'dataset_id': 1,
-                'allset.id': 1
+                'psd@2sec': .0,
+                'psd@5sec': 1.
              },
         ])
-        pred_df = predict(None, dfr)
+        pred_df = predict(None, dfr, ['psd@2sec', 'psd@5sec'])
         ll = log_loss(pred_df)
         assert MINVAL < ll < MAXVAL
         
@@ -240,26 +202,16 @@ class Tester:
         dfr = pd.DataFrame([
             {
                 'outlier': True,
-                'subclass': '',
-                'window_type': '',
-                'location_code': '',
-                'channel_code': 'BV',
-                'station_id': 1,
-                'dataset_id': 1,
-                'allset.id': 1
+                'psd@2sec': .0,
+                'psd@5sec': 1.
              },
             {
                 'outlier': True,
-                'subclass': '',
-                'window_type': '',
-                'location_code': '',
-                'channel_code': 'BV',
-                'station_id': 1,
-                'dataset_id': 1,
-                'allset.id': 1
+                'psd@2sec': .0,
+                'psd@5sec': 1.
              },
         ])
-        pred_df = predict(None, dfr)
+        pred_df = predict(None, dfr, ['psd@2sec', 'psd@5sec'])
         ll = log_loss(pred_df)
         assert MINVAL < ll < MAXVAL
         
@@ -267,118 +219,68 @@ class Tester:
         dfr = pd.DataFrame([
             {
                 'outlier': True,
-                'subclass': '',
-                'window_type': '',
-                'location_code': '',
-                'channel_code': 'BV',
-                'station_id': 1,
-                'dataset_id': 1,
-                'allset.id': 1
+                'psd@2sec': .0,
+                'psd@5sec': 1.
              },
             {
                 'outlier': True,
-                'subclass': '',
-                'window_type': '',
-                'location_code': '',
-                'channel_code': 'BV',
-                'station_id': 1,
-                'dataset_id': 1,
-                'allset.id': 1
+                'psd@2sec': .0,
+                'psd@5sec': 1.
              },
         ])
         mock_predict.side_effect = lambda *a, **kw: np.array([0.0, 1.0])
-        pred_df = predict(None, dfr)
+        pred_df = predict(None, dfr, ['psd@2sec', 'psd@5sec'])
         ll1 = log_loss(pred_df)
         mock_predict.side_effect = lambda *a, **kw: np.array([0.5, 0.5])
-        pred_df = predict(None, dfr)
+        pred_df = predict(None, dfr, ['psd@2sec', 'psd@5sec'])
         ll2 = log_loss(pred_df)
         assert ll2 < ll1
 
     @patch('sod.core.evaluation._predict')
     def test_get_scores(self, mock_predict):
         dfr = pd.DataFrame([
-            {'outlier': False, 'modified': ''},
-            {'outlier': True, 'modified': 'invchanged'}
+            {'outlier': False,'psd@2sec': .0,},
+            {'outlier': True, 'psd@2sec': .0,}
         ])
-        dfr.insert(0, 'pgapgv.id', [1, 2])
 
         mock_predict.side_effect = lambda *a, **kw: np.array([0, 1])
-        pred_df = predict(None, dfr)
-        assert correctly_predicted(pred_df).sum() == 2
-        cm_ = cmatrix_df(pred_df)
-        assert cm_.loc['ok', :].to_dict() == {
-            'ok': 1.0,
-            'outlier': 0.0,
-            '% rec.': 100.0,
-            'Mean log_loss': 0.0
-        }
-        # all others are zero
-        assert cm_.iloc[1:, :].sum().sum() == 0
+        pred_df = predict(None, dfr, ['psd@2sec'])
+        cmt = confusion_matrix(pred_df)
+        assert cmt.recall.sum() == 2
+        assert cmt.f1score.sum() == 2
+        assert cmt.precision.sum() == 2
 
-        # why all other rows were zero?
-        # Because 'invchanged' does not match any class. Let's rewrite it:
-        dfr = pd.DataFrame([
-            {'outlier': False, 'modified': ''},
-            {'outlier': True, 'modified': 'INVFILE:'}
-        ])
-        dfr.insert(0, 'pgapgv.id', [1, 2])
-        mock_predict.side_effect = lambda *a, **kw: np.array([0, 1])
-        pred_df = predict(None, dfr)
-        assert correctly_predicted(pred_df).sum() == 2
-        cm_ = cmatrix_df(pred_df)
-        assert cm_.loc['ok', :].to_dict() == {
-            'ok': 1.0,
-            'outlier': 0.0,
-            '% rec.': 100.0,
-            'Mean log_loss': 0.0
-        }
-        assert cm_.iloc[1, :].to_dict() == {
-            'ok': 0.0,
-            'outlier': 1.0,
-            '% rec.': 100.0,
-            'Mean log_loss': 0.0
-        }
-        # all others are zero
-        assert cm_.iloc[2:, :].sum().sum() == 0
-        
-        
-        # test the mean_log_loss
-        dfr = pd.DataFrame([
-            {'outlier': False, 'modified': ''},
-            {'outlier': False, 'modified': ''},
-            {'outlier': True, 'modified': 'INVFILE:'},
-            {'outlier': True, 'modified': 'INVFILE:'}
-        ])
-        dfr.insert(0, 'pgapgv.id', [1, 2, 3, 4])
+        mock_predict.side_effect = lambda *a, **kw: np.array([1, 0])
+        pred_df = predict(None, dfr, ['psd@2sec'])
+        cmt = confusion_matrix(pred_df)
+        assert cmt.recall.sum() == 0
+        assert cmt.f1score.sum() == 0
+        assert cmt.precision.sum() == 0
 
-        # predictions are:
-        # ok, slightly bad, slightly bad, ok
-        mock_predict.side_effect = lambda *a, **kw: np.array([0, 0.55, .45, 1])
-        pred_df_low_logloss = predict(None, dfr)
-        cm_low_logloss = cmatrix_df(pred_df_low_logloss)
-        # predictions are:
-        # ok, highly bad, ok, ok
-        mock_predict.side_effect = lambda *a, **kw: np.array([0, 1, 1, 1])
-        pred_df_high_logloss = predict(None, dfr)
-        cm_high_logloss = cmatrix_df(pred_df_high_logloss)
-        
-        # prediction 1 is worse concerning correctly predicted:
-        assert correctly_predicted(pred_df_low_logloss).sum() == 2
-        assert correctly_predicted(pred_df_high_logloss).sum() == 3
-        # but has a lower log loss (i.e., better):
-        assert cm_low_logloss['Mean log_loss'].sum() < \
-            cm_high_logloss['Mean log_loss'].sum()
+        mock_predict.side_effect = lambda *a, **kw: np.array([0, 0])
+        pred_df = predict(None, dfr, ['psd@2sec'])
+        cmt = confusion_matrix(pred_df)
+        assert np.allclose(cmt.recall, [1, 0])
+        assert np.allclose(cmt.f1score, [.666666, 0])
+        assert np.allclose(cmt.precision, [.5, 0])
+
+        mock_predict.side_effect = lambda *a, **kw: np.array([1, 1])
+        pred_df = predict(None, dfr, ['psd@2sec'])
+        cmt = confusion_matrix(pred_df)
+        assert np.allclose(cmt.recall, [0, 1])
+        assert np.allclose(cmt.f1score, [0, .666666])
+        assert np.allclose(cmt.precision, [0, .5])
 
     def test_get_scores_order(self):
         '''test that scikit predcit preserves oreder, i.e.:
         predict(x1, x2 ...]) == [predict(x1), predict(x2), ...]
         '''
         res = _predict(self.clf,
-                       self.dfr.iloc[10:15, :][['delta_pga', 'delta_pgv']])
+                       self.dfr.iloc[10:15, :][['psd@2sec', 'psd@5sec']])
         res2 = []
         for _ in range(10, 15):
             _ = _predict(self.clf,
-                         self.dfr.iloc[_:_+1, :][['delta_pga', 'delta_pgv']])
+                         self.dfr.iloc[_:_+1, :][['psd@2sec', 'psd@5sec']])
             res2.append(_[0])
         assert (res == res2).all()
 
@@ -396,98 +298,110 @@ class Tester:
         assert len(filepaths) == 3
         assert all(isdir(_) for _ in filepaths)
 
-    def test_drop_cols(self):
-        d = pd.DataFrame({
-            'a': [1, 4, 5],
-            'b': [5, 7.7, 6]
+
+    def test_roc_aps(self):
+        # 1/th of outliers wrongly classified as inliers
+        pdf = pd.DataFrame({
+            OUTLIER_COL: np.append(np.zeros(10000), np.ones(10000)),
+            PREDICT_COL: np.append(np.zeros(11000), np.ones(9000))
         })
-        with pytest.raises(ValueError):
-            # dataframe not bound to a dataset
-            d_ = keep_cols(d, ['a'])
+        auc = roc_auc_score(pdf)
+        aps = average_precision_score(pdf)
+        # auc and avs are the same
+        assert np.isclose(auc, 0.95)
+        assert np.isclose(aps, 0.95)
+
+        # 1/th of inliers wrongly classified as outliers
+        pdf = pd.DataFrame({
+            OUTLIER_COL: np.append(np.zeros(10000), np.ones(10000)),
+            PREDICT_COL: np.append(np.zeros(9000), np.ones(11000))
+        })
+        auc = roc_auc_score(pdf)
+        aps = average_precision_score(pdf)
+        # auc is the same avs GETS WORSE
+        assert np.isclose(auc, 0.95)
+        assert np.isclose(aps, 0.90909)
+
+    @pytest.mark.parametrize('filename,expected_dic', [
+        (
+            './whatever/clf=IsolationForest&tr_set=a%2F&feats=f1,f2%2C&b=2.5&c=3@{%26',
+            {
+                'clf': ('IsolationForest',),
+                'b': ('2.5',),
+                'c': ('3@{&',),
+                'tr_set': ('a/',),
+                'feats': ('f1', 'f2,')
+            }
+        ),
+        (
+            './whatever/clf=IsolationForest&tr_set=a%2F&feats=f1,f2%2C&b=2.5&c=3@{%26.sklmodel',
+            {
+                'clf': ('IsolationForest',),
+                'b': ('2.5',),
+                'c': ('3@{&',),
+                'tr_set': ('a/',),
+                'feats': ('f1', 'f2,')
+            }
+        ),
+        (
+            'clf=IsolationForest&tr_set=a%2F&feats=f1,f2%2C&b=2.5&c=3@{%26',
+            {
+                'clf': ('IsolationForest',),
+                'b': ('2.5',),
+                'c': ('3@{&',),
+                'tr_set': ('a/',),
+                'feats': ('f1', 'f2,')
+            }
+        ),
+    ])
+    def test_paramencdec(self, filename, expected_dic):
+        dic = TestParam.model_params(filename)
+        vals = [dic[k] for k in sorted(dic)]
+        expected_vals = [expected_dic[k] for k in sorted(expected_dic)]
+        for v1, v2 in zip(vals, expected_vals):
+            if v1 != v2:
+                asd = 9
+        assert all(v1 == v2 for v1, v2 in zip(vals, expected_vals))
+
+        expected_file = basename(filename)
+        if not expected_file.endswith('.sklmodel'):
+            expected_file += '.sklmodel'
+        assert TrainingParam.model_filename(IsolationForest, dic['tr_set'][0],
+                                            *dic['feats'], b=dic['b'],
+                                            c=dic['c']) == expected_file
+        # different params order (keyword arguments), same result:
+        assert TrainingParam.model_filename(IsolationForest, dic['tr_set'][0],
+                                            *dic['feats'], c=dic['c'],
+                                            b=dic['b']) == expected_file
         
-        d['outlier'] = [True, False, False]
-        d['modified'] = ['', '', 'inv changed']
-        d['pgapgv.id'] = [1, 1, 2]
-
-        with pytest.raises(ValueError):
-            # dataframe not bound to a dataset: id col not at first position
-            d_ = keep_cols(d, ['a'])
-
-        d.drop('pgapgv.id', axis=1, inplace=True)
-        d.insert(0, 'pgapgv.id', [1, 1, 2])
-        
-        assert sorted(keep_cols(d, ['modified']).columns.tolist()) == \
-            sorted(['pgapgv.id', 'modified', 'outlier'])
-        assert sorted(keep_cols(d, ['a', 'b']).columns.tolist()) == \
-            sorted(d.columns.tolist())
-        assert sorted(keep_cols(d, ['b']).columns.tolist()) == \
-            sorted(['pgapgv.id', 'b', 'modified', 'outlier'])
-
-    def test_drop_duplicates(self):
-        d = pd.DataFrame({
-            'pgapgv.id': [1, 2, 3, 4, 5],
-            'a': [1, 4, 5, 5.6, -1],
-            'b': [5.56, 5.56, 5.56, 5.56, 5.561],
-            'c': [5, 7.7, 6, 6, 6],
-            'modified': ['', '', 'INVFILE:', '', ''],
-            'outlier': [False, True, True, False, False]
-        })
-
-        pd.testing.assert_frame_equal(drop_duplicates(d, ['a']), d)
-        assert sorted(drop_duplicates(d, ['b']).index.values) == [0, 1, 2, 4]
-        assert sorted(drop_duplicates(d, ['b'], 2).index.values) == [0, 1, 2]
-
-    def test_drop_na(self):
-        d = pd.DataFrame({
-            'pgapgv.id': [1, 2, 3, 4, 5],
-            'a': [1, np.inf, 4, 5.6, -1],
-            'b': [5.56, 5.56, np.nan, 5.56, 5.561],
-            'c': [5, 7.7, 6, 6, 6],
-            'd': [np.inf] * 5,
-            'e': [-np.inf] * 5,
-            'f': [np.nan] * 5,
-            'modified': ['', '', 'INVFILE:', '', ''],
-            'outlier': [False, True, True, False, False]
-        })
-
-        pd.testing.assert_frame_equal(drop_na(d, ['c']), d)
-        assert sorted(drop_na(d, ['a']).index.values) == [0, 2, 3, 4]
-        assert sorted(drop_na(d, ['b']).index.values) == [0, 1, 3, 4]
-        assert sorted(drop_na(d, ['a', 'b']).index.values) == [0, 3, 4]
-
-        for col in ['d', 'e', 'f']:
-            with pytest.raises(Exception):
-                drop_na(d, [col])
-
-    def test_paramencdec(self):
-        strs = ['bla/asd?f=1,2&c=ert',
-                'asd?f=1,2&c=ert',
-                '?f=1,2&c=ert',
-                'f=1,2&c=ert']
-        for _ in list(strs):
-            strs.append(_+'.extension')
-            strs.append(_.replace('f=', 'features='))
-        for str_ in strs:
-            if '?' not in str_:
-                with pytest.raises(ValueError):
-                    ParamsEncDec.todict(str_)
-                continue
-            dic = ParamsEncDec.todict(str_)
-            if 'features=' in str_:
-                assert sorted(dic.keys()) == ['c', 'features']
-                assert dic['features'] == ('1', '2')
-            else:
-                assert sorted(dic.keys()) == ['c', 'f']
-                assert dic['f'] == '1,2'
-            assert dic['c'] == \
-                'ert' + ('.extension' if '.extension' in str_ else '')
-
-        # try with a string containing a comma percent encoded (%2C):
-        str_ = 'bla/asd?f=1%2C2&c=ert'
-        dic = ParamsEncDec.todict(str_)
-        assert sorted(dic.keys()) == ['c', 'f']
-        assert dic['f'] == '1,2'
-        assert dic['c'] == 'ert'
-        assert ParamsEncDec.tostr(**dic) == str_[str_.index('?'):]
-        assert ParamsEncDec.tostr(3, 's,', **dic) == \
-            '?features=3,s%2C&f=1%2C2&c=ert'
+#         strs = ['bla/asd?f=1,2&c=ert',
+#                 'asd?f=1,2&c=ert',
+#                 '?f=1,2&c=ert',
+#                 'f=1,2&c=ert']
+#         for _ in list(strs):
+#             strs.append(_+'.extension')
+#             strs.append(_.replace('f=', 'features='))
+#         for str_ in strs:
+#             if '?' not in str_:
+#                 with pytest.raises(ValueError):
+#                     TestParam.model_params(str_)
+#                 continue
+#             dic = TestParam.model_params(str_)
+#             if 'features=' in str_:
+#                 assert sorted(dic.keys()) == ['c', 'features']
+#                 assert dic['features'] == ('1', '2')
+#             else:
+#                 assert sorted(dic.keys()) == ['c', 'f']
+#                 assert dic['f'] == '1,2'
+#             assert dic['c'] == \
+#                 'ert' + ('.extension' if '.extension' in str_ else '')
+# 
+#         # try with a string containing a comma percent encoded (%2C):
+#         str_ = 'bla/asd?f=1%2C2&c=ert'
+#         dic = TestParam.model_params(str_)
+#         assert sorted(dic.keys()) == ['c', 'f']
+#         assert dic['f'] == '1,2'
+#         assert dic['c'] == 'ert'
+#         assert TrainingParam.model_filename(**dic) == str_[str_.index('?'):]
+#         assert TrainingParam.model_filename(3, 's,', **dic) == \
+#             '?features=3,s%2C&f=1%2C2&c=ert'

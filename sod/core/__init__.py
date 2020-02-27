@@ -21,3 +21,7 @@ CLASS_SELECTORS = (
     lambda d: ~d.outlier,
     lambda d: d.outlier
 )
+
+
+PREDICT_COL = 'predicted_anomaly_score'  # MUST be defined in the prediction HDF datasets
+OUTLIER_COL = 'outlier'  # MUST be defined in all datasets
