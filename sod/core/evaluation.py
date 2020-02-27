@@ -6,11 +6,17 @@ Created on 1 Nov 2019
 @author: riccardo
 '''
 import json
+import re
+import importlib
+
 from multiprocessing import Pool, cpu_count
 from os import listdir, makedirs
 from os.path import join, dirname, isfile, basename, splitext, isdir, abspath
 from itertools import product, chain
 from collections import defaultdict
+
+from sklearn.ensemble.iforest import IsolationForest
+from sklearn.svm.classes import OneClassSVM
 
 from urllib.parse import quote as q, unquote as uq
 import click
@@ -18,28 +24,17 @@ import numpy as np
 import pandas as pd
 from pandas.core.indexes.range import RangeIndex
 from joblib import dump, load
-from sklearn.metrics import (confusion_matrix as scikit_confusion_matrix,
-                             log_loss as scikit_log_loss,
-                             roc_curve as scikit_roc_curve,
-                             precision_recall_curve as scikit_pr_curve,
-                             auc as scikit_auc,
-                             average_precision_score as scikit_aps)
 
-from sod.core import pdconcat, odict, CLASS_SELECTORS, CLASSNAMES
-from sod.core.dataset import is_outlier, OUTLIER_COL
-import re
-from sklearn.ensemble.iforest import IsolationForest
-from sklearn.svm.classes import OneClassSVM
-import importlib
-from sklearn.metrics.classification import precision_recall_fscore_support
-import types
+from sod.core import (
+    OUTLIER_COL, odict, CLASS_SELECTORS, CLASSNAMES, PREDICT_COL
+)
+from sod.core.metrics import log_loss, average_precision_score, roc_auc_score,\
+    roc_curve, precision_recall_curve
+# from sod.core.dataset import is_outlier, OUTLIER_COL
 
 
-PREDICT_COL = 'predicted_anomaly_score'
-
-
-def classifier(clf_class, dataframe, clf_params, destpath=None, overwrite=False):
-    '''Returns a OneClassSVM classifier fitted with the data of
+def classifier(clf_class, dataframe, **clf_params):
+    '''Returns a scikit learn model fitted with the data of
     `dataframe`. If `destpath` is not None, saves the classifier to file
 
     :param dataframe: pandas DataFrame
@@ -63,11 +58,11 @@ def predict(clf, dataframe, features, columns=None):
         and returned in the predicted dataframe together with the predicted
         scores. It is usually a subset of
         `dataframe` columns for memory performances. None (the default) or
-        empty list/tuple: use all columns
+        empty list/tuple: return all columns
 
     :return: a DataFrame with the columns 'outlier' (boolean) and
-    'predicted_anomaly_score' (float in [0, 1]) plus the columns specified
-    in the `columns` parameter
+        'predicted_anomaly_score' (float in [0, 1]) plus the columns specified
+        in the `columns` parameter
     '''
     predicted = _predict(
         clf,
@@ -117,156 +112,6 @@ def _predict(clf, dataframe):
 
     raise ValueError('Classifier type not implemented in _predict: %s'
                      % str(clf))
-
-
-def log_loss(predicted_df, eps=1e-15, return_mean=True):
-    '''Computes the log loss of `predicted_df`
-
-    :param predicted_df: A dataframe with predictions, the output of
-        `predict`
-    :param return_mean: bool, optional (default=True)
-        If true, return the mean loss per sample.
-        Otherwise, return the sum of the per-sample losses.
-
-    :return: a NUMBER representing the mean (normalize=True) or sum
-        (normalize=False) of all scores in predicted_df
-    '''
-    return scikit_log_loss(predicted_df[OUTLIER_COL],
-                           predicted_df[PREDICT_COL],
-                           eps=eps, normalize=return_mean,
-                           labels=[False, True])
-
-
-def confusion_matrix(predicted_df, threshold=0.5, compute_eval_metrics=True):
-    y_pred = predicted_df[PREDICT_COL] > threshold
-    return confusion_matrix_prfs(predicted_df.outlier,
-                                 y_pred,
-                                 labels=[False, True],
-                                 compute_eval_metrics=compute_eval_metrics)
-
-
-def confusion_matrix_prfs(y_true, y_pred, labels=None,
-                          compute_eval_metrics=False):
-    cm = scikit_confusion_matrix(y_true,
-                                 y_pred,
-                                 labels=labels)
-    dfr = pd.DataFrame(data=cm, index=CLASSNAMES, columns=CLASSNAMES)
-    if compute_eval_metrics:
-        prfs = precision_recall_fscore_support(y_true, y_pred, labels=labels,
-                                               average=None)
-        assert (prfs[-1] == dfr.sum(axis=1)).all()
-        P, R, F, S = 'Precision', 'Recall', 'F1Score', 'Support'
-        dfr[S] = prfs[-1]
-        dfr[R] = prfs[1]
-        dfr[P] = prfs[0]
-        dfr[F] = prfs[2]
-
-        # attach bound methods: https://stackoverflow.com/a/2982
-        # dfr.precision(), dfr.recall() etcetera
-        dfr.p = dfr.precisions = dfr.precision = \
-            types.MethodType(lambda s: s.loc[:, P], dfr)
-        dfr.r = dfr.recalls = dfr.recall = \
-            types.MethodType(lambda s: s.loc[:, R], dfr)
-        dfr.f = dfr.f1scores = dfr.f1score = \
-            types.MethodType(lambda s: s.loc[:, F], dfr)
-        dfr.s = dfr.supports = dfr.support = \
-            types.MethodType(lambda s: s.loc[:, S], dfr)
-        dfr.num_instances = types.MethodType(lambda s: s.loc[:, S], dfr)
-
-    return dfr
-
-
-def best_threshold(y_true, y_score, method='roc'):
-    if method == 'roc':
-        # https://scikit-learn.org/stable/modules/generated/sklearn.metrics.roc_curve.html#sklearn.metrics.roc_curve
-
-        fpr, tpr, thresholds = scikit_roc_curve(y_true, y_score, pos_label=1)
-        # Convert to TNR (avoid dividing by 2 as useless):
-        x_tnr = 1 - fpr
-        # get the best threshold where we have the best mean of TPR and TNR:
-        scores = x_tnr + tpr
-        # Get tbest threshold ignoring 1st score. From the docs (see linke
-        # above): thresholds[0] represents no instances being predicted and
-        # is arbitrarily set to max(y_score) + 1.
-        best_th_index = np.argmax(scores[1:])
-        return thresholds[1:][best_th_index]
-
-    if method == 'pr':
-        # https://scikit-learn.org/stable/modules/generated/sklearn.metrics.precision_recall_curve.html#sklearn.metrics.precision_recall_curve
-
-        prc, rec, thresholds = scikit_pr_curve(y_true, y_score, pos_label=1)
-
-        # get the best threshold where we have the best F1 score
-        # (avoid multiplying by 2 as useless):
-        scores = (prc * rec) / (prc + rec)
-        # Get best score ignoring lat score. From the docs (see link above):
-        # the last precision and recall values are 1. and 0. respectively and
-        # do not have a corresponding threshold. This ensures that the graph
-        # starts on the y axis.
-        best_th_index = np.argmax(scores[:-1])
-        return thresholds[:-1][best_th_index]
-
-    raise ValueError('`method` argument in `best_threshold` must be '
-                     'either "roc" (ROC curve) or '
-                     '"pr" (Precision-Recall Curve)')
-        
-
-def auc(y_true, y_score):
-    # https://scikit-learn.org/stable/modules/generated/sklearn.metrics.auc.html#sklearn.metrics.auc
-    fpr, tpr, thresholds = scikit_roc_curve(y_true, y_score, pos_label=1)
-    return scikit_auc(fpr, tpr)
-
-
-def aps(y_true, y_score):
-    # https://scikit-learn.org/stable/modules/generated/sklearn.metrics.average_precision_score.html
-    return scikit_aps(y_true, y_score, pos_label=1)
-
-
-# def _get_eval_report_html_template():
-#     with open(join(dirname(__file__), 'eval_report_template.html'), 'r') as _:
-#         return _.read()
-# 
-# 
-# def create_evel_report(cmatrix_dfs, outfilepath=None, title='%(title)s'):
-#     '''Creates and optionally saves the given confusion matrices dataframe
-#     to html
-# 
-#     :param cmatrix_df: a dict of string keys
-#         mapped to dataframe as returned from the function `cmatrix_df`
-#     :param outfilepath: the output file path. The extension will be
-#         appended as 'html', if an extension is not set. If None, nothing is
-#         saved
-#     :param title: the HTML title page
-# 
-#     :return: the HTML formatted string containing the evaluation report
-#     '''
-#     # score columns: list of 'asc', 'desc' or None relative to each element of
-#     # CMATRIX_COLUMNS
-#     score_columns = {
-#         CMATRIX_COLUMNS[-2]: 'desc',  # '% rec.'
-#         CMATRIX_COLUMNS[-1]: 'asc'  # 'Mean %s' % LOGLOSS_COL
-#     }
-#     evl = [
-#         {'key': params, 'data': sumdf.values.tolist()}
-#         for (params, sumdf) in cmatrix_dfs.items()
-#     ]
-#     classnames = CLASSNAMES
-#     content = _get_eval_report_html_template() % {
-#         'title': title,
-#         'evaluations': json.dumps(evl),
-#         'columns': json.dumps(CMATRIX_COLUMNS),
-#         'scoreColumns': json.dumps(score_columns),
-#         'currentScoreColumn': json.dumps(CMATRIX_COLUMNS[-1]),
-#         'weights': json.dumps([100 for _ in classnames]),
-#         'classes': json.dumps(classnames)
-#     }
-#     if outfilepath is not None:
-#         if splitext(outfilepath)[1].lower() not in ('.htm', '.html'):
-#             outfilepath += ' .html'
-#         with open(outfilepath, 'w') as opn_:
-#             opn_.write(content)
-# 
-#     return content
 
 
 def save_df(dataframe, filepath, **kwargs):
@@ -337,13 +182,25 @@ def train_test_split(dataframe, n_folds=5):
         yield train, test
 
 
+#############################
+# evaluation cli functions: #
+#############################
+
+
+# for urllib.quote, make safe all characters except chars <= ' ' (32), chr(127)
+# and /&?=,%
+_safe = ''.join(set(chr(_) for _ in range(33, 127)) - set('/&?=,%'))
+
+
 class TrainingParam:
-    '''TrainingParam class to be used in Evaluator
-    Udage:
-    
-    t = TrainingParam(args)
-    for args in t(destdir):
-        _create_save_classifier(args)
+    '''Class handling the parameter for creating N models
+    and saving them to file by means of the function `_create_save_classifier`.
+    The number N of models is inferred from the parameter passed in `__init__`.
+    When calling `iterargs` with a given destination directory, this class
+    returns the N arguments to be passed to `_create_save_classifier`.
+    See `run_evaluation` for details.
+    Note: `_create_save_classifier` is not implemented inside this class for
+    pickable problem with multiprocessing
     '''
     def __init__(self, clf_classname, clf_param_dict,
                  input_filenpath, input_features_list, input_drop_na):
@@ -375,13 +232,19 @@ class TrainingParam:
         self.drop_na = input_drop_na
 
     def iterargs(self, destdir):
+        '''Builds and returns from this object parameters a list of N arguments
+        to be passed to `_create_save_classifier`. See `run_evaluation` for
+        details
+        '''
         ret = []
         for features in self.features:
             for params in self.parameters:
-                destpath = join(destdir,
-                                model_filename(self.clf_class,
-                                               basename(self.input_filepath),
-                                               *features, **params))
+                destpath = join(
+                    destdir,
+                    self.model_filename(self.clf_class,
+                                        basename(self.input_filepath),
+                                        *features, **params)
+                )
                 ret.append((
                     self.clf_class,
                     self.input_filepath,
@@ -392,20 +255,31 @@ class TrainingParam:
                 ))
         return ret
 
-#     def uniquefilepath(self, destdir, *features, **params):
-#         '''Returns an unique file path from the given features and params'''
-#         # build an orderd dict
-#         paramz = odict()
-#         # add them to paramz:
-#         for k in sorted(k for k in params):
-#             paramz[k] = params[k]
-#         # build a base file path with the current classifier class name:
-#         basepath = join(destdir, self.clf_class.__name__)
-#         # add the URLquery-like string with ParamsEncDec.tostr:
-#         return basepath + ParamsEncDec.tostr(*features, **paramz)
+    @staticmethod
+    def model_filename(clf_class, tr_set, *features, **clf_params):
+        '''converts the given argument to a model filename, with extension
+        .sklmodel'''
+        pars = odict()
+        pars['clf'] = [str(clf_class.__name__)]
+        pars['tr_set'] = [
+            str(_) for _ in
+            (tr_set if isinstance(tr_set, (list, tuple)) else [tr_set])
+        ]
+        pars['feats'] = [str(_) for _ in features]
+        for key in sorted(clf_params):
+            val = clf_params[key]
+            pars[q(key, safe=_safe)] = [
+                str(_) for _ in
+                (val if isinstance(val, (list, tuple)) else [val])
+            ]
+
+        return '&'.join("%s=%s" % (k, ','.join(q(_, safe=_safe) for _ in v))
+                        for k, v in pars.items()) + '.sklmodel'
 
 
 def _create_save_classifier(args):
+    '''Creates and saves models from the given argument. See `TrainingParam`
+    and `run_evaluation`'''
     (clf_class, input_filepath, features, params, destpath, drop_na) = args
     if not isdir(dirname(destpath)):
         raise ValueError('Can not store model, parent directory does not exist: '
@@ -415,39 +289,72 @@ def _create_save_classifier(args):
     dataframe = pd.read_hdf(input_filepath, columns=features)
     if drop_na:
         dataframe = dataframe.dropna(axis=0, subset=features, how='any')
-    clf = classifier(clf_class, dataframe, params)
+    clf = classifier(clf_class, dataframe, **params)
     dump(clf, destpath)
     return destpath, True
 
 
 class TestParam:
-    
-    def __init__(self, input_filepath, categorical_columns, columns2save, drop_na):
+    '''Class handling the parameter(s) for testing N models against a test set
+    and saving the predictions to HDF file by means of the function
+    `_predict_and_save`.
+    The number N of models is passed in `iterargs`, which returns
+    N arguments to be passed to `_predict_and_save`.
+    See `run_evaluation` for details.
+    Note: `_predict_and_save` is not implemented inside this class for
+    pickable problem with multiprocessing
+    '''
+    def __init__(self, input_filepath, categorical_columns, columns2save,
+                 drop_na):
         if not isfile(input_filepath):
             raise FileNotFoundError(input_filepath)
         self.input_filepath = input_filepath
         self.categorical_columns = categorical_columns
         self.columns2save = columns2save
         self.drop_na = drop_na
-        
+
     def iterargs(self, classifiers_paths):
+        '''Builds and returns from this object parameters a list of N arguments
+        to be passed to `_create_save_classifier`. See `run_evaluation` for
+        details
+        '''
         ret = []
         for clfpath in classifiers_paths:
             outdir = splitext(clfpath)[0]
             outfile = join(outdir, basename(self.input_filepath))
             if isfile(outfile):
                 continue
-            feats = model_params(clfpath)['feats']
+            feats = self.model_params(clfpath)['feats']
             ret.append([feats, clfpath, self.input_filepath,
-                        self.categorical_columns, self.columns2save, self.drop_na,
-                        outfile])
+                        self.categorical_columns, self.columns2save,
+                        self.drop_na, outfile])
+        return ret
+
+    @staticmethod
+    def model_params(model_filename):
+        '''Converts the given model_filename (or absolute path) into a dict
+        of key -> tuple of **strings** (single values parameters will be mapped
+        to a 1 element tuple)
+        '''
+        pth = basename(model_filename)
+        pth_, ext = splitext(pth)
+        if ext == '.sklmodel':
+            pth = pth_
+        pars = pth.split('&')
+        ret = odict()
+        for par in pars:
+            key, val = par.split('=')
+            ret[uq(key)] = tuple(uq(_) for _ in val.split(','))
         return ret
 
 
 def _predict_and_save(args):
-    (features, clfpath, input_filepath, categorical_columns, columns2save, drop_na,
-     outfile) = args
-    allcols = list(columns2save) + list(_ for _ in features if _ not in columns2save)
+    '''Tests a given models against a given test set and saves the prediction
+    result as HDF. See `TestParam` and `run_evaluation`'''
+    (features, clfpath, input_filepath, categorical_columns, columns2save,
+     drop_na, outfile) = args
+    allcols = list(columns2save) + \
+        list(_ for _ in features if _ not in columns2save)
     dataframe = pd.read_hdf(input_filepath, columns=allcols)
     for c in categorical_columns or []:
         if c in allcols:
@@ -461,45 +368,6 @@ def _predict_and_save(args):
     return outfile
 
 
-# make safe all characters except chars <= ' ' (32) and '/&?=,'
-_safe = ''.join(set(chr(_) for _ in range(33, 127)) - set('/&?=,%'))
-
-def model_filename(clf_class, tr_set, *features, **clf_params):
-    '''converts the given argument to a model filename, with extension
-    .sklmodel'''
-    pars = odict()
-    pars['clf'] = [str(clf_class.__name__)]
-    pars['tr_set'] = [
-        str(_) for _ in
-        (tr_set if isinstance(tr_set, (list, tuple)) else [tr_set])
-    ]
-    pars['feats'] = [str(_) for _ in features]
-    for key in sorted(clf_params):
-        val = clf_params[key]
-        pars[q(key, safe=_safe)] = [
-            str(_) for _ in
-            (val if isinstance(val, (list, tuple)) else [val])
-        ]
-
-    return '&'.join("%s=%s" % (k, ','.join(q(_, safe=_safe) for _ in v))
-                    for k, v in pars.items()) + '.sklmodel'
-
-def model_params(model_filename):
-    '''Converts the given model_filename (or absolute path) into a dict
-    of key -> tuple of **strings** (single values parameters will be mapped
-    to a 1 element tuple)
-    '''
-    pth = basename(model_filename)
-    pth_, ext = splitext(pth)
-    if ext == '.sklmodel':
-        pth = pth_
-    pars = pth.split('&')
-    ret = odict()
-    for par in pars:
-        key, val = par.split('=')
-        ret[uq(key)] = tuple(uq(_) for _ in val.split(','))
-    return ret
-    
 # MODELDIRNAME = 'models'
 # EVALREPORTDIRNAME = 'evalreports'
 # PREDICTIONSDIRNAME = 'predictions'
@@ -541,9 +409,11 @@ def run_evaluation(training_param, testing_param, destdir):
     pool = Pool(processes=int(cpu_count()))
     iterargs = testing_param.iterargs(classifier_paths)
     pred_filepaths = []
-    with click.progressbar(length=len(iterargs), fill_char='o', empty_char='.') as pbar:
+    with click.progressbar(length=len(iterargs),
+                           fill_char='o', empty_char='.') as pbar:
         try:
-            for pred_filepath in pool.imap_unordered(_predict_and_save, iterargs):
+            for pred_filepath in \
+                    pool.imap_unordered(_predict_and_save, iterargs):
                 if pred_filepath:
                     pred_filepaths.append(pred_filepath)
                 pbar.update(1)
@@ -553,7 +423,7 @@ def run_evaluation(training_param, testing_param, destdir):
             pool.join()
         except Exception as exc:
             _kill_pool(pool, str(exc))
-            raise exc     
+            raise exc
     print("%d of %d predictions created (already existing were not overwritten)" %
           (len(pred_filepaths), len(classifier_paths)))
 
@@ -570,4 +440,59 @@ def _kill_pool(pool, err_msg):
         pass
 
 
-# AGGEVAL_BASENAME = 'evaluation.all'
+def create_summary_evaluation(destdir):
+    eval_df_path = join(destdir, 'evaluation.hdf')
+
+    cols = [
+        'model',
+        'test_set',
+        'log_loss',
+        'roc_auc_score',
+        'average_precision_score',
+        'best_th_roc_curve',
+        'best_th_pr_curve'
+    ]
+
+    if isfile(eval_df_path):
+        dfr = pd.read_hdf(eval_df_path)
+    else:
+        dfr = pd.DataFrame(columns=cols, data=[])
+
+    # a set is faster than a dataframe for searching already processed
+    # couples of (clf, testset_hdf):
+    already_processed_tuples = \
+        set((tuple(_) for _ in zip(dfr.model, dfr.test_set)))
+    newrows = []
+    for clfname in [] if not isdir(destdir) else listdir(destdir):
+        clfdir, ext = splitext(clfname)[0]
+        if ext != '.sklmodel':
+            continue
+        clfdir = join(destdir, clfdir)
+        for testname in [] if not isdir(clfdir) else listdir(clfdir):
+            if (clfname, testname) in already_processed_tuples:
+                continue
+            predicted_df = pd.read_hdf(join(clfdir, testname),
+                                       columns=[OUTLIER_COL, PREDICT_COL])
+
+            newrows.append({
+                cols[0]: clfname,
+                cols[1]: testname,
+                cols[2]: log_loss(predicted_df),
+                cols[3]: roc_auc_score(predicted_df),
+                cols[4]: average_precision_score(predicted_df),
+                cols[5]: roc_curve(predicted_df)[-1],
+                cols[6]: precision_recall_curve(predicted_df)[-1]
+            })
+
+    if newrows:
+        pd_append = pd.DataFrame(columns=cols, data=newrows)
+        if dfr.empty:
+            dfr = pd_append
+        else:
+            dfr = dfr.append(pd_append,
+                             ignore_index=True,
+                             verify_integrity=False,
+                             sort=False).reset_index(drop=True)
+        save_df(dfr, eval_df_path)
+    
+    
