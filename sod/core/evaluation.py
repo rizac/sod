@@ -126,9 +126,11 @@ def save_df(dataframe, filepath, **kwargs):
             raise ValueError('Invalid file basename. Provide a `key` argument '
                              'to the save_df function or change file name')
         kwargs['key'] = key
+    kwargs.setdefault('append', False)
     dataframe.to_hdf(
         filepath,
-        format='table', mode='w',
+        format='table',
+        mode='w' if not kwargs['append'] else 'a',
         **kwargs
     )
 
@@ -324,6 +326,10 @@ class TestParam:
             outfile = join(outdir, basename(self.input_filepath))
             if isfile(outfile):
                 continue
+            elif not isdir(dirname(outfile)):
+                makedirs(dirname(outfile))
+            if not isdir(dirname(outfile)):
+                continue
             feats = self.model_params(clfpath)['feats']
             ret.append([feats, clfpath, self.input_filepath,
                         self.categorical_columns, self.columns2save,
@@ -348,6 +354,9 @@ class TestParam:
         return ret
 
 
+DEF_CHUNKSIZE = 200000
+
+
 def _predict_and_save(args):
     '''Tests a given models against a given test set and saves the prediction
     result as HDF. See `TestParam` and `run_evaluation`'''
@@ -355,16 +364,21 @@ def _predict_and_save(args):
      drop_na, outfile) = args
     allcols = list(columns2save) + \
         list(_ for _ in features if _ not in columns2save)
-    dataframe = pd.read_hdf(input_filepath, columns=allcols)
-    for c in categorical_columns or []:
-        if c in allcols:
-            dataframe[c] = dataframe[c].astype('category')
-    if drop_na:
-        dataframe = dataframe.dropna(axis=0, subset=features, how='any')
-    pred_df = predict(load(clfpath), dataframe, features, columns2save)
-    if not isdir(dirname(outfile)):
-        makedirs(dirname(outfile))
-    save_df(pred_df, outfile)
+    chunksize = DEF_CHUNKSIZE
+    categ_columns = None  # to be initialized
+    for dataframe in pd.read_hdf(input_filepath, columns=allcols,
+                                 chunksize=chunksize):
+        if categ_columns is None:
+            categ_columns = set(categorical_columns or []) & \
+                set(_ for _ in dataframe.columns)
+        for c__ in categ_columns:
+            dataframe[c__] = dataframe[c__].astype('category')
+        if drop_na:
+            dataframe = dataframe.dropna(axis=0, subset=features, how='any')
+        if dataframe.empty:
+            continue
+        pred_df = predict(load(clfpath), dataframe, features, columns2save)
+        save_df(pred_df, outfile, append=True)
     return outfile
 
 
