@@ -31,6 +31,7 @@ from sod.evaluate import run, load_cfg as original_load_cfg
 from sod.core import paths, pdconcat
 from datetime import datetime
 from sod.core.paths import EVALUATIONS_CONFIGS_DIR
+from sod.core.evaluation import _predict_and_save, classifier, load, dump, predict
 
 
 class PoolMocker:
@@ -72,7 +73,7 @@ class Tester:
 #                          'clfeval.allset_train_test.iforest.psd@5sec.yaml')
 
     if not isfile(join(datadir, 'allset_train.hdf_')):
-        N = 200
+        N = 210
         d = pd.DataFrame(
             {
                 'Segment.db.id': list(range(N)),
@@ -85,7 +86,7 @@ class Tester:
                 'event_time': datetime.utcnow(),
                 'station_id': 5,
                 # add nan to the features to check we drop na:
-                'psd@2sec': np.append([np.nan, np.nan], np.random.random(N-2)),
+                'psd@2sec': np.append(10*[np.nan], np.random.random(N-10)),
                 'psd@5sec': np.random.random(N),
             }
         )
@@ -101,6 +102,33 @@ class Tester:
                  format='table')
     tmpdir = join(dirname(__file__), 'tmp')
 
+
+    def test_save_pred_df(self):
+        input_filepath = join(self.datadir, 'allset_train.hdf_')
+        dfr = pd.read_hdf(input_filepath)
+        # use tmpdir because it will be removed (see test_evaluator below):
+        clfpath = join(self.tmpdir, 'tmp.sklmodel')
+        features = ['psd@2sec', 'psd@5sec']
+        clf = classifier(IsolationForest,
+                         dfr[features].dropna(subset=features))
+        dump(clf, clfpath)
+        categorical_columns = None
+        columns2save = ['Segment.db.id']
+        drop_na = True
+        # use tmpdir because it will be removed (see test_evaluator below):
+        outfile = join(self.tmpdir, 'tmp_pred.hdf') 
+        args = (features, clfpath, input_filepath, categorical_columns, columns2save,
+                drop_na, outfile)
+        # use a chunksize of 10 because we have the first 10 numbers nan
+        # in the test dataframe (see above) and we want to test that we
+        # skip empty dataframes in _predict_and_save:
+        with patch('sod.core.evaluation.DEF_CHUNKSIZE', 10):
+            _predict_and_save(args)
+        pred_df1 = pd.read_hdf(outfile)
+        pred_df2 = predict(clf, dfr[features + columns2save].dropna(subset=features),
+                           features, columns2save)
+        pd.testing.assert_frame_equal(pred_df1, pred_df2)
+        asd = 9
 
     # REMOVE THESE LINES (CREATE A SMALL DATASET FOR TESTING FROM AN EXISTING ONE):
 #     hdf_ = pd.read_hdf('/Users/riccardo/work/gfz/projects/sources/python/sod/sod/datasets/allset_train.hdf')
