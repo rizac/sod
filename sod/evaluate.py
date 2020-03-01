@@ -48,9 +48,9 @@ def run(config):
             cfg_dict['drop_na'])
 
         test_param = TestParam(join(DATASETS_DIR, tst['filename']),
-                               tst['categorical_columns'],
-                               tst['columns2save'],
-                               cfg_dict['drop_na'])
+                               tst['save_options']['columns'],
+                               cfg_dict['drop_na'],
+                               tst['save_options']['min_itemsize'])
         run_evaluation(training_param, test_param,
                        EVALUATIONS_RESULTS_DIR)
     except KeyError as kerr:
