@@ -45,8 +45,8 @@ if not isfile(join(datadir, 'allset_train.hdf_')):
         {
             'Segment.db.id': list(range(N)),
             'dataset_id': 3,
-            'channel_code': 'c',
-            'location_code': 'l',
+            'channel_code': 'cha',
+            'location_code': 'loc',
             'outlier': False,
             'hand_labelled': True,
             'window_type': True,
@@ -65,7 +65,12 @@ if not isfile(join(datadir, 'allset_train.hdf_')):
     d['psd@5sec'] = np.append(np.random.random(N2), -np.random.random(N2))
     d['outlier'] = [True] * (N2-1) + [False, True] + [False] * (N2-1)
 
-    d.loc[N2-5:N2+5, :].to_hdf(join(datadir, 'allset_test.hdf_'), 'a', mode='w',
+    dtest = d.loc[N2-5:N2+5, :]
+    dtest = dtest.reset_index(drop=True).copy()
+    # make first string shorter to test problems with min_itemsize:
+    # https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#string-columns
+    dtest.loc[0, 'location_code'] = 'l'
+    dtest.to_hdf(join(datadir, 'allset_test.hdf_'), 'a', mode='w',
                                format='table')
 
 def _read_hdf(fpath):

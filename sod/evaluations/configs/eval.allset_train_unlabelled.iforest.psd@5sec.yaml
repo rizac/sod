@@ -8,19 +8,20 @@ drop_na: true
 # Parameters to test the model files. Already existing models will NOT be re-created, saving time
 test:
   filename: 'allset_unlabelled.hdf'  # null (no test, just create the models), or the test set to predict (HDF format) relative to the 'datasets' directory
-  columns2save:  # The columns of the input test above to be saved from each predictions
-    - 'Segment.db.id'  # the segment id
-    - 'dataset_id'     # int (int8 could be used)
-    - 'station_id'     # int
-    - 'channel_code'   # str (categorical)
-    - 'location_code'  # str (categorical)
-    - 'window_type'    # bool
-    - 'event_time'     # datetime
-    - 'hand_labelled'  # bool
-    - 'outlier'        # bool
-  categorical_columns:  # the columns of the input test above to be converted as categorical when opening
-    - 'channel_code'    # set to null to ignore
-    - 'location_code'
+  save_options:
+    columns:  # The columns of the input test above to be saved together with the prediction scores
+      - 'Segment.db.id'  # the segment id
+      - 'dataset_id'     # int (int8 could be used)
+      - 'station_id'     # int
+      - 'channel_code'   # str (categorical)
+      - 'location_code'  # str (categorical)
+      - 'window_type'    # bool
+      - 'event_time'     # datetime
+      - 'hand_labelled'  # bool
+      - 'outlier'        # bool
+    min_itemsize:  # the size in bytes for string columns (HDF has fixed string width)
+        channel_code: 3
+        location_code: 3
 
 # Parameters to create the model files. Already existing models will NOT be re-created, saving time
 training:

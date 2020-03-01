@@ -358,12 +358,13 @@ class TestParam:
     Note: `_predict_mp` is not implemented inside this class for
     pickable problem with multiprocessing
     '''
-    def __init__(self, testset_filepath, categorical_columns, columns2save,
-                 drop_na):
+    def __init__(self, testset_filepath, columns2save,
+                 drop_na, min_itemsize=None):
         if not isfile(testset_filepath):
             raise FileNotFoundError(testset_filepath)
         self.testset_filepath = testset_filepath
-        self.categorical_columns = categorical_columns
+        # https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#string-columns:
+        self.min_itemsize = min_itemsize
         self.columns2save = columns2save
         self.drop_na = drop_na
         self.classifiers_paths = {}
@@ -408,15 +409,9 @@ class TestParam:
 
     def read_testset(self):
         chunksize = DEF_CHUNKSIZE
-        categ_columns = None  # to be initialized
         for dataframe in pd.read_hdf(self.testset_filepath,
                                      columns=self._allcolumns,
                                      chunksize=chunksize):
-            if categ_columns is None:
-                categ_columns = set(self.categorical_columns or []) & \
-                    set(_ for _ in dataframe.columns)
-            for c__ in categ_columns:
-                dataframe[c__] = dataframe[c__].astype('category')
             yield dataframe
 
     @property
@@ -464,7 +459,7 @@ def _predict_mp(args):
 # PREDICTIONSDIRNAME = 'predictions'
 
 
-def run_evaluation(training_param, testing_param, destdir):
+def run_evaluation(training_param, test_param, destdir):
     '''Runs the model evaluation
     '''
     if not isdir(destdir):
@@ -503,19 +498,22 @@ def run_evaluation(training_param, testing_param, destdir):
           (newly_created_models, len(classifier_paths)))
 
     print('Step 2 of 2: Testing (creating prediction data frames)')
-    testing_param.set_classifiers_paths(classifier_paths)
+    test_param.set_classifiers_paths(classifier_paths)
     pool = Pool(processes=int(cpu_count()))
     pred_filepaths = []
-    with click.progressbar(length=testing_param.num_iterations,
+    with click.progressbar(length=test_param.num_iterations,
                            fill_char='o', empty_char='.') as pbar:
         try:
-            for test_df_chunk in testing_param.read_testset():
-                iterargs = testing_param.iterargs(test_df_chunk)
+            for test_df_chunk in test_param.read_testset():
+                iterargs = test_param.iterargs(test_df_chunk)
                 for pred_df, destpath in \
                         pool.imap_unordered(_predict_mp, iterargs):
                     if pred_df is not None:
                         # save on the main process (here):
-                        save_df(pred_df, destpath, append=True)
+                        kwargs = {'append': True}
+                        if test_param.min_itemsize:
+                            kwargs['min_itemsize'] = test_param.min_itemsize
+                        save_df(pred_df, destpath, **kwargs)
                         if destpath not in pred_filepaths:
                             pred_filepaths.append(destpath)
                     pbar.update(1)
