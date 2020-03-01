@@ -138,7 +138,11 @@ def _binary_clf_curve(y_true, y_score, method='roc'):
 
         # get the best threshold where we have the best F1 score
         # (avoid multiplying by 2 as useless):
-        scores = (prc * rec) / (prc + rec)
+        # also , consider avoiding numpy warning for NaNs:
+        scores = np.zeros(len(prc), dtype=float)
+        isfinite = (prc != 0) | (rec != 0)
+        scores[isfinite] = \
+            (prc[isfinite] * rec[isfinite]) / (prc[isfinite] + rec[isfinite])
         # Get best score ignoring lat score. From the docs (see link above):
         # the last precision and recall values are 1. and 0. respectively and
         # do not have a corresponding threshold. This ensures that the graph

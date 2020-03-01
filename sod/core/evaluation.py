@@ -135,6 +135,19 @@ def save_df(dataframe, filepath, **kwargs):
     )
 
 
+def hdf_nrows(filepath):
+    '''Gets the number of rows of the given HDF'''
+    store = pd.HDFStore(filepath)
+    try:
+        keys = list(store.keys())
+        if len(keys) != 1:
+            raise ValueError('Unable to get nrows from testset: '
+                             'HDF has more than 1 key')
+        return store.get_storer(keys[0]).nrows
+    finally:
+        store.close()
+
+
 def split(size, n_folds):
     '''Iterable yielding tuples of `(start, end)` indices
     (`start` < `end`) resulting from splitting `size` into `n_folds`.
@@ -196,16 +209,20 @@ _safe = ''.join(set(chr(_) for _ in range(33, 127)) - set('/&?=,%'))
 
 class TrainingParam:
     '''Class handling the parameter for creating N models
-    and saving them to file by means of the function `_create_save_classifier`.
+    and by means of the function `_classifier_mp`.
+    This class is intended to be used inside `run_evaluation`
+    from within a multiprocessing.Pool with several worker sub-processes to
+    parallelize and speed up the calculations.
     The number N of models is inferred from the parameter passed in `__init__`.
     When calling `iterargs` with a given destination directory, this class
-    returns the N arguments to be passed to `_create_save_classifier`.
+    returns a list of N arguments to be passed to `_classifier_mp`.
     See `run_evaluation` for details.
-    Note: `_create_save_classifier` is not implemented inside this class for
+    Note: `_classifier_mp` is not implemented inside this class for
     pickable problem with multiprocessing
     '''
     def __init__(self, clf_classname, clf_param_dict,
-                 input_filenpath, input_features_list, input_drop_na):
+                 trainingset_filepath, input_features_list,
+                 trainingset_drop_na):
         try:
             modname = clf_classname[:clf_classname.rfind('.')]
             module = importlib.import_module(modname)
@@ -227,34 +244,50 @@ class TrainingParam:
             __p.append(tuple((pname, v) for v in vals))
         self.parameters = tuple(dict(_) for _ in product(*__p))
 
-        if not isfile(input_filenpath):
-            raise FileNotFoundError(input_filenpath)
-        self.input_filepath = input_filenpath
+        if not isfile(trainingset_filepath):
+            raise FileNotFoundError(trainingset_filepath)
+        self.trainingset_filepath = trainingset_filepath
         self.features = input_features_list
-        self.drop_na = input_drop_na
+        self.drop_na = trainingset_drop_na
+
+    @property
+    def allfeatures(self):
+        ret = []
+        for feats in self.features:
+            for feat in feats:
+                if feat not in ret:
+                    ret.append(feat)
+        return tuple(ret)
 
     def iterargs(self, destdir):
         '''Builds and returns from this object parameters a list of N arguments
         to be passed to `_create_save_classifier`. See `run_evaluation` for
         details
         '''
+        training_df = self.read_trainingset()
         ret = []
         for features in self.features:
             for params in self.parameters:
                 destpath = join(
                     destdir,
                     self.model_filename(self.clf_class,
-                                        basename(self.input_filepath),
+                                        basename(self.trainingset_filepath),
                                         *features, **params)
                 )
                 ret.append((
                     self.clf_class,
-                    self.input_filepath,
-                    features,
+                    training_df[features],
                     params,
-                    destpath,
-                    self.drop_na
+                    destpath
                 ))
+        return ret
+
+    def read_trainingset(self):
+        ret = pd.read_hdf(self.trainingset_filepath,
+                          columns=self.allfeatures)
+        if self.drop_na:
+            ret = ret.dropna(axis=0, how='any')
+
         return ret
 
     @staticmethod
@@ -279,62 +312,122 @@ class TrainingParam:
                         for k, v in pars.items()) + '.sklmodel'
 
 
-def _create_save_classifier(args):
+def _classifier_mp(args):
     '''Creates and saves models from the given argument. See `TrainingParam`
     and `run_evaluation`'''
-    (clf_class, input_filepath, features, params, destpath, drop_na) = args
-    if not isdir(dirname(destpath)):
-        raise ValueError('Can not store model, parent directory does not exist: '
-                         '"%s"' % destpath)
-    elif isfile(destpath):
-        return destpath, False
-    dataframe = pd.read_hdf(input_filepath, columns=features)
-    if drop_na:
-        dataframe = dataframe.dropna(axis=0, subset=features, how='any')
-    clf = classifier(clf_class, dataframe, **params)
-    dump(clf, destpath)
-    return destpath, True
+#     (clf_class, input_filepath, features, params, destpath, drop_na) = args
+#     if not isdir(dirname(destpath)):
+#         raise ValueError('Can not store model, parent directory does not exist: '
+#                          '"%s"' % destpath)
+#     elif isfile(destpath):
+#         return destpath, False
+#     dataframe = pd.read_hdf(input_filepath, columns=features)
+#     if drop_na:
+#         dataframe = dataframe.dropna(axis=0, subset=features, how='any')
+#     clf = classifier(clf_class, dataframe, **params)
+#     dump(clf, destpath)
+#     return destpath, True
+
+    (clf_class, training_df, params, destpath) = args
+    if isfile(destpath):
+        return None, destpath
+    clf = classifier(clf_class, training_df, **params)
+    # We could save here because although this function is executed from
+    # a worker proces, there can not be conflicts. However, for safety,
+    # delagate to the parent (main) process. Thus comment this:
+    # dump(clf, destpath)
+    return clf, destpath
+
+
+DEF_CHUNKSIZE = 200000
 
 
 class TestParam:
     '''Class handling the parameter(s) for testing N models against a test set
     and saving the predictions to HDF file by means of the function
-    `_predict_and_save`.
-    The number N of models is passed in `iterargs`, which returns
-    N arguments to be passed to `_predict_and_save`.
+    `_predict_mp`. This class is intended to be used inside `run_evaluation`
+    from within a multiprocessing.Pool with several worker sub-processes to
+    parallelize and speed up the calculations.
+    The number N of models is passed in `set_classifiers_paths`.
+    After that, one calls `iterargs` with a given test dataframe to yield
+    N arguments to be passed to `_predict_mp`.
+    Note that `iterargs` will be called several times with chunks
+    of the test dataframe to predict. This is necessary to avoid problems
+    for big test sets.
     See `run_evaluation` for details.
-    Note: `_predict_and_save` is not implemented inside this class for
+    Note: `_predict_mp` is not implemented inside this class for
     pickable problem with multiprocessing
     '''
-    def __init__(self, input_filepath, categorical_columns, columns2save,
+    def __init__(self, testset_filepath, categorical_columns, columns2save,
                  drop_na):
-        if not isfile(input_filepath):
-            raise FileNotFoundError(input_filepath)
-        self.input_filepath = input_filepath
+        if not isfile(testset_filepath):
+            raise FileNotFoundError(testset_filepath)
+        self.testset_filepath = testset_filepath
         self.categorical_columns = categorical_columns
         self.columns2save = columns2save
         self.drop_na = drop_na
+        self.classifiers_paths = {}
 
-    def iterargs(self, classifiers_paths):
+    def set_classifiers_paths(self, classifiers_paths):
         '''Builds and returns from this object parameters a list of N arguments
         to be passed to `_create_save_classifier`. See `run_evaluation` for
         details
         '''
-        ret = []
+        ret = odict()
         for clfpath in classifiers_paths:
             outdir = splitext(clfpath)[0]
-            outfile = join(outdir, basename(self.input_filepath))
-            if isfile(outfile):
+            destpath = join(outdir, basename(self.testset_filepath))
+            if isfile(destpath):
                 continue
-            elif not isdir(dirname(outfile)):
-                makedirs(dirname(outfile))
-            if not isdir(dirname(outfile)):
+            elif not isdir(dirname(destpath)):
+                makedirs(dirname(destpath))
+            if not isdir(dirname(destpath)):
                 continue
             feats = self.model_params(clfpath)['feats']
-            ret.append([feats, clfpath, self.input_filepath,
-                        self.categorical_columns, self.columns2save,
-                        self.drop_na, outfile])
-        return ret
+            ret[clfpath] = (destpath, feats)
+        self.classifiers_paths = ret
+
+    @property
+    def num_iterations(self):
+        '''Gets the number of iterations for creating the predicitons
+        dataframes. This is the number of chunks to be read from the test set
+        times the number of classifiers set with set_classifiers'''
+        nrows = hdf_nrows(self.testset_filepath)
+        chunksize = DEF_CHUNKSIZE
+        return len(self.classifiers_paths) * \
+            int(np.ceil(np.true_divide(nrows, chunksize)))
+
+    def iterargs(self, test_df):
+        '''Yields an iterable of arguments
+        to be passed to `_create_save_classifier`. See `run_evaluation` for
+        details
+        '''
+        for clfpath, (destpath, feats) in self.classifiers_paths.items():
+            yield (test_df, clfpath, feats, self.columns2save,
+                   self.drop_na, destpath)
+
+    def read_testset(self):
+        chunksize = DEF_CHUNKSIZE
+        categ_columns = None  # to be initialized
+        for dataframe in pd.read_hdf(self.testset_filepath,
+                                     columns=self._allcolumns,
+                                     chunksize=chunksize):
+            if categ_columns is None:
+                categ_columns = set(self.categorical_columns or []) & \
+                    set(_ for _ in dataframe.columns)
+            for c__ in categ_columns:
+                dataframe[c__] = dataframe[c__].astype('category')
+            yield dataframe
+
+    @property
+    def _allcolumns(self):
+        allcols = list(self.columns2save)
+        for clfpath in self.classifiers_paths:
+            feats = self.model_params(clfpath)['feats']
+            for feat in feats:
+                if feat not in allcols:
+                    allcols.append(feat)
+        return allcols
 
     @staticmethod
     def model_params(model_filename):
@@ -354,32 +447,16 @@ class TestParam:
         return ret
 
 
-DEF_CHUNKSIZE = 200000
-
-
-def _predict_and_save(args):
+def _predict_mp(args):
     '''Tests a given models against a given test set and saves the prediction
     result as HDF. See `TestParam` and `run_evaluation`'''
-    (features, clfpath, input_filepath, categorical_columns, columns2save,
-     drop_na, outfile) = args
-    allcols = list(columns2save) + \
-        list(_ for _ in features if _ not in columns2save)
-    chunksize = DEF_CHUNKSIZE
-    categ_columns = None  # to be initialized
-    for dataframe in pd.read_hdf(input_filepath, columns=allcols,
-                                 chunksize=chunksize):
-        if categ_columns is None:
-            categ_columns = set(categorical_columns or []) & \
-                set(_ for _ in dataframe.columns)
-        for c__ in categ_columns:
-            dataframe[c__] = dataframe[c__].astype('category')
-        if drop_na:
-            dataframe = dataframe.dropna(axis=0, subset=features, how='any')
-        if dataframe.empty:
-            continue
-        pred_df = predict(load(clfpath), dataframe, features, columns2save)
-        save_df(pred_df, outfile, append=True)
-    return outfile
+    (test_df, clfpath, features, columns2save, drop_na, destpath) = args
+    if drop_na:
+        test_df = test_df.dropna(axis=0, subset=features, how='any')
+    if test_df.empty:
+        return None, destpath
+    pred_df = predict(load(clfpath), test_df, features, columns2save)
+    return pred_df, destpath
 
 
 # MODELDIRNAME = 'models'
@@ -399,17 +476,23 @@ def run_evaluation(training_param, testing_param, destdir):
 
     print('Step 1 of 2: Training (creating models)')
     pool = Pool(processes=int(cpu_count()))
+    print('Reading Training file (HDF)')
     iterargs = training_param.iterargs(destdir)
     with click.progressbar(length=len(iterargs),
                            fill_char='o', empty_char='.') as pbar:
         try:
             newly_created_models = 0
-            for clfpath, newly_created in \
-                    pool.imap_unordered(_create_save_classifier, iterargs):
-                newly_created_models += newly_created
-                classifier_paths.append(clfpath)
+            print('Building classifiers from parameters and training file')
+            for clf, destpath in \
+                    pool.imap_unordered(_classifier_mp, iterargs):
+                # save on the main process (here):
+                if clf is not None:
+                    dump(clf, destpath)
+                    newly_created_models += 1
+                classifier_paths.append(destpath)
                 pbar.update(1)
-            # absolutely call these methods, although in impa and imap unordered
+            # absolutely call these methods
+            # although in impa and imap unordered
             # do make sense?
             pool.close()
             pool.join()
@@ -420,18 +503,24 @@ def run_evaluation(training_param, testing_param, destdir):
           (newly_created_models, len(classifier_paths)))
 
     print('Step 2 of 2: Testing (creating prediction data frames)')
+    testing_param.set_classifiers_paths(classifier_paths)
     pool = Pool(processes=int(cpu_count()))
-    iterargs = testing_param.iterargs(classifier_paths)
     pred_filepaths = []
-    with click.progressbar(length=len(iterargs),
+    with click.progressbar(length=testing_param.num_iterations,
                            fill_char='o', empty_char='.') as pbar:
         try:
-            for pred_filepath in \
-                    pool.imap_unordered(_predict_and_save, iterargs):
-                if pred_filepath:
-                    pred_filepaths.append(pred_filepath)
-                pbar.update(1)
-            # absolutely call these methods, although in impa and imap unordered
+            for test_df_chunk in testing_param.read_testset():
+                iterargs = testing_param.iterargs(test_df_chunk)
+                for pred_df, destpath in \
+                        pool.imap_unordered(_predict_mp, iterargs):
+                    if pred_df is not None:
+                        # save on the main process (here):
+                        save_df(pred_df, destpath, append=True)
+                        if destpath not in pred_filepaths:
+                            pred_filepaths.append(destpath)
+                    pbar.update(1)
+            # absolutely call these methods,
+            # although in imap and imap unordered
             # do make sense?
             pool.close()
             pool.join()
@@ -519,5 +608,5 @@ def create_summary_evaluationmetrics(destdir):
                              verify_integrity=False,
                              sort=False).reset_index(drop=True)
         save_df(dfr, eval_df_path)
-    
+
     

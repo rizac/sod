@@ -31,8 +31,73 @@ from sod.evaluate import run, load_cfg as original_load_cfg
 from sod.core import paths, pdconcat
 from datetime import datetime
 from sod.core.paths import EVALUATIONS_CONFIGS_DIR
-from sod.core.evaluation import _predict_and_save, classifier, load, dump, predict
+from sod.core.evaluation import _predict_mp, classifier, load, dump, predict
+import multiprocessing
+import time
 
+root = dirname(__file__)
+datadir = join(root, 'data')
+tmpdir = join(dirname(__file__), 'tmp')
+
+if not isfile(join(datadir, 'allset_train.hdf_')):
+    N = 210
+    d = pd.DataFrame(
+        {
+            'Segment.db.id': list(range(N)),
+            'dataset_id': 3,
+            'channel_code': 'c',
+            'location_code': 'l',
+            'outlier': False,
+            'hand_labelled': True,
+            'window_type': True,
+            'event_time': datetime.utcnow(),
+            'station_id': 5,
+            # add nan to the features to check we drop na:
+            'psd@2sec': np.append(10*[np.nan], np.random.random(N-10)),
+            'psd@5sec': np.random.random(N),
+        }
+    )
+    # save with extension hdf_ BECAUSE hdf IS GITIGNORED!!!
+    d.to_hdf(join(datadir, 'allset_train.hdf_'), 'a', mode='w',
+             format='table')
+    N2 = int(N/2)
+    d['psd@2sec'] = np.append(np.random.random(N2), -np.random.random(N2))
+    d['psd@5sec'] = np.append(np.random.random(N2), -np.random.random(N2))
+    d['outlier'] = [True] * (N2-1) + [False, True] + [False] * (N2-1)
+
+    d.loc[N2-5:N2+5, :].to_hdf(join(datadir, 'allset_test.hdf_'), 'a', mode='w',
+                               format='table')
+
+def _read_hdf(fpath):
+    ret = []
+    for i, _ in enumerate(pd.read_hdf(fpath, chunksize=10)):
+        # time.sleep(np.random.randint(3))
+        ret.append(_)
+#         if i >= 10:
+#             break
+    return pd.concat(ret, axis=0, sort=False)
+
+
+def tst_mp_hdf_read():
+    '''this function was used to test that reading an HDF is not thread-safe
+    (nor sub-process-safe): it seems that the handler used to open a file
+    with pd.read_hdf(...chunksize=...) is global and thus every subprocess
+    accesses the same opened file
+    Now it is commented because its time consuming and its goal has alreayd
+    been achieved
+    '''
+    fpath = join(datadir, 'allset_train.hdf_')
+    p = multiprocessing.Pool()
+    dfs = []
+    for df in p.imap_unordered(_read_hdf, [fpath, fpath]):
+        dfs.append(df)
+    p.close()
+    p.join()
+    try:
+        pd.testing.assert_frame_equal(dfs[0], dfs[1])
+        raise ValueError('DataFrames are equal and should not')
+    except AssertionError:
+        pass
 
 class PoolMocker:
     
@@ -65,49 +130,15 @@ class PoolMocker:
 
 class Tester:
 
-    root = dirname(__file__)
-    datadir = join(root, 'data')
-
     evalconfig = 'eval.allset_train_test.iforest.yaml'
 #     clfevalconfig = join(root, 'data',
 #                          'clfeval.allset_train_test.iforest.psd@5sec.yaml')
 
-    if not isfile(join(datadir, 'allset_train.hdf_')):
-        N = 210
-        d = pd.DataFrame(
-            {
-                'Segment.db.id': list(range(N)),
-                'dataset_id': 3,
-                'channel_code': 'c',
-                'location_code': 'l',
-                'outlier': False,
-                'hand_labelled': True,
-                'window_type': True,
-                'event_time': datetime.utcnow(),
-                'station_id': 5,
-                # add nan to the features to check we drop na:
-                'psd@2sec': np.append(10*[np.nan], np.random.random(N-10)),
-                'psd@5sec': np.random.random(N),
-            }
-        )
-        # save with extension hdf_ BECAUSE hdf IS GITIGNORED!!!
-        d.to_hdf(join(datadir, 'allset_train.hdf_'), 'a', mode='w',
-                 format='table')
-        N2 = int(N/2)
-        d['psd@2sec'] = np.append(np.random.random(N2), -np.random.random(N2))
-        d['psd@5sec'] = np.append(np.random.random(N2), -np.random.random(N2))
-        d['outlier'] = [True] * (N2-1) + [False, True] + [False] * (N2-1)
-
-        d.loc[N2-5:N2+5, :].to_hdf(join(datadir, 'allset_test.hdf_'), 'a', mode='w',
-                 format='table')
-    tmpdir = join(dirname(__file__), 'tmp')
-
-
-    def test_save_pred_df(self):
-        input_filepath = join(self.datadir, 'allset_train.hdf_')
+    def tst_save_pred_df(self):
+        input_filepath = join(datadir, 'allset_train.hdf_')
         dfr = pd.read_hdf(input_filepath)
         # use tmpdir because it will be removed (see test_evaluator below):
-        clfpath = join(self.tmpdir, 'tmp.sklmodel')
+        clfpath = join(tmpdir, 'tmp.sklmodel')
         features = ['psd@2sec', 'psd@5sec']
         clf = classifier(IsolationForest,
                          dfr[features].dropna(subset=features))
@@ -116,45 +147,34 @@ class Tester:
         columns2save = ['Segment.db.id']
         drop_na = True
         # use tmpdir because it will be removed (see test_evaluator below):
-        outfile = join(self.tmpdir, 'tmp_pred.hdf') 
+        outfile = join(tmpdir, 'tmp_pred.hdf') 
         args = (features, clfpath, input_filepath, categorical_columns, columns2save,
                 drop_na, outfile)
         # use a chunksize of 10 because we have the first 10 numbers nan
         # in the test dataframe (see above) and we want to test that we
         # skip empty dataframes in _predict_and_save:
         with patch('sod.core.evaluation.DEF_CHUNKSIZE', 10):
-            _predict_and_save(args)
+            _predict_mp(args)
         pred_df1 = pd.read_hdf(outfile)
         pred_df2 = predict(clf, dfr[features + columns2save].dropna(subset=features),
                            features, columns2save)
         pd.testing.assert_frame_equal(pred_df1, pred_df2)
-        asd = 9
 
-    # REMOVE THESE LINES (CREATE A SMALL DATASET FOR TESTING FROM AN EXISTING ONE):
-#     hdf_ = pd.read_hdf('/Users/riccardo/work/gfz/projects/sources/python/sod/sod/datasets/allset_train.hdf')
-#     hts = []
-#     for sc in pd.unique(hdf_.subclass):
-#         for clname in allset_train.classnames:
-#             hts.append(hdf_[(hdf_.subclass == sc) & (hdf_.outlier)][:10])
-#             hts.append(hdf_[(hdf_.subclass == sc) & ~(hdf_.outlier)][:10])
-#     save_df(pdconcat(hts),
-#             '/Users/riccardo/work/gfz/projects/sources/python/sod/test/data/allset_train.hdf_',
-#             key='allset_train')
 
-    # @patch('sod.core.dataset.dataset_path')
-    @patch('sod.core.evaluation.Pool',
-           side_effect=lambda *a, **v: PoolMocker())
+# TEST THE MAIN EVALUATION. FOR PROBLEMS, UNCOMMENT THE PATCH BELOW AND
+# THE ARGUMENT mcok_pool. THIS WILL RUN THE TEST WITH A MOCKED VERSION OF
+# multiprocessing.Pool WHICH EXECUTES EVERYTHING IN A SINGLE PROCESS
+
+#     @patch('sod.core.evaluation.Pool',
+#            side_effect=lambda *a, **v: PoolMocker())
     @patch('sod.evaluate.load_cfg')
     def test_evaluator(self,
-                       # pytest fixutres:
-                       # tmpdir
                        mock_load_cfg,
-                       mock_pool,
-                       #mock_dataset_in_path
+                       # mock_pool,
                        ):
-        if isdir(self.tmpdir):
-            shutil.rmtree(self.tmpdir)
-        makedirs(self.tmpdir)
+        if isdir(tmpdir):
+            shutil.rmtree(tmpdir)
+        makedirs(tmpdir)
 
         def load_cfg_side_effect(*a, **kw):
             dic = original_load_cfg(*a, **kw)
@@ -167,27 +187,28 @@ class Tester:
 
         mock_load_cfg.side_effect = load_cfg_side_effect
 
-        with patch('sod.evaluate.DATASETS_DIR', self.datadir):
-            with patch('sod.evaluate.EVALUATIONS_RESULTS_DIR', self.tmpdir):
+        with patch('sod.evaluate.DATASETS_DIR', datadir):
+            with patch('sod.evaluate.EVALUATIONS_RESULTS_DIR', tmpdir):
+                 with patch('sod.core.evaluation.DEF_CHUNKSIZE', 2):
     
-                eval_cfg_path = self.evalconfig
-                cvconfigname = basename(eval_cfg_path)
-                evalsumpath = join(self.tmpdir,
-                                   'summary_evaluationmetrics.hdf')
-
-                runner = CliRunner()
-                result = runner.invoke(run, ["-c", cvconfigname])
-                assert not result.exception
-                assert "4 of 4 models created " in result.output
-                assert "4 of 4 predictions created " in result.output
-                evalsum_df = pd.read_hdf(evalsumpath)
-                assert len(evalsum_df) == 4
-                mtime = stat(evalsumpath).st_mtime
-
-                result = runner.invoke(run, ["-c", cvconfigname])
-                assert not result.exception
-                assert "0 of 4 models created " in result.output
-                assert "0 of 4 predictions created " in result.output
-                evalsum_df = pd.read_hdf(evalsumpath)
-                assert len(evalsum_df) == 4
-                assert stat(evalsumpath).st_mtime == mtime
+                    eval_cfg_path = self.evalconfig
+                    cvconfigname = basename(eval_cfg_path)
+                    evalsumpath = join(tmpdir,
+                                       'summary_evaluationmetrics.hdf')
+    
+                    runner = CliRunner()
+                    result = runner.invoke(run, ["-c", cvconfigname])
+                    assert not result.exception
+                    assert "4 of 4 models created " in result.output
+                    assert "4 of 4 predictions created " in result.output
+                    evalsum_df = pd.read_hdf(evalsumpath)
+                    assert len(evalsum_df) == 4
+                    mtime = stat(evalsumpath).st_mtime
+    
+                    result = runner.invoke(run, ["-c", cvconfigname])
+                    assert not result.exception
+                    assert "0 of 4 models created " in result.output
+                    assert "0 of 4 predictions created " in result.output
+                    evalsum_df = pd.read_hdf(evalsumpath)
+                    assert len(evalsum_df) == 4
+                    assert stat(evalsumpath).st_mtime == mtime
