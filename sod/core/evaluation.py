@@ -250,22 +250,27 @@ class TrainingParam:
         self.features = input_features_list
         self.drop_na = trainingset_drop_na
 
-    @property
-    def allfeatures(self):
-        ret = []
-        for feats in self.features:
-            for feat in feats:
-                if feat not in ret:
-                    ret.append(feat)
-        return tuple(ret)
+    def classifier_paths(self, destdir):
+        return [_[0] for _ in self._clfiter(destdir)]
 
     def iterargs(self, destdir):
-        '''Builds and returns from this object parameters a list of N arguments
+        '''Yields a list of N arguments
         to be passed to `_create_save_classifier`. See `run_evaluation` for
         details
         '''
         training_df = self.read_trainingset()
-        ret = []
+        for destpath, features, params in \
+                self._clfiter(destdir):
+            if isfile(destpath):
+                continue
+            yield (
+                    self.clf_class,
+                    training_df[features],
+                    params,
+                    destpath
+                )
+
+    def _clfiter(self, destdir):
         for features in self.features:
             for params in self.parameters:
                 destpath = join(
@@ -274,13 +279,7 @@ class TrainingParam:
                                         basename(self.trainingset_filepath),
                                         *features, **params)
                 )
-                ret.append((
-                    self.clf_class,
-                    training_df[features],
-                    params,
-                    destpath
-                ))
-        return ret
+                yield destpath, features, params
 
     def read_trainingset(self):
         ret = pd.read_hdf(self.trainingset_filepath,
@@ -289,6 +288,15 @@ class TrainingParam:
             ret = ret.dropna(axis=0, how='any')
 
         return ret
+
+    @property
+    def allfeatures(self):
+        ret = []
+        for feats in self.features:
+            for feat in feats:
+                if feat not in ret:
+                    ret.append(feat)
+        return tuple(ret)
 
     @staticmethod
     def model_filename(clf_class, tr_set, *features, **clf_params):
@@ -300,7 +308,7 @@ class TrainingParam:
             str(_) for _ in
             (tr_set if isinstance(tr_set, (list, tuple)) else [tr_set])
         ]
-        pars['feats'] = [str(_) for _ in features]
+        pars['feats'] = [str(_) for _ in sorted(features)]
         for key in sorted(clf_params):
             val = clf_params[key]
             pars[q(key, safe=_safe)] = [
@@ -315,22 +323,9 @@ class TrainingParam:
 def _classifier_mp(args):
     '''Creates and saves models from the given argument. See `TrainingParam`
     and `run_evaluation`'''
-#     (clf_class, input_filepath, features, params, destpath, drop_na) = args
-#     if not isdir(dirname(destpath)):
-#         raise ValueError('Can not store model, parent directory does not exist: '
-#                          '"%s"' % destpath)
-#     elif isfile(destpath):
-#         return destpath, False
-#     dataframe = pd.read_hdf(input_filepath, columns=features)
-#     if drop_na:
-#         dataframe = dataframe.dropna(axis=0, subset=features, how='any')
-#     clf = classifier(clf_class, dataframe, **params)
-#     dump(clf, destpath)
-#     return destpath, True
-
     (clf_class, training_df, params, destpath) = args
-    if isfile(destpath):
-        return None, destpath
+#     if isfile(destpath):
+#         return None, destpath
     clf = classifier(clf_class, training_df, **params)
     # We could save here because although this function is executed from
     # a worker proces, there can not be conflicts. However, for safety,
@@ -467,33 +462,36 @@ def run_evaluation(training_param, test_param, destdir):
     print('Running Evaluator. All files will be stored in:\n%s' %
           destdir)
 
-    classifier_paths = []
-
     print('Step 1 of 2: Training (creating models)')
-    pool = Pool(processes=int(cpu_count()))
-    print('Reading Training file (HDF)')
-    iterargs = training_param.iterargs(destdir)
-    with click.progressbar(length=len(iterargs),
-                           fill_char='o', empty_char='.') as pbar:
-        try:
-            newly_created_models = 0
-            print('Building classifiers from parameters and training file')
-            for clf, destpath in \
-                    pool.imap_unordered(_classifier_mp, iterargs):
-                # save on the main process (here):
-                if clf is not None:
-                    dump(clf, destpath)
-                    newly_created_models += 1
-                classifier_paths.append(destpath)
-                pbar.update(1)
-            # absolutely call these methods
-            # although in impa and imap unordered
-            # do make sense?
-            pool.close()
-            pool.join()
-        except Exception as exc:
-            _kill_pool(pool, str(exc))
-            raise exc
+    newly_created_models = 0
+    iterargs = list(training_param.iterargs(destdir))
+    if iterargs:
+        pool = Pool(processes=int(cpu_count()))
+        print('Reading Training file (HDF)')
+        
+        with click.progressbar(length=len(iterargs),
+                               fill_char='o', empty_char='.') as pbar:
+            try:
+                print('Building classifiers from parameters and training file')
+                for clf, destpath in \
+                        pool.imap_unordered(_classifier_mp, iterargs):
+                    # save on the main process (here):
+                    if clf is not None:
+                        dump(clf, destpath)
+                        newly_created_models += 1
+                    pbar.update(1)
+                # absolutely call these methods
+                # although in impa and imap unordered
+                # do make sense?
+                pool.close()
+                pool.join()
+            except Exception as exc:
+                _kill_pool(pool, str(exc))
+                raise exc
+
+    classifier_paths = [
+        _ for _ in training_param.classifier_paths(destdir) if isfile(_)
+    ]
     print("%d of %d models created (already existing were not overwritten)" %
           (newly_created_models, len(classifier_paths)))
 

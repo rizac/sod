@@ -212,7 +212,7 @@ class Tester:
     
                     result = runner.invoke(run, ["-c", cvconfigname])
                     assert not result.exception
-                    assert "0 of 4 models created " in result.output
+                    assert "0 of 4 models created " not in result.output
                     assert "0 of 4 predictions created " in result.output
                     evalsum_df = pd.read_hdf(evalsumpath)
                     assert len(evalsum_df) == 4
