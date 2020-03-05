@@ -71,7 +71,8 @@ if not isfile(join(datadir, 'allset_train.hdf_')):
     # https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#string-columns
     dtest.loc[0, 'location_code'] = 'l'
     dtest.to_hdf(join(datadir, 'allset_test.hdf_'), 'a', mode='w',
-                               format='table')
+                 format='table')
+
 
 def _read_hdf(fpath):
     ret = []
@@ -135,7 +136,7 @@ class PoolMocker:
 
 class Tester:
 
-    evalconfig = 'eval.allset_train_test.iforest.yaml'
+    evalconfig = 'eval.allset_train_test.iforest.00.yaml'
 #     clfevalconfig = join(root, 'data',
 #                          'clfeval.allset_train_test.iforest.psd@5sec.yaml')
 
@@ -170,12 +171,12 @@ class Tester:
 # THE ARGUMENT mcok_pool. THIS WILL RUN THE TEST WITH A MOCKED VERSION OF
 # multiprocessing.Pool WHICH EXECUTES EVERYTHING IN A SINGLE PROCESS
 
-#     @patch('sod.core.evaluation.Pool',
-#            side_effect=lambda *a, **v: PoolMocker())
+    @patch('sod.core.evaluation.Pool',
+           side_effect=lambda *a, **v: PoolMocker())
     @patch('sod.evaluate.load_cfg')
     def test_evaluator(self,
                        mock_load_cfg,
-                       # mock_pool,
+                       mock_pool,
                        ):
         if isdir(tmpdir):
             shutil.rmtree(tmpdir)
@@ -194,26 +195,49 @@ class Tester:
 
         with patch('sod.evaluate.DATASETS_DIR', datadir):
             with patch('sod.evaluate.EVALUATIONS_RESULTS_DIR', tmpdir):
-                 with patch('sod.core.evaluation.DEF_CHUNKSIZE', 2):
-    
+                with patch('sod.core.evaluation.DEF_CHUNKSIZE', 2):
+
                     eval_cfg_path = self.evalconfig
                     cvconfigname = basename(eval_cfg_path)
                     evalsumpath = join(tmpdir,
                                        'summary_evaluationmetrics.hdf')
-    
+
                     runner = CliRunner()
                     result = runner.invoke(run, ["-c", cvconfigname])
                     assert not result.exception
                     assert "4 of 4 models created " in result.output
                     assert "4 of 4 predictions created " in result.output
+                    assert ("4 new prediction(s) found") in result.output
                     evalsum_df = pd.read_hdf(evalsumpath)
                     assert len(evalsum_df) == 4
                     mtime = stat(evalsumpath).st_mtime
-    
+
                     result = runner.invoke(run, ["-c", cvconfigname])
                     assert not result.exception
-                    assert "0 of 4 models created " not in result.output
+                    assert "0 of 4 models created " in result.output
                     assert "0 of 4 predictions created " in result.output
+                    assert ("0 new prediction(s) found") in result.output
                     evalsum_df = pd.read_hdf(evalsumpath)
                     assert len(evalsum_df) == 4
                     assert stat(evalsumpath).st_mtime == mtime
+
+                    # now remove one evaluation summary:
+                    evalsum_df = evalsum_df[:len(evalsum_df)-1]
+                    evalsum_df.to_hdf(evalsumpath, key='a', format='table',
+                                      mode='w')
+                    assert len(evalsum_df) == 3
+                    # wait one second because the mtime in mac is in second
+                    # and we might have the same motification time even if the
+                    # file has been modified
+                    time.sleep(1)
+                    # re-run:
+                    result = runner.invoke(run, ["-c", cvconfigname])
+                    assert not result.exception
+                    assert "0 of 4 models created " in result.output
+                    assert "0 of 4 predictions created " in result.output
+                    assert ("1 new prediction(s) found") in result.output
+                    evalsum_df = pd.read_hdf(evalsumpath)
+                    assert len(evalsum_df) == 4
+                    assert stat(evalsumpath).st_mtime > mtime
+                    # and relaunch:
+                    

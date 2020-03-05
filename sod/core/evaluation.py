@@ -5,19 +5,16 @@ Created on 1 Nov 2019
 
 @author: riccardo
 '''
-import json
 import re
 import importlib
 
 from multiprocessing import Pool, cpu_count
 from os import listdir, makedirs
-from os.path import join, dirname, isfile, basename, splitext, isdir, abspath
-from itertools import product, chain
-from collections import defaultdict
+from os.path import join, dirname, isfile, basename, splitext, isdir
+from itertools import product
 
 from sklearn.ensemble.iforest import IsolationForest
 from sklearn.svm.classes import OneClassSVM
-
 from urllib.parse import quote as q, unquote as uq
 import click
 import numpy as np
@@ -25,9 +22,7 @@ import pandas as pd
 from pandas.core.indexes.range import RangeIndex
 from joblib import dump, load
 
-from sod.core import (
-    OUTLIER_COL, odict, CLASS_SELECTORS, CLASSNAMES, PREDICT_COL
-)
+from sod.core import OUTLIER_COL, odict, PREDICT_COL
 from sod.core.metrics import log_loss, average_precision_score, roc_auc_score,\
     roc_curve, precision_recall_curve
 # from sod.core.dataset import is_outlier, OUTLIER_COL
@@ -256,7 +251,10 @@ class TrainingParam:
     def iterargs(self, destdir):
         '''Yields a list of N arguments
         to be passed to `_create_save_classifier`. See `run_evaluation` for
-        details
+        details.
+        **NOTE** This method reads the entire training set once
+        before starting yielding, **be careful for performance reasons**.
+        E.g., calling `args = list(...iterargs(...))` might take a while
         '''
         training_df = self.read_trainingset()
         for destpath, features, params in \
@@ -423,7 +421,7 @@ class TestParam:
     def model_params(model_filename):
         '''Converts the given model_filename (or absolute path) into a dict
         of key -> tuple of **strings** (single values parameters will be mapped
-        to a 1 element tuple)
+        to a 1-element tuple)
         '''
         pth = basename(model_filename)
         pth_, ext = splitext(pth)
@@ -464,11 +462,10 @@ def run_evaluation(training_param, test_param, destdir):
 
     print('Step 1 of 2: Training (creating models)')
     newly_created_models = 0
+    print('Reading Training file (HDF)')
     iterargs = list(training_param.iterargs(destdir))
     if iterargs:
         pool = Pool(processes=int(cpu_count()))
-        print('Reading Training file (HDF)')
-        
         with click.progressbar(length=len(iterargs),
                                fill_char='o', empty_char='.') as pbar:
             try:
@@ -496,33 +493,35 @@ def run_evaluation(training_param, test_param, destdir):
           (newly_created_models, len(classifier_paths)))
 
     print('Step 2 of 2: Testing (creating prediction data frames)')
-    test_param.set_classifiers_paths(classifier_paths)
-    pool = Pool(processes=int(cpu_count()))
     pred_filepaths = []
-    with click.progressbar(length=test_param.num_iterations,
-                           fill_char='o', empty_char='.') as pbar:
-        try:
-            for test_df_chunk in test_param.read_testset():
-                iterargs = test_param.iterargs(test_df_chunk)
-                for pred_df, destpath in \
-                        pool.imap_unordered(_predict_mp, iterargs):
-                    if pred_df is not None:
-                        # save on the main process (here):
-                        kwargs = {'append': True}
-                        if test_param.min_itemsize:
-                            kwargs['min_itemsize'] = test_param.min_itemsize
-                        save_df(pred_df, destpath, **kwargs)
-                        if destpath not in pred_filepaths:
-                            pred_filepaths.append(destpath)
-                    pbar.update(1)
-            # absolutely call these methods,
-            # although in imap and imap unordered
-            # do make sense?
-            pool.close()
-            pool.join()
-        except Exception as exc:
-            _kill_pool(pool, str(exc))
-            raise exc
+    test_param.set_classifiers_paths(classifier_paths)
+    num_iterations = test_param.num_iterations
+    if num_iterations:
+        pool = Pool(processes=int(cpu_count()))
+        with click.progressbar(length=num_iterations,
+                               fill_char='o', empty_char='.') as pbar:
+            try:
+                for test_df_chunk in test_param.read_testset():
+                    iterargs = test_param.iterargs(test_df_chunk)
+                    for pred_df, destpath in \
+                            pool.imap_unordered(_predict_mp, iterargs):
+                        if pred_df is not None:
+                            # save on the main process (here):
+                            kwargs = {'append': True}
+                            if test_param.min_itemsize:
+                                kwargs['min_itemsize'] = test_param.min_itemsize
+                            save_df(pred_df, destpath, **kwargs)
+                            if destpath not in pred_filepaths:
+                                pred_filepaths.append(destpath)
+                        pbar.update(1)
+                # absolutely call these methods,
+                # although in imap and imap unordered
+                # do make sense?
+                pool.close()
+                pool.join()
+            except Exception as exc:
+                _kill_pool(pool, str(exc))
+                raise exc
     print("%d of %d predictions created (already existing were not overwritten)" %
           (len(pred_filepaths), len(classifier_paths)))
 
@@ -551,58 +550,110 @@ def create_summary_evaluationmetrics(destdir):
         (the model name without the extension '.sklmodel') storing each
         prediction run on HDF datasets.
     `'''
+    print('Computing summary evaluation metrics from '
+          'predictions data frames (HDF file)')
+
     eval_df_path = join(destdir, 'summary_evaluationmetrics.hdf')
 
-    cols = [
-        'model',
-        'test_set',
-        'log_loss',
-        'roc_auc_score',
-        'average_precision_score',
-        'best_th_roc_curve',
-        'best_th_pr_curve'
-    ]
-
+    dfr, already_processed_tuples = None, set()
     if isfile(eval_df_path):
         dfr = pd.read_hdf(eval_df_path)
-    else:
-        dfr = pd.DataFrame(columns=cols, data=[])
+        already_processed_tuples = set(dfr._key)
+
+    def build_key(clfdir, testname):
+        return join(basename(clfdir), testname)
 
     # a set is faster than a dataframe for searching already processed
     # couples of (clf, testset_hdf):
-    already_processed_tuples = \
-        set((tuple(_) for _ in zip(dfr.model, dfr.test_set)))
     newrows = []
+    clfs_prediction_paths = []
     for clfname in [] if not isdir(destdir) else listdir(destdir):
         clfdir, ext = splitext(clfname)
         if ext != '.sklmodel':
             continue
         clfdir = join(destdir, clfdir)
         for testname in [] if not isdir(clfdir) else listdir(clfdir):
-            if (clfname, testname) in already_processed_tuples:
+            if build_key(clfdir, testname) in already_processed_tuples:
                 continue
-            predicted_df = pd.read_hdf(join(clfdir, testname),
-                                       columns=[OUTLIER_COL, PREDICT_COL])
+            clfs_prediction_paths.append((clfdir, testname))
 
-            newrows.append({
-                cols[0]: clfname,
-                cols[1]: testname,
-                cols[2]: log_loss(predicted_df),
-                cols[3]: roc_auc_score(predicted_df),
-                cols[4]: average_precision_score(predicted_df),
-                cols[5]: roc_curve(predicted_df)[-1],
-                cols[6]: precision_recall_curve(predicted_df)[-1]
-            })
+    print('%d new prediction(s) found' % len(clfs_prediction_paths))
+    if clfs_prediction_paths:
+        errors = []
+        pool = Pool(processes=int(cpu_count()))
+        with click.progressbar(length=len(clfs_prediction_paths),
+                               fill_char='o', empty_char='.') as pbar:
+            # print('Building classifiers from parameters and training file')
+            for clfdir, testname, dic in \
+                    pool.imap_unordered(_get_summary_evaluationmetrics_mp,
+                                        clfs_prediction_paths):
+                pbar.update(1)
+                if isinstance(dic, Exception):
+                    errors.append(dic)
+                else:
+                    dic['_key'] = build_key(clfdir, testname)
+                    newrows.append(dic)
 
-    if newrows:
-        pd_append = pd.DataFrame(columns=cols, data=newrows)
-        if dfr.empty:
-            dfr = pd_append
-        else:
-            dfr = dfr.append(pd_append,
-                             ignore_index=True,
-                             verify_integrity=False,
-                             sort=False).reset_index(drop=True)
-        save_df(dfr, eval_df_path)
+        if newrows:
+            new_df = pd.DataFrame(data=newrows)
+            if dfr is None:
+                dfr = new_df
+            else:
+                dfr = dfr.append(new_df,
+                                 ignore_index=True,
+                                 verify_integrity=False,
+                                 sort=False).reset_index(drop=True)
+            save_df(dfr, eval_df_path)
 
-    
+        if errors:
+            print('%d prediction(s) discarded due to error' % len(errors))
+            print('(possible cause: only one class found in the prediction)')
+
+
+# columns denoting the metrics. Their value should be implemented in
+# the next function
+_METRIC_COLUMNS = (
+    'log_loss',
+    'roc_auc_score',
+    'average_precision_score',
+    'best_th_roc_curve',
+    'best_th_pr_curve'
+)
+
+
+def _get_summary_evaluationmetrics_mp(clfdir_and_testname):
+    clfdir, testname = clfdir_and_testname
+    filepath = join(clfdir, testname)
+    predicted_df = pd.read_hdf(filepath, columns=[OUTLIER_COL, PREDICT_COL])
+    cols = tuple(_METRIC_COLUMNS)
+    try:
+        # parse the clf file name (which is the directory name of the
+        # prediction dataframe we want to calculate metrics from), and
+        # try to guess if they can be floats or ints:
+        ret = odict()
+        for key, value in TestParam.model_params(clfdir).items():
+            # value is a tuple. First thing is to defined how to store it
+            # in a pandas DataFrame. Use its string method without brackets
+            # (so that e.g., ['a', 'b'] will be stored as 'a,b' and
+            # ['abc'] will be stored as 'abc':
+            stored_value = ",".join(str(_) for _ in value)
+            if len(value) == 1:
+                try:
+                    stored_value = int(value[0])
+                except (ValueError, TypeError):
+                    try:
+                        stored_value = float(value[0])
+                    except (ValueError, TypeError):
+                        pass
+            ret[key] = stored_value
+
+        ret[cols[0]] = log_loss(predicted_df)
+        ret[cols[1]] = roc_auc_score(predicted_df)
+        ret[cols[2]] = average_precision_score(predicted_df)
+        ret[cols[3]] = roc_curve(predicted_df)[-1]
+        ret[cols[4]] = precision_recall_curve(predicted_df)[-1]
+
+        return clfdir, testname, ret
+
+    except Exception as exc:
+        return clfdir, testname, exc
