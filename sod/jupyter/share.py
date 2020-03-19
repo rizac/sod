@@ -179,7 +179,8 @@ def _abspath(evalresult_relpath):
     The latter exists only if some evaluation has
     been run
     '''
-    EVALPATH = join(dirname(dirname(__file__)), 'evaluations', 'results')
+    EVALPATH = join(dirname(dirname(__file__)),
+                    'evaluations', 'results')
     return abspath(join(EVALPATH, evalresult_relpath))
 
 
