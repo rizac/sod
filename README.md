@@ -40,7 +40,10 @@ scp <user>@<host>:<ROOT>/sod/datasets/<dataset>.hdf ./sod/datasets/
 # Evaluation results:
 
 Evaluate means: iterate over a set of user defined hyperparameters (HP)
-to create classifier(s), optionally run CV, optionally evaluate the classifier(s) against a provided test set.
+to create classifier(s) and evaluate them against a provided test set
+producing a so-called Prediction dataframe saved in HDF format.
+Already existing classifiers will not be created, already existing predictions will
+not be overwritten.
 
 You first need to configure your run by implementing a config file (in sod/evaluations/configs) whose
 name by convention starts with "eval." followed by any useful information, e.g. ususally
@@ -53,12 +56,23 @@ Then move to ROOT, activate virtualenv and run:
 export PYTHONPATH='.' && python sod/evaluate.py -c "<yamlfilename>"
 ```
 
-Results are saved in the directory '/sod/evaluation/<configfilename>':
+Results are saved in the directory '/sod/evaluations/results':
 - N model file (classifiers, one for each parameters set)
-- N prediction files (hdf files with the predictions of all elements in the input dataset)
-- one HTML report with % recognized and log loss (sort of)
+- N directories with same name as the classifier (excluding the classifier file extension,
+  currently 'sklmodel') where the prediction dataframe is saved with the same testset name
 
+*Important* file names are quite long as they are created with all hyperparameters and
+informations available in a URL query string fashion (param1=value&param2=value...)
 
+A summary evaluation HDF is also stored in '/sod/evaluations/results' and will
+consist of one row per evaluation, with some metrics.
+
+# Jupyter
+
+move to the jupyter sub-directory, run `jupyter notebook` and inspect/create new
+Notebook for exploring the evluations and plotting results
+
+<!--
 # Clf evaluation
 
 Evaluate a classifier means: iterate over a set of already created classifiers (HP) and
@@ -78,3 +92,5 @@ Evaluation or a Clf evaluation)
 Results are saved in the directory '/sod/evaluation/<configfilename>':
 - N prediction files (hdf files with the predictions of all elements in the input dataset)
 - one HTML report with % recognized and log loss (sort of)
+
+-->
