@@ -44,6 +44,14 @@ def confusion_matrix(predicted_df, threshold=0.5, compute_eval_metrics=True):
     The dataframe will also have the methods 'precision', 'recall' 'f1score'
     and 'support' (number of instances) all returning a two element array
     relative to the inlier class (index 0) and outlier class (index 1)
+
+    :param predicted_df: pandas DataFrame. MUST have the columns
+        'outlier' (boolean or boolean like, e.g. 0s and 1s) and
+        'predicted_anomaly_score' (floats between 0 and 1, bounds included).
+        'outlier' represents the true class label (`y_true` in many
+        scikit learn function), whereas predicted_anomaly_score represents
+        the prediction of a given classifier (`y_pred` or `y_score` in many
+        scikit learn functions)
     '''
     y_pred = predicted_df[PREDICT_COL] > threshold
     return _confusion_matrix(predicted_df.outlier,
@@ -123,8 +131,10 @@ def _binary_clf_curve(y_true, y_score, method='roc'):
         fpr, tpr, thresholds = scikit_roc_curve(y_true, y_score, pos_label=1)
         # Convert to TNR (avoid dividing by 2 as useless):
         tnr = 1 - fpr
+
         # get the best threshold where we have the best mean of TPR and TNR:
-        scores = tnr + tpr
+        scores = harmonic_mean(tnr, tpr)
+
         # Get tbest threshold ignoring 1st score. From the docs (see linke
         # above): thresholds[0] represents no instances being predicted and
         # is arbitrarily set to max(y_score) + 1.
@@ -139,10 +149,8 @@ def _binary_clf_curve(y_true, y_score, method='roc'):
         # get the best threshold where we have the best F1 score
         # (avoid multiplying by 2 as useless):
         # also , consider avoiding numpy warning for NaNs:
-        scores = np.zeros(len(prc), dtype=float)
-        isfinite = (prc != 0) | (rec != 0)
-        scores[isfinite] = \
-            (prc[isfinite] * rec[isfinite]) / (prc[isfinite] + rec[isfinite])
+        scores = harmonic_mean(prc, rec)
+
         # Get best score ignoring lat score. From the docs (see link above):
         # the last precision and recall values are 1. and 0. respectively and
         # do not have a corresponding threshold. This ensures that the graph
@@ -153,6 +161,19 @@ def _binary_clf_curve(y_true, y_score, method='roc'):
     raise ValueError('`method` argument in `best_threshold` must be '
                      'either "roc" (ROC curve) or '
                      '"pr" (Precision-Recall Curve)')
+
+
+def harmonic_mean(x, y):
+    '''Computes (element-wise) the harmonic mean of x and y'''
+    if len(x) != len(y):
+        raise ValueError('Harmonic mean can be calculated on equally sized '
+                         'arrays, arrays lengths are %d and %d' %
+                         (len(x), len(y)))
+    scores = np.zeros(len(x), dtype=float)
+    isfinite = (x != 0) | (y != 0)
+    xfinite, yfinite = x[isfinite], y[isfinite]
+    scores[isfinite] = 2 * (xfinite * yfinite) / (xfinite + yfinite)
+    return scores
 
 
 def roc_auc_score(predicted_df):

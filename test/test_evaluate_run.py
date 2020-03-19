@@ -171,12 +171,12 @@ class Tester:
 # THE ARGUMENT mcok_pool. THIS WILL RUN THE TEST WITH A MOCKED VERSION OF
 # multiprocessing.Pool WHICH EXECUTES EVERYTHING IN A SINGLE PROCESS
 
-    @patch('sod.core.evaluation.Pool',
-           side_effect=lambda *a, **v: PoolMocker())
+#     @patch('sod.core.evaluation.Pool',
+#            side_effect=lambda *a, **v: PoolMocker())
     @patch('sod.evaluate.load_cfg')
     def test_evaluator(self,
                        mock_load_cfg,
-                       mock_pool,
+                       # mock_pool,
                        ):
         if isdir(tmpdir):
             shutil.rmtree(tmpdir)

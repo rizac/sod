@@ -13,7 +13,7 @@ from contextlib import contextmanager
 import numpy as np
 import pandas as pd
 
-from sod.core import pdconcat, odict, CLASSNAMES, CLASS_SELECTORS
+from sod.core import odict, CLASSNAMES, CLASS_SELECTORS
 from sod.core.paths import DATASETS_DIR
 
 

@@ -22,7 +22,7 @@ import pandas as pd
 from pandas.core.indexes.range import RangeIndex
 from joblib import dump, load
 
-from sod.core import OUTLIER_COL, odict, PREDICT_COL
+from sod.core import OUTLIER_COL, odict, PREDICT_COL, pdconcat
 from sod.core.metrics import log_loss, average_precision_score, roc_auc_score,\
     roc_curve, precision_recall_curve
 # from sod.core.dataset import is_outlier, OUTLIER_COL
@@ -117,8 +117,9 @@ def save_df(dataframe, filepath, **kwargs):
     '''
     if 'key' not in kwargs:
         key = splitext(basename(filepath))[0]
-        if not re.match('^[a-zA-Z_]+$', key):
-            raise ValueError('Invalid file basename. Provide a `key` argument '
+        if not re.match('^[a-zA-Z_][a-zA-Z0-9_]*$', key):
+            raise ValueError('Invalid file basename. '
+                             'Change the name or provide a `key` argument '
                              'to the save_df function or change file name')
         kwargs['key'] = key
     kwargs.setdefault('append', False)
@@ -583,7 +584,6 @@ def create_summary_evaluationmetrics(destdir):
         pool = Pool(processes=int(cpu_count()))
         with click.progressbar(length=len(clfs_prediction_paths),
                                fill_char='o', empty_char='.') as pbar:
-            # print('Building classifiers from parameters and training file')
             for clfdir, testname, dic in \
                     pool.imap_unordered(_get_summary_evaluationmetrics_mp,
                                         clfs_prediction_paths):
@@ -599,10 +599,12 @@ def create_summary_evaluationmetrics(destdir):
             if dfr is None:
                 dfr = new_df
             else:
-                dfr = dfr.append(new_df,
-                                 ignore_index=True,
-                                 verify_integrity=False,
-                                 sort=False).reset_index(drop=True)
+                dfr = pd.concat([dfr, new_df], axis=0, copy=True,
+                                sort=False, ignore_index=True)
+#                 dfr = dfr.append(new_df,
+#                                  ignore_index=True,
+#                                  verify_integrity=False,
+#                                  sort=False).reset_index(drop=True)
             save_df(dfr, eval_df_path)
 
         if errors:
