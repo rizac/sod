@@ -32,6 +32,7 @@ import re
 import time
 import inspect
 from datetime import datetime, timedelta
+import contextlib
 from enum import Enum
 from collections import defaultdict, namedtuple
 import numpy as np
@@ -39,9 +40,9 @@ import matplotlib.pyplot as plt
 from scipy.stats import hmean
 from sklearn import metrics
 from joblib import dump, load
-from IPython.display import display_html, clear_output  # https://stackoverflow.com/a/36313217
+from IPython.display import display, display_html, clear_output  # https://stackoverflow.com/a/36313217
 import pandas as pd
-import contextlib
+
 # for printing, we can do this:
 # with pd.option_context('display.max_rows', -1, 'display.max_columns', 5):
 # or we simply set once here the max_col_width
@@ -49,20 +50,10 @@ pd.set_option('display.max_colwidth', 500)
 pd.set_option('display.max_columns', 500)
 
 
-# dump.__doc__ = ('`dump(value, filename)` persists an arbitrary Python object '
-#                 'into one file. For details, see `joblib.dump`')
-# load.__doc__ = ('`load(filepath)`. Reconstruct a Python object from a file '
-#                 'persisted with `dump`. For details, see `joblib.load`')
-
-
 def printhtml(what):
     '''Same as display_html(text, True): prints the html formatted text
     passed as argument'''
     display_html(what, raw=True)
-
-
-# EVALPATH = join(dirname(dirname(__file__)), 'evaluations', 'results')
-# assert isdir(EVALPATH)
 
 
 class EVALMETRICS(Enum):
@@ -79,6 +70,8 @@ class EVALMETRICS(Enum):
     APS = 'average_precision_score'
     LOGLOSS = 'log_loss'
     F1MAX = 'f1_max'
+    BEST_TH_ROC = 'best_th_roc_curve'
+    BEST_TH_PR = 'best_th_pr_curve'
 
     def __str__(self):
         return self.value
@@ -90,57 +83,41 @@ class EVALMETRICS(Enum):
             return metrics.roc_auc_score(y_true, y_pred)
         if self == EVALMETRICS.APS:
             return metrics.average_precision_score(y_true, y_pred)
-        if self == EVALMETRICS.F1MAX:
+        if self in (EVALMETRICS.F1MAX, EVALMETRICS.BEST_TH_PR):
             pre, rec, thr = metrics.precision_recall_curve(y_true, y_pred)
             fscores = f1scores(pre, rec)
             argmax = np.argmax(fscores)
+            if self == EVALMETRICS.BEST_TH_PR:
+                # From the doc: "the last precision and recall values are 1.
+                # and 0. respectively, and do not have a corresponding
+                # threshold". Thus if argmax is = len(fscores)-1 we have a
+                # problem, but this can never happen because f1scores[-1] = 0
+                return thr[argmax]
             return fscores[argmax]
+        if self == EVALMETRICS.BEST_TH_ROC:
+            fpr, tpr, thr = metrics.roc_curve(y_true, y_pred)
+            # compute the harmonic mean element-wise, i.e. f1scores(tpr, tnr):
+            fscores = f1scores(tpr, 1-fpr)
+            # from the doc: "thr[0] represents no instances being predicted
+            # and is arbitrarily set to max(y_score) + 1.". Thus we do not
+            # want to return it, which should never happen becuase scores[0]
+            # will never be the max, as tpr[0] = 0. However, for safety:
+            argmax = np.argmax(fscores[1:])
+            return thr[1 + argmax]
         if self == EVALMETRICS.LOGLOSS:
             return metrics.log_loss(y_true, y_pred)
         raise ValueError('something wrong in EVALMETRIS.compute')
 
-# EVAL_SCORES = ['roc_auc_score', 'average_precision_score', 'log_loss']
 
-
-# class HYPERPARAMS(Enum):
-#     '''Model hyper parameters. Each item is mapped to a string:
-#     `NEST` = 'n_estimators'
-#     `MAXS` = 'max_samples'
-#     `RSTATE` = 'random_state'
-#     '''
-#     NEST = 'n_estimators'
-#     MAXS = 'max_samples'
-#     RSTATE = 'random_state'
-#
-#     def __str__(self):
-#         return self.value
-
-
-# _evalcolumns = ['clf', 'features', 'n_estimators', 'max_samples',
-#                 'random_state', 'contamination', 'behaviour',
-#                 'tr_set', 'filepath']
-# 
-# Evaluation = namedtuple('Evaluation', _evalcolumns)
-
-
-# class EVALCOLUMNS(Enum):
-#     '''Evaluation dataframe columns mapped to a string:
-#     `NEST` = 'n_estimators'
-#     `MAXS` = 'max_samples'
-#     `RSTATE` = 'random_state'
-#     '''
-#     FEATS = 'feats'
-#     NEST = 'n_estimators'
-#     MAXS = 'max_samples'
-#     RSTATE = 'random_state'
-#     FILEPATH = 'filepath'
-# 
-#     def __str__(self):
-#         return self.value
-# 
-#     @classmethod
-#     def hyperparams(cls):
-#         return [cls.NEST.value, cls.MAXS.value, cls.RSTATE.value]
+def _reorder_eval_df_columns(eval_df, copy=True):
+    columns1 = [
+        'clf', 'feats', 'n_estimators', 'max_samples', 'random_state',
+        *[str(_) for _ in EVALMETRICS]
+    ]
+    columns1 = [_ for _ in columns1 if _ in eval_df.columns]
+    columns2 = sorted(_ for _ in eval_df.columns if _ not in columns1)
+    ret = eval_df[columns1 + columns2]
+    return ret if not copy else ret.copy()
 
 
 def read_summary_eval_df(**kwargs):
@@ -155,22 +132,13 @@ def read_summary_eval_df(**kwargs):
     '''
     dfr = pd.read_hdf(_abspath('summary_evaluationmetrics.hdf'), **kwargs)
     # _key is the prediction dataframe path, relative to
-    # the EVALPATH directory I guess. Create a new filepath column with
+    # the EVALPATH directory (see _abspath). Create a new filepath column with
     # the complete path of each prediction:
-    # fpathkey = 'filerelativepath'
-    dfr.rename(columns={'_key': 'file_relative_path'}, inplace=True)
-#     dfr[fpathkey] = EVALPATH
-#     dfr[fpathkey] = dfr[fpathkey].str.cat(dfr['_key'], sep=os.sep)
-#     dfr.drop('_key', axis=1, inplace=True)
-    # re-order columns to make them more readable. Define the
-    # columns to appear first (columns describing the model, e.g. hyperparams)
-    # and then important evaluation metrics:
-    colorder = [
-        'clf', 'feats', 'n_estimators', 'max_samples', 'random_state',
-        str(EVALMETRICS.AUC), str(EVALMETRICS.APS), str(EVALMETRICS.LOGLOSS)
-    ]
-    return dfr[colorder +
-               sorted(_ for _ in dfr.columns if _ not in colorder)].copy()
+    # fAlso, consider renaming leading underscores from pandas columns
+    # otherwise itertuples does not work (namedtuples prohibit leading
+    # underscores in attributes)
+    dfr.rename(columns={'_key': 'relative_filepath'}, inplace=True)
+    return _reorder_eval_df_columns(dfr)
 
 
 def _abspath(evalresult_relpath):
@@ -179,8 +147,7 @@ def _abspath(evalresult_relpath):
     The latter exists only if some evaluation has
     been run
     '''
-    EVALPATH = join(dirname(dirname(__file__)),
-                    'evaluations', 'results')
+    EVALPATH = join(dirname(dirname(__file__)), 'evaluations', 'results')
     return abspath(join(EVALPATH, evalresult_relpath))
 
 
@@ -190,9 +157,6 @@ if not isdir(_abspath('')):
     raise ValueError('The evaluation directory and could not be found. '
                      'Have you run some evaluations on this machine '
                      '(script `evaluate.py`)?')
-
-
-# PLOTTING RELATED STUFF:
 
 
 def samex(axes):
@@ -212,7 +176,7 @@ def _sameaxis(axes, meth):
         return None, None
     lims = np.array([_.get_xlim() for _ in axes]) if meth == 'x' else \
         np.array([_.get_ylim() for _ in axes])
-    lmin, lmax = np.nanmin(lims[:, 0]), np.nanmax(lims[:, 0])
+    lmin, lmax = np.nanmin(lims[:, 0]), np.nanmax(lims[:, 1])
     for ax_ in axes:
         if meth == 'x':
             ax_.set_xlim(lmin, lmax)
@@ -231,13 +195,13 @@ def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, show=True):
     '''
     if evalmetrics is None:
         evalmetrics = [EVALMETRICS.AUC, EVALMETRICS.APS, EVALMETRICS.LOGLOSS]
-    feats = features(eval_df)
+    feats = _unique_sorted_features(eval_df)
     feat_labels = [
         _.replace('psd@', '').replace('sec', '').replace(',', ' ')
         for _ in feats
     ]
 
-    colors = get_colors(max(len(_.split(',')) for _ in feats))
+    colors = _get_colors(max(len(_.split(',')) for _ in feats))
     fig = plt.figure(constrained_layout=True)
     gsp = fig.add_gridspec(1, len(evalmetrics))
 
@@ -293,11 +257,11 @@ _DEFAULT_COLORMAP = 'cubehelix'
 
 
 @contextlib.contextmanager
-def use_tmp_colormap(name):
+def _use_tmp_colormap(name):
     '''`with use_tmp_colormap(name)` changes temporarily the colormap. Useful
     before plotting
     '''
-    global _DEFAULT_COLORMAP
+    global _DEFAULT_COLORMAP  # pylint: disable=global-statement
     _ = _DEFAULT_COLORMAP
     _DEFAULT_COLORMAP = name
     try:
@@ -306,16 +270,19 @@ def use_tmp_colormap(name):
         _DEFAULT_COLORMAP = _
 
 
-def get_colors(numcolors):
+def _get_colors(numcolors):
+    '''`get_colors(N)` returns N different colors for plotting'''
     cmap = plt.get_cmap(_DEFAULT_COLORMAP)
-    # numcolors+2 makes a margin in order to avoid extreme colors:
-    return [cmap(i, 1) for i in np.linspace(0, 1, numcolors+2, endpoint=True)]
+    # with _DEFAULT_COLORMAP,
+    # colors above 0.9 are too light, thus we shrink the range
+    return [cmap(i, 1)
+            for i in np.linspace(0.15, .85, numcolors, endpoint=True)]
 
 
-def features(eval_df):
-    '''`features(eval_df)` returns a list of sorted strings representing
-    the unique features of the DataFrame passed as argument. Features are
-    sorted by number of PSD periods and if equal, by periods sum
+def _unique_sorted_features(eval_df):
+    '''`_unique_sorted_features(eval_df)` returns a list of sorted strings
+    representing the unique features of the DataFrame passed as argument.
+    Features are sorted by number of PSD periods and if equal, by periods sum
     '''
     feats = pd.unique(eval_df.feats)
 
@@ -358,7 +325,7 @@ def get_hyperparam_dfs(eval_df, evalmetric, **hyperparams):
 
 
 def plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True):
-    '''`plot_hyperparam_dfs(score, df_min, df_median, df_max, show=True)`
+    '''`plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True)`
     plots the scores with the output of `get_hyperparam_dfs`
     '''
     hp_xname = df_min.columns.values[0][0]
@@ -367,7 +334,7 @@ def plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True):
     hp_yvals = [_[1] for _ in df_min.index.values]
 
     fig, axes = plt.subplots(1, len(df_median.index))
-    colors = get_colors(len(hp_yvals))
+    colors = _get_colors(len(hp_yvals))
 
     for i, yval in enumerate(hp_yvals):
         axs = axes[i]
@@ -390,10 +357,7 @@ def plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True):
                 axs.set_ylabel(str(ylabel))
         else:
             axs.set_yticklabels([])
-    # plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
-    # plt.xlabel('Max samples')
-    # plt.ylabel('AUC score')
-    # plt.grid()
+
     plt.tight_layout(rect=[0, 0, 1, 1])
     if show:
         plt.show()
@@ -407,40 +371,73 @@ def progressbar(length):
     Emulates a progressbar for Python jupyter notebook only
     (`click.progressbar` does not work)
     '''
+
+    class t:
+        '''this class is a wrapper around a string redefining the __repr__
+        without leading and trailing single quotes ' so that display below
+        does not shows them
+        '''
+        def __init__(self, string):
+            self.string = string
+
+        def __repr__(self):
+            return self.string
+
     class pbar:
         def __init__(self, length):
             self.length = length
             self.progress = 0
-            self.time = time.time()
+            self.starttime = time.time()
             self.bar_length = 30
+            self._d_id = None
+            self._chfill = "●"  # '#'
+            self._chempty = "○"  # '-'
 
         def update(self, value):
             self.progress += value
             val = min(1, np.true_divide(self.progress, self.length))
-            block = int(round(self.bar_length * val))
-            clear_output(wait=True)
-            bar_text = '#' * block + '-' * (self.bar_length - block)
-            eta = (self.length - self.progress) * (time.time() - self.time) / self.progress
+            elapsed_t = time.time() - self.starttime
+            eta = (self.length - self.progress) * elapsed_t / self.progress
             eta = timedelta(seconds=int(round(eta)))
-            text = "[{0}] {1:.1f}% {2}".format(bar_text, val * 100, str(eta))
-            print(text)
+
+            block_fill = int(round(self.bar_length * val))
+            block_empty = self.bar_length - block_fill
+            bar_ = self._chfill * block_fill + self._chempty * block_empty
+            text = "[{0}] {1:.1f}% {2}".format(bar_, val * 100, str(eta))
+
+            # We previously used clear_output(wait=True) before displaying
+            # the progressbar. It works but it clears the whole notebook cell,
+            # including text written before the bar shows up.
+            # Following https://stackoverflow.com/a/57096808
+            # we have to get the id of the displayed text update it, which
+            # clears and repaints onlt the progressbar. Note that we tried with
+            # display_html but it does not work
+            if self._d_id is None:
+                self._d_id = display(t(text), display_id=True)
+            else:
+                self._d_id.update(t(text))
 
     return pbar(length)
 
 
-def get_pred_dfs(eval_df, show_progress=True):
-    '''`get_pred_dfs(eval_df, show_progress=True)` reads and returns a dict of
-    file paths mapped to the corresponding Prediction dataframe, for each
-    evaluation (row) of `eval_df`. See also `get_eval_df`
+def get_pred_dfs(eval_df, postfunc=None, show_progress=True):
+    '''`get_pred_dfs(eval_df, postfunc=None, show_progress=True)` reads and
+    returns a dict of file paths mapped to the corresponding Prediction
+    dataframe, for each evaluation (row) of `eval_df`. See also `get_eval_df`.
+    `postfunc`, if supplied, is a `func(keytuple, path, pred_df)` which must
+    return a new prediction dataframe and will be called after reading
+    each `pred_df` from the specified `path`. `keytuple` is a namedtuple
+    representing the `eval_df` fields of `pred_df`
     '''
     pbar = progressbar(len(eval_df)) if show_progress else None
     pred_dfs = {}
     for eval_namedtuple in eval_df.itertuples(index=False, name='Evaluation'):
-        filepath = _abspath(eval_namedtuple.file_relative_path)
-        pred_df = pd.read_hdf(filepath, columns=['outlier', 'predicted_anomaly_score'])
-        # filepath2 = join(dirname(filepath), 'allset_test.hdf')  # <- validation set (name misleading)
-        # pred_df2 = pd.read_hdf(filepath2, columns=['outlier', 'predicted_anomaly_score'])
-        # pred_dfs[filepath] = pd.concat([pred_df, pred_df2], axis=0, sort=False, ignore_index=True, copy=True)
+        filepath = _abspath(eval_namedtuple.relative_filepath)
+        pred_df = pd.read_hdf(filepath,
+                              columns=['outlier', 'predicted_anomaly_score'])
+        if postfunc is not None:
+            pred_df = postfunc(eval_namedtuple, filepath, pred_df)
+
         pred_dfs[eval_namedtuple] = pred_df
         if show_progress:
             pbar.update(1)
@@ -448,7 +445,8 @@ def get_pred_dfs(eval_df, show_progress=True):
 
 
 def get_eval_df(pred_dfs, evalmetrics=None, show_progress=True):
-    '''`get_eval_df(pred_dfs, ems=None)` returns an Evaluation dataframe
+    '''`get_eval_df(pred_dfs, evalmetrics=None, show_progress=True)` returns
+    an Evaluation dataframe
     computed on all the Prediction dataframes `pred_dfs`. See also
     `get_pred_dfs`. Once the original `eval_df` has been retireved,
     (`read_summary_eval_df()`) a user can go back and forth in a Notebook to
@@ -468,57 +466,82 @@ def get_eval_df(pred_dfs, evalmetrics=None, show_progress=True):
     for eval_named_tuple, pred_df in pred_dfs.items():
         # convert eval_named_tuple to dct:
         dic = eval_named_tuple._asdict()
+
+        # remove old eval metrics:
+        for _ in EVALMETRICS:
+            dic.pop(str(_), None)
+
+        # compute new ones:
         for evalmetric in evalmetrics:
             dic[str(evalmetric)] = evalmetric.compute(pred_df)
 
         if show_progress:
             pbar.update(1)
-#         dic['Area_under_ROC'] = metrics.roc_auc_score(ytrue, ypred)
-#         dic['Average_precision_sore'] = metrics.average_precision_score(ytrue,
-#                                                                         ypred)
-#         pre, rec, thr = metrics.precision_recall_curve(ytrue, ypred)
-#         fscores = f1scores(pre, rec)
-#         argmax = np.argmax(fscores)
-#         dic['F1score_max'] = fscores[argmax]
+
         data.append(dic)
     dfr = pd.DataFrame(data=data)
-    return dfr
-#     for col in dfr.columns:
-#         printhtml('Models ranked under %s' % col)
-#         display(dfr.sort_values([col], ascending=False))
-#     
-#     printhtml('<h3>Grouping by random_state, computing harmonic mean and printing rankings</h3>')
-#     newdata, newindices = [], []
-#     for _, df in dfr.groupby(lambda index_value: index_value[:-1]):
-#         dic = {c: hmean(df[c].values) for c in df.columns}
-#         newdata.append(dic)
-#         newindices.append(_)
-#     newdfr = pd.DataFrame(index=newindices, data=newdata)
-#     for col in newdfr.columns:
-#         printhtml('Models ranked under %s' % col)
-#         display(newdfr.sort_values([col], ascending=False))
+    return _reorder_eval_df_columns(dfr)
 
 
-# def filepath2title(filepath):
-#     '''`filepath2title(fpath)` converts the `filepath` of a
-#     prediction dataframe () into a tuple of hyperparameters
-#     `(feats, n_estimators, max_samples, random_state)` (all strings)
-#     '''
-#     fpathb = os.path.basename(os.path.dirname(filepath))
-#     ret = []
-#     for key in ['feats'] + list(str(_) for _ in HYPERPARAMS):
-#         ret.append(re.search(r'%s=([^&]+)' % key, fpathb).group(1))
-#     return tuple(ret)
+def rank_eval(eval_df, evalmetrics, columns=None, mean='hmean'):
+    '''`rank_eval(eval_df, evalmetrics, columns=None, mean='hmean')` returns
+    a dict with each metric in `metrics` mapped to an Evaluation dataframe
+    with the metric scores sorted descending. `columns` is optional and used
+    to group rows of `eval_df` first merging them into a single-row dataframe
+    with the metric column reporting the computed `mean` ('hmean' for harmonic
+    mean, or None for arithmetic mean) on that group.
+    '''
+    if columns is not None:
+        metric2df = {str(m): [] for m in evalmetrics}
+        for _, dfr in eval_df.groupby(columns):
+            for metric in metric2df.keys():
+                values = dfr[metric]
+                finite = pd.notna(values)
+                meanvalue = 0
+                if finite.any():
+                    if mean == 'hmean':
+                        values = values[finite]
+                        nonzero = values != 0
+                        if nonzero.any():
+                            values = values[nonzero].values
+                            meanvalue = hmean(values)
+                    else:
+                        meanvalue = values.mean(skipna=True)
+
+                # take the first dataframe and add the metric with
+                # meanvalue
+                dfr = dfr.iloc[0: 1].copy()
+                dfr[metric] = meanvalue
+                # append to metrics:
+                metric2df[metric].append(dfr[columns + [metric]])
+
+        for metric in metric2df.keys():
+            metric2df[metric] = \
+                pd.concat(metric2df[metric],
+                          axis=0,
+                          sort=False,
+                          ignore_index=True)
+    else:
+        metric2df = {str(m): eval_df for m in evalmetrics}
+
+    for metric in metric2df.keys():
+        metric2df[metric] = _reorder_eval_df_columns(
+            metric2df[metric].sort_values([metric], ascending=False)
+        )
+    return metric2df
 
 
-def plot_freq_distribution(pred_dfs, ncols=None, title_keys=None,
+def plot_freq_distribution(pred_dfs, ncols=None, titles=str,
                            mp_hist_kwargs=None, show=True):
-    '''`plot_freq_distribution(pred_dfs, ncols=None, mp_hist_kwargs=None, show=True)`
+    '''`plot_freq_distribution(pred_dfs, ncols=None, titles=str, mp_hist_kwargs=None, show=True)`
     plots the segments frequency distribution (histogram) for the two classes
-    'inliers' and 'outliers'. `pred_dfs` is the output of `get_pred_dfs`.
+    'inliers' and 'outliers'. `pred_dfs` is a dict of keys mapped to
+    a prediction dataframe (see e.g. output of `get_pred_dfs`). `titles` is
+    a function that will be called on each key of `pred_dfs` and should return
+    a string. If missing, it defaults to `str(key)`
     '''
     bins = 10
-    rows, cols = plotgrid(len(pred_dfs), ncols=ncols)
+    rows, cols = grid4plot(len(pred_dfs), ncols=ncols)
     fig = plt.figure(constrained_layout=True)
     gsp = fig.add_gridspec(rows, cols)
     idx = 0
@@ -528,17 +551,18 @@ def plot_freq_distribution(pred_dfs, ncols=None, title_keys=None,
     mp_hist_kwargs.setdefault('log', False)
     mp_hist_kwargs.setdefault('stacked', False)
     mp_hist_kwargs.setdefault('rwidth', .5)
-    for idx, (eval_namedtuple, pred_df) in enumerate(pred_dfs.items()):
+    mp_hist_kwargs.setdefault('color', _get_colors(2)[::-1])
+    for idx, (key, pred_df) in enumerate(pred_dfs.items()):
         __r, __c = int(idx // cols), int(idx % cols)
         axs = fig.add_subplot(gsp[__r, __c])
         axs.hist(
             [pred_df[~pred_df.outlier].predicted_anomaly_score,
              pred_df[pred_df.outlier].predicted_anomaly_score],
-            bins=bins, label=['inliers', 'outliers'], **mp_hist_kwargs
+            bins=bins, label=['inliers', 'outliers'],
+            **mp_hist_kwargs
         )
-        if title_keys is not None:
-            title = "\n".join(getattr(eval_namedtuple, _) for _ in title_keys)
-            axs.set_title(title)
+        title = titles(key)
+        axs.set_title(title)
         if __r < rows - 1:
             axs.set_xticklabels([])
         else:
@@ -558,23 +582,23 @@ def plot_freq_distribution(pred_dfs, ncols=None, title_keys=None,
     return fig
 
 
-def plot_pre_rec_fscore(pred_dfs, ncols=None, title_keys=None,
+def plot_pre_rec_fscore(pred_dfs, ncols=None, titles=str,
                         mp_plot_kwargs=None, show=True):
-    '''`plot_pre_rec_fscore(pred_dfs, ncols=None, mp_plot_kwargs=None, show=True)`
+    '''`plot_pre_rec_fscore(pred_dfs, ncols=None, titles=str, mp_plot_kwargs=None, show=True)`
     plots the segments frequency distribution (histogram) for the two classes
-    'inliers' and 'outliers'. `pred_dfs` is the output of `get_pred_dfs`.
+    'inliers' and 'outliers'. `pred_dfs` is a dict of keys mapped to
+    a prediction dataframe (see e.g. output of `get_pred_dfs`). `titles` is
+    a function that will be called on each key of `pred_dfs` and should return
+    a string. If missing, it defaults to `str(key)`
     '''
-    # ======================================
-    # print P, R, Fscore positive label vs thresholds
-    # ======================================
-    rows, cols = plotgrid(len(pred_dfs), ncols=ncols)
+    rows, cols = grid4plot(len(pred_dfs), ncols=ncols)
     fig = plt.figure(constrained_layout=True)
     gsp = fig.add_gridspec(rows, cols)
     if mp_plot_kwargs is None:
         mp_plot_kwargs = {}
-    mp_plot_kwargs.setdefault(color='red')
+    # mp_plot_kwargs.setdefault('color', 'red')
     idx = 0
-    for idx, (eval_namedtuple, pred_df) in enumerate(pred_dfs.items()):
+    for idx, (key, pred_df) in enumerate(pred_dfs.items()):
         __r, __c = int(idx // cols), int(idx % cols)
         axs = fig.add_subplot(gsp[__r, __c])
         prec, rec, thresholds = \
@@ -589,17 +613,13 @@ def plot_pre_rec_fscore(pred_dfs, ncols=None, title_keys=None,
         fscores = f1scores(prec, rec)
         axs.plot(thresholds, fscores, label='F[1]', linestyle='-',
                  **mp_plot_kwargs)
+        title = titles(key)
         argmax = np.argmax(fscores)
-        title = ''
-        if title_keys is not None:
-            title = "\n".join(getattr(eval_namedtuple, _) for _ in title_keys)
-            if title:
-                title += '\n'
-        title += 'T (best_th) = %.2f' % thresholds[argmax]
-        title += '\nP(T) = %.3f' % prec[argmax]
-        title += '\nR(T) = %.3f' % rec[argmax]
-        title += '\nF(T) = %.3f' % fscores[argmax]
-        # title = title.replace('psd@', '').replace('sec', '').replace('\n', ' ')
+        title += '\nat threshold %.2f:' % thresholds[argmax]
+        title += '\nP=%.3f' % prec[argmax]
+        title += ' R=%.3f' % rec[argmax]
+        title += ' F=%.3f' % fscores[argmax]
+
         axs.set_title(title)
         if __r < rows - 1:
             axs.set_xticklabels([])
@@ -630,7 +650,7 @@ def f1scores(pre, rec):
     return f1_
 
 
-def plotgrid(numaxes, ncols=None):
+def grid4plot(numaxes, ncols=None):
     '''`plotgrid(numaxes, ncols=None)` returns the tuple (rows, cols) of
     integers denoting the optimal grid to display the given axes in a plot'''
     # get best row/col grid:
@@ -668,9 +688,7 @@ def printdoc():
 
     __ret = ("<div style='width:100%;border:1px solid #ddd;overflow:auto;"
              "max-height:40rem'>" + thisdoc + "<table>")
-#     __ret = ("<div style='width:100%;border:1px solid #ddd;overflow:auto;"
-#              "max-height:30rem'>" + thisdoc + "<table><tr><th>"
-#              "Imported function/module/class</th><th>description</th></tr>")
+
     # re_pattern = re.compile(r'^(.*?)(?:\.\s|\n)')
     for pyobjname, pyobj in globals().items():
         if pyobjname[:1] != '_':
@@ -700,7 +718,7 @@ def printdoc():
 #     fig, axs = plt.subplot(1)
 #     plt.close()
 #     fig.show()
-    
+
 
 # printdoc()
 
