@@ -7,12 +7,12 @@ When using the module `share` in a Jupyter Notebook, note the following naming
 conventions:
 
 `eval_df` denotes an Evaluation Data frame, i.e. a
-tabular object where *a row is a model evaluation* and columns report several
-evaluation info, e.g., model hyperparams, testset file path,
-evaluation metrics scores.
+tabular object where *a row is a model evaluation* and columns report
+evaluation info, e.g., model name, model hyperparams, testset file path,
+some evaluation metrics scores.
 
-`pred_df` denotes a Prediction Data frame representing an evaluation
-(= row of `eval_df`) in details : *a row is a testset instance* and columns
+`pred_df` denotes a Prediction Data frame representing a model evaluation
+in details: *a row is a testset instance* and columns
 report several instance info, including the instance actual class as boolean
 (column 'outlier') and the predicted class/score as float in [0, 1] (column
 'predicted_anomaly_score')
@@ -36,12 +36,15 @@ import contextlib
 from enum import Enum
 from collections import defaultdict, namedtuple
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 from scipy.stats import hmean
 from sklearn import metrics
 from joblib import dump, load
 from IPython.display import display, display_html, clear_output  # https://stackoverflow.com/a/36313217
 import pandas as pd
+from itertools import cycle
+import importlib
 
 # for printing, we can do this:
 # with pd.option_context('display.max_rows', -1, 'display.max_columns', 5):
@@ -121,14 +124,14 @@ def _reorder_eval_df_columns(eval_df, copy=True):
 
 
 def read_summary_eval_df(**kwargs):
-    '''`read_summary_eval_df(**kwargs)` = pandas `read_hdf(EVALPATH, **kwargs)`
+    '''`read_summary_eval_df(**kwargs)` = pandas
+    `read_hdf('../evaluations/results/summary_evaluationmetrics.hdf', **kwargs)`
     reads and returns the Evaluation dataframe created and incremented by each
     execution of the main script `evaluate.py`. *Thus, if no
     evaluation has been run on this computer, no evaluation dataframe exists
     and the Notebook using this module will not work.*
-    Arguments of the functions are the same keyword arguments as pandas
-    `read_hdf` (only the file path must not be given because hard coded
-    and relative to the 'evaluations/results' subfolder of this package).
+    Keyword arguments of the functions are the same keyword arguments as pandas
+    `read_hdf`.
     '''
     dfr = pd.read_hdf(_abspath('summary_evaluationmetrics.hdf'), **kwargs)
     # _key is the prediction dataframe path, relative to
@@ -152,11 +155,31 @@ def _abspath(evalresult_relpath):
 
 
 # check:
-
 if not isdir(_abspath('')):
     raise ValueError('The evaluation directory and could not be found. '
                      'Have you run some evaluations on this machine '
                      '(script `evaluate.py`)?')
+
+
+def load_clf(relativepath):
+    '''`load_clf(relativepath)` loads a classifier from a path relative to
+    the evaluation directory of this package (where `evaluate.py` saved
+    evaluation results)
+    '''
+    return load(_abspath(relativepath))
+
+
+def read_pred_df(relativepath, **kwargs):
+    '''`red_pred_df(relativepath, **kwargs)` =
+    pandas `read_hdf('../evaluations/results' + relativepath, **kwargs)`
+    reads and returns a Prediction dataframe created via the main script
+    `evaluate.py`.
+    The keyword argument `columns`, if not specified, defaults to the minimal
+    `('outlier', 'predicted_anomaly_score')`. Pass None to load all columns, or
+    a list of columns as in pandas documentation
+    '''
+    kwargs.setdefault('columns', ('outlier', 'predicted_anomaly_score'))
+    return pd.read_hdf(_abspath(relativepath), **kwargs)
 
 
 def samex(axes):
@@ -172,16 +195,20 @@ def samey(axes):
 
 
 def _sameaxis(axes, meth):
+    lmin, lmax = None, None
     if axes is None or not len(axes):  # pylint: disable=len-as-condition
-        return None, None
+        return lmin, lmax
     lims = np.array([_.get_xlim() for _ in axes]) if meth == 'x' else \
         np.array([_.get_ylim() for _ in axes])
-    lmin, lmax = np.nanmin(lims[:, 0]), np.nanmax(lims[:, 1])
-    for ax_ in axes:
-        if meth == 'x':
-            ax_.set_xlim(lmin, lmax)
-        else:
-            ax_.set_ylim(lmin, lmax)
+    minlims, maxlims = lims[:, 0], lims[:, 1]
+    if not np.isnan(minlims).all() and not np.isnan(maxlims).all():
+        lmin, lmax = np.nanmin(minlims), np.nanmax(maxlims)
+        if lmax > lmin:
+            for ax_ in axes:
+                if meth == 'x':
+                    ax_.set_xlim(lmin, lmax)
+                else:
+                    ax_.set_ylim(lmin, lmax)
     return lmin, lmax
 
 
@@ -201,13 +228,13 @@ def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, show=True):
         for _ in feats
     ]
 
-    colors = _get_colors(max(len(_.split(',')) for _ in feats))
+    colors = _get_colors(max(len(_.split(',')) for _ in feats), .4, .85)[::-1]
     fig = plt.figure(constrained_layout=True)
     gsp = fig.add_gridspec(1, len(evalmetrics))
 
     for j, metric_name in enumerate(str(_) for _ in evalmetrics):
         axs = fig.add_subplot(gsp[0, j])
-        minx, maxx = None, None
+
         for i, feat in enumerate(feats):
             df_ = eval_df[eval_df.feats == feat][metric_name]
             min_, median, max_ = df_.min(), df_.median(), df_.max()
@@ -215,26 +242,43 @@ def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, show=True):
             xerr = [[median-min_], [max_-median]]
             color = colors[len(feat.split(',')) - 1]
 
-            # print errbar background:
-            axs.barh(i, left=min_, width=max_-min_, height=.8, alpha=0.25,
-                     color=color, linewidth=0)
-            # print errbar border:
-            # ax.barh(i, left=min_, width=max_-min_, height=0.75, alpha=1,
-            #         fill=False, ec=color, linewidth=1)
+            #  NOTES ON THE ARGUMENTS OF errorbar BELOW:
+            #
+            #  eline ->   |-----------o----------|
+            #
+            #             ^           ^
+            #            cap       marker
 
-            axs.errorbar(median, i, xerr=xerr, color=color, marker='|',
-                         capsize=0, linewidth=0, elinewidth=0, capthick=0,
-                         markersize=20, mew=2)
 
-            # don't know why axes does not set automatically xlim, maybe
-            # barh is not working as expected?
-            if i == 0:
-                minx, maxx = min_, max_
-            else:
-                minx, maxx = min(minx, min_), max(maxx, max_)
+#             axs.errorbar(
+#                 median,
+#                 i,
+#                 xerr=xerr,
+#                 color=color,  # tuple(list(color)[:-1] + [0.6]),
+#                 elinewidth=15,  # <- eline vertical height
+#                 marker='|',
+#                 markersize=15,  # <- size (if marker= "|', -> vertical height)
+#                 mec=[0, 0, 0],
+#                 # mfc= [0, 0, 0],
+#                 mew=2,  # <- marker horiz. width IT OVERRIDES capthick!!
+#                 capthick=0,  # <- cap horizontal width
+#                 capsize=0,  # <- cap vertical height
+#             )
 
-        margin = (maxx - minx) * 0.05
-        axs.set_xlim(minx - margin/2, maxx + margin/2)
+            # instead of the errorbars above, quite ugly, we display rectangles
+            # and a bar for the median:
+            rect = matplotlib.patches.Rectangle([min_, i-0.4],
+                                                width=max_-min_,
+                                                height=.8, fill=True,
+                                                linewidth=2,
+                                                edgecolor=color,
+                                                facecolor='white',
+                                                zorder=10)
+
+            axs.add_patch(rect)
+
+            axs.plot([median], [i], marker='|', markersize=12, color=color,
+                     linewidth=0, mew=2, zorder=20)
 
         axs.set_yticks(list(range(len(feats))))
         if j == 0:
@@ -244,7 +288,7 @@ def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, show=True):
             axs.set_yticklabels([])
 
         axs.set_xlabel(metric_name.replace('_', ' '))
-        axs.grid()
+        axs.grid(zorder=0)
 
     if show:
         plt.show()
@@ -253,7 +297,7 @@ def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, show=True):
     return fig
 
 
-_DEFAULT_COLORMAP = 'cubehelix'
+_DEFAULT_COLORMAP = None  # the default is ''cubehelix', see _get_colors
 
 
 @contextlib.contextmanager
@@ -270,13 +314,27 @@ def _use_tmp_colormap(name):
         _DEFAULT_COLORMAP = _
 
 
-def _get_colors(numcolors):
+def _get_colors(numcolors, min=None, max=None):
     '''`get_colors(N)` returns N different colors for plotting'''
-    cmap = plt.get_cmap(_DEFAULT_COLORMAP)
+    if _DEFAULT_COLORMAP is None and min is None and max is None:
+        # use tab10 as default colormap, returning 10 colors
+        cmap = plt.get_cmap('tab10')
+        colors = [cmap(i, 1) for i in np.arange(0, 1.1, 0.1)]
+        ret = []
+        for i, c in enumerate(cycle(colors), 1):
+            color = list(matplotlib.colors.rgb_to_hsv(c[:3]))
+            color[1] -= color[1]*.5
+            ret.append(matplotlib.colors.hsv_to_rgb(color[:3]))
+            if i >= numcolors:
+                break
+        return ret
+
+    # provide the default colormap 'cubehelix'
+    cmap = plt.get_cmap(_DEFAULT_COLORMAP or 'cubehelix')
     # with _DEFAULT_COLORMAP,
     # colors above 0.9 are too light, thus we shrink the range
     return [cmap(i, 1)
-            for i in np.linspace(0.15, .85, numcolors, endpoint=True)]
+            for i in np.linspace(min, max, numcolors, endpoint=True)]
 
 
 def _unique_sorted_features(eval_df):
@@ -424,19 +482,19 @@ def get_pred_dfs(eval_df, postfunc=None, show_progress=True):
     '''`get_pred_dfs(eval_df, postfunc=None, show_progress=True)` reads and
     returns a dict of file paths mapped to the corresponding Prediction
     dataframe, for each evaluation (row) of `eval_df`. See also `get_eval_df`.
-    `postfunc`, if supplied, is a `func(keytuple, path, pred_df)` which must
-    return a new prediction dataframe and will be called after reading
-    each `pred_df` from the specified `path`. `keytuple` is a namedtuple
-    representing the `eval_df` fields of `pred_df`
+    `postfunc`, if supplied, is a `func(keytuple, pred_df)` called on each
+    prediction dataframe read via `read_pred_df(keytuple.relative_filepath)`.
+    `keytuple` is a namedtuple representing the `eval_df` fields of `pred_df`
     '''
     pbar = progressbar(len(eval_df)) if show_progress else None
     pred_dfs = {}
     for eval_namedtuple in eval_df.itertuples(index=False, name='Evaluation'):
-        filepath = _abspath(eval_namedtuple.relative_filepath)
-        pred_df = pd.read_hdf(filepath,
-                              columns=['outlier', 'predicted_anomaly_score'])
+#         filepath = _abspath(eval_namedtuple.relative_filepath)
+#         pred_df = pd.read_hdf(filepath,
+#                               columns=['outlier', 'predicted_anomaly_score'])
+        pred_df = read_pred_df(eval_namedtuple.relative_filepath)
         if postfunc is not None:
-            pred_df = postfunc(eval_namedtuple, filepath, pred_df)
+            pred_df = postfunc(eval_namedtuple, pred_df)
 
         pred_dfs[eval_namedtuple] = pred_df
         if show_progress:
