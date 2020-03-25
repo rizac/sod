@@ -25,7 +25,7 @@ Created on 18 Mar 2020
 
 @author: rizac(at)gfz-potsdam.de
 '''
-from os.path import join, abspath, dirname, isfile, isdir
+from os.path import join, abspath, dirname, isfile, isdir, basename, dirname
 import sys
 import os
 import re
@@ -212,6 +212,39 @@ def _sameaxis(axes, meth):
     return lmin, lmax
 
 
+def _get_fig_and_axes(show_argument, default_rows, default_columns,
+                      grid_direction_horizontal=True):  # Used only if default_rows  and default_columns !=1
+    fig = None
+    if show_argument in (True, False):
+        fig = plt.figure(constrained_layout=True)
+        gsp = fig.add_gridspec(default_rows, default_columns)
+        if default_rows != 1 and default_columns != 1:
+            if grid_direction_horizontal:
+                axes = [fig.add_subplot(gsp[r, c])
+                        for r in range(default_rows)
+                        for c in range(default_columns)]
+            else:
+                axes = [fig.add_subplot(gsp[r, c])
+                        for c in range(default_columns)
+                        for r in range(default_rows)]
+        elif default_columns == 1:
+            axes = [fig.add_subplot(gsp[r, 0]) for r in range(default_rows)]
+        else:
+            axes = [fig.add_subplot(gsp[0, c]) for c in range(default_columns)]
+    else:
+        if not hasattr(show_argument, '__len__') or \
+                not all(isinstance(_, matplotlib.axes.Axes) for _ in show_argument):
+            raise ValueError('`show` argument must be True, False, '
+                             'or a list of matplotlib Axes')
+        elif len(show_argument) != default_rows * default_columns:
+            raise ValueError('`show` argument number of Axes (%d) '
+                             'should be %d' % (len(axes), default_rows *
+                                               default_columns))
+        axes = show_argument
+
+    return fig, axes
+
+
 def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, show=True):
     '''`plot_feats_vs_em(eval_df, evalmetrics=None, show=True)` plots the
     features of `eval_df` grouped and
@@ -224,16 +257,19 @@ def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, show=True):
         evalmetrics = [EVALMETRICS.AUC, EVALMETRICS.APS, EVALMETRICS.LOGLOSS]
     feats = _unique_sorted_features(eval_df)
     feat_labels = [
-        _.replace('psd@', '').replace('sec', '').replace(',', ' ')
+        _.replace('psd@', '').replace('sec', '').replace(',', '  ')
         for _ in feats
     ]
 
-    colors = _get_colors(max(len(_.split(',')) for _ in feats), .4, .85)[::-1]
-    fig = plt.figure(constrained_layout=True)
-    gsp = fig.add_gridspec(1, len(evalmetrics))
+    colors = _get_colors(max(len(_.split(',')) for _ in feats), .4, .85)
+#     fig = plt.figure(constrained_layout=True)
+#     gsp = fig.add_gridspec(len(evalmetrics), 1)
+    
+    fig, axes = _get_fig_and_axes(show, len(evalmetrics), 1,
+                                  grid_direction_horizontal=False)
 
     for j, metric_name in enumerate(str(_) for _ in evalmetrics):
-        axs = fig.add_subplot(gsp[0, j])
+        axs = axes[j]
 
         for i, feat in enumerate(feats):
             df_ = eval_df[eval_df.feats == feat][metric_name]
@@ -267,9 +303,9 @@ def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, show=True):
 
             # instead of the errorbars above, quite ugly, we display rectangles
             # and a bar for the median:
-            rect = matplotlib.patches.Rectangle([min_, i-0.4],
-                                                width=max_-min_,
-                                                height=.8, fill=True,
+            rect = matplotlib.patches.Rectangle([i-0.4, min_],
+                                                height=max_-min_,
+                                                width=.8, fill=True,
                                                 linewidth=2,
                                                 edgecolor=color,
                                                 facecolor='white',
@@ -277,41 +313,41 @@ def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, show=True):
 
             axs.add_patch(rect)
 
-            axs.plot([median], [i], marker='|', markersize=12, color=color,
+            axs.plot([i], [median], marker='.', markersize=12, color=color,
                      linewidth=0, mew=2, zorder=20)
 
-        axs.set_yticks(list(range(len(feats))))
-        if j == 0:
-            axs.set_ylabel('Features (PSD periods)')
-            axs.set_yticklabels(feat_labels)
+        axs.set_xticks(list(range(len(feats))))
+        if j == len(evalmetrics) - 1:
+            axs.set_xlabel('Features (PSD periods)')
+            axs.set_xticklabels(feat_labels, rotation=70)
         else:
-            axs.set_yticklabels([])
+            axs.set_xticklabels([])
 
-        axs.set_xlabel(metric_name.replace('_', ' '))
+        axs.set_ylabel(metric_name.replace('_', ' '))
         axs.grid(zorder=0)
 
-    if show:
+    if show is True:
         plt.show()
         fig = None
 
-    return fig
+    return fig  # it is not None only if show=False
 
 
 _DEFAULT_COLORMAP = None  # the default is ''cubehelix', see _get_colors
 
 
-@contextlib.contextmanager
-def _use_tmp_colormap(name):
-    '''`with use_tmp_colormap(name)` changes temporarily the colormap. Useful
-    before plotting
-    '''
-    global _DEFAULT_COLORMAP  # pylint: disable=global-statement
-    _ = _DEFAULT_COLORMAP
-    _DEFAULT_COLORMAP = name
-    try:
-        yield
-    finally:
-        _DEFAULT_COLORMAP = _
+# @contextlib.contextmanager
+# def _use_tmp_colormap(name):
+#     '''`with use_tmp_colormap(name)` changes temporarily the colormap. Useful
+#     before plotting
+#     '''
+#     global _DEFAULT_COLORMAP  # pylint: disable=global-statement
+#     _ = _DEFAULT_COLORMAP
+#     _DEFAULT_COLORMAP = name
+#     try:
+#         yield
+#     finally:
+#         _DEFAULT_COLORMAP = _
 
 
 def _get_colors(numcolors, min=None, max=None):
@@ -379,19 +415,25 @@ def get_hyperparam_dfs(eval_df, evalmetric, **hyperparams):
             df_max.loc[(hp1, hp1val), (hp2, hp2val)] = vals.max()
             df_min.loc[(hp1, hp1val), (hp2, hp2val)] = vals.min()
 
+    df_min.name = df_median.name = df_max.name = 'Carlo'
     return df_min, df_median, df_max
 
 
 def plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True):
     '''`plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True)`
-    plots the scores with the output of `get_hyperparam_dfs`
+    plots the scores with the output of `get_hyperparam_dfs` producing
+    `N` plots where for i=1 to N, the i-th plot displays the i-th row of
+    dfmedian, dfmin, and dfmax are plotted (dfmin and dfmax as shaded area,
+    dfmedian as scatter plot with lines on top)
     '''
     hp_xname = df_min.columns.values[0][0]
     hp_yname = df_min.index.values[0][0]
     hp_xvals = [_[1] for _ in df_min.columns.values]
     hp_yvals = [_[1] for _ in df_min.index.values]
 
-    fig, axes = plt.subplots(1, len(df_median.index))
+#     fig, axes = plt.subplots(1, len(df_median.index))
+    fig, axes = _get_fig_and_axes(show, 1, len(df_median.index),
+                                  grid_direction_horizontal=True)
     colors = _get_colors(len(hp_yvals))
 
     for i, yval in enumerate(hp_yvals):
@@ -402,12 +444,12 @@ def plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True):
         miny = df_min[flt].values.flatten()
         mediany = df_median[flt].values.flatten()
         maxy = df_max[flt].values.flatten()
-        axs.fill_between(hp_xvals, miny, maxy, alpha=0.1, color=colors[i])
+        axs.fill_between(hp_xvals, miny, maxy, alpha=0.2, color=colors[i])
         title = "%s=%s" % (hp_yname, str(yval))
         axs.plot(hp_xvals, mediany, linestyle='--', color=colors[i],
-                 marker='o', label=title)
+                 marker='o', label=title, linewidth=2)
         axs.set_title(title.replace('=', ':\n'))
-        axs.set_xlabel(hp_xname)
+        axs.set_xlabel(hp_xname.replace('_', ' '))
         axs.set_ylim(df_min.values.min(), df_max.values.max())
         axs.grid()
         if i == 0:
@@ -416,8 +458,8 @@ def plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True):
         else:
             axs.set_yticklabels([])
 
-    plt.tight_layout(rect=[0, 0, 1, 1])
-    if show:
+    # plt.tight_layout(rect=[0, 0, 1, 1])
+    if show is True:
         plt.show()
         fig = None
 
@@ -489,9 +531,6 @@ def get_pred_dfs(eval_df, postfunc=None, show_progress=True):
     pbar = progressbar(len(eval_df)) if show_progress else None
     pred_dfs = {}
     for eval_namedtuple in eval_df.itertuples(index=False, name='Evaluation'):
-#         filepath = _abspath(eval_namedtuple.relative_filepath)
-#         pred_df = pd.read_hdf(filepath,
-#                               columns=['outlier', 'predicted_anomaly_score'])
         pred_df = read_pred_df(eval_namedtuple.relative_filepath)
         if postfunc is not None:
             pred_df = postfunc(eval_namedtuple, pred_df)
@@ -547,7 +586,7 @@ def rank_eval(eval_df, evalmetrics, columns=None, mean='hmean'):
     with the metric scores sorted descending. `columns` is optional and used
     to group rows of `eval_df` first merging them into a single-row dataframe
     with the metric column reporting the computed `mean` ('hmean' for harmonic
-    mean, or None for arithmetic mean) on that group.
+    mean, 'mean' for arithmetic mean, or 'median') on that group.
     '''
     if columns is not None:
         metric2df = {str(m): [] for m in evalmetrics}
@@ -563,8 +602,10 @@ def rank_eval(eval_df, evalmetrics, columns=None, mean='hmean'):
                         if nonzero.any():
                             values = values[nonzero].values
                             meanvalue = hmean(values)
-                    else:
+                    elif mean == 'mean':
                         meanvalue = values.mean(skipna=True)
+                    else:  # median
+                        meanvalue = values.median(skipna=True)
 
                 # take the first dataframe and add the metric with
                 # meanvalue
