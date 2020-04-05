@@ -1,0 +1,165 @@
+# configuration for creating and optionally evaluating a model:
+# export PYTHONPATH='.' && python sod/evaluate.py -c "<THIS_FILE_NAME>"
+
+# whether to remove na before training and testing (this might lead to slightly different
+# number of rows of the confusion matrices of the evaluations, and in the number of rows
+# of the prediction hdf files)
+drop_na: true
+
+# Parameters to test the model files. Already existing models will NOT be re-created, saving time
+test:
+  filename: 'allset_test_AND_allset_unlabelled_annotation2.hdf'  # null (no test, just create the models), or the test set to predict (HDF format) relative to the 'datasets' directory
+  save_options:
+    columns:  # The columns of the input test above to be saved together with the prediction scores
+      - 'Segment.db.id'  # the segment id
+      - 'dataset_id'     # int (int8 could be used)
+      - 'station_id'     # int
+      - 'channel_code'   # str (categorical)
+      - 'location_code'  # str (categorical)
+      - 'window_type'    # bool
+      - 'event_time'     # datetime
+      - 'hand_labelled'  # bool
+      - 'outlier'        # bool
+    min_itemsize:  # the size in bytes for string columns (HDF has fixed string width)
+        channel_code: 3
+        location_code: 3
+
+# Parameters to create the model files. Already existing models will NOT be re-created, saving time
+training:
+  classifier:
+    classname: "sklearn.ensemble.iforest.IsolationForest"  # The model, in the form of a Python path to the classifier object
+    parameters:  # The classifier parameters to iterate over:
+      n_estimators:
+        - 50
+        - 100
+        - 200
+      max_samples:
+        - 512
+        - 1024
+        - 2048
+        - 4096
+        - 8192
+        - 16384
+      contamination:
+        - 'auto'
+      behaviour:
+        - 'new'
+      random_state:
+        - 11
+        - 25
+        - 42
+  input:
+    filename: 'allset_train.hdf'  # the training set (HDF format relative to the 'datasets' directory)
+    features:  # The input features (pandas dataframe columns) to iterate over:
+#       -
+#         - "psd@0.2sec"
+#         - "psd@0.5sec"
+#       -
+#         - "psd@0.2sec"
+#         - "psd@1sec"
+#       -
+#         - "psd@0.2sec"
+#         - "psd@2sec"
+      -
+        - "psd@0.2sec"
+        - "psd@5sec"
+#       -
+#         - "psd@0.5sec"
+#         - "psd@1sec"
+#       -
+#         - "psd@0.5sec"
+#         - "psd@2sec"
+      -
+        - "psd@0.5sec"
+        - "psd@5sec"
+#       -
+#         - "psd@1sec"
+#         - "psd@2sec"
+      -
+        - "psd@1sec"
+        - "psd@5sec"
+      -
+        - "psd@2sec"
+        - "psd@5sec"
+#       -
+#         - "psd@0.2sec"
+#         - "psd@0.5sec"
+#         - "psd@1sec"
+#       -
+#         - "psd@0.2sec"
+#         - "psd@0.5sec"
+#         - "psd@2sec"
+      -
+        - "psd@0.2sec"
+        - "psd@0.5sec"
+        - "psd@5sec"
+#       -
+#         - "psd@0.2sec"
+#         - "psd@1sec"
+#         - "psd@2sec"
+      -
+        - "psd@0.2sec"
+        - "psd@1sec"
+        - "psd@5sec"
+      -
+        - "psd@0.2sec"
+        - "psd@2sec"
+        - "psd@5sec"
+#       -
+#         - "psd@0.5sec"
+#         - "psd@1sec"
+#         - "psd@2sec"
+      -
+        - "psd@0.5sec"
+        - "psd@1sec"
+        - "psd@5sec"
+      -
+        - "psd@0.5sec"
+        - "psd@2sec"
+        - "psd@5sec"
+      -
+        - "psd@1sec"
+        - "psd@2sec"
+        - "psd@5sec"
+#       -
+#         - "psd@0.2sec"
+#         - "psd@0.5sec"
+#         - "psd@1sec"
+#         - "psd@2sec"
+      -
+        - "psd@0.2sec"
+        - "psd@0.5sec"
+        - "psd@1sec"
+        - "psd@5sec"
+      -
+        - "psd@0.2sec"
+        - "psd@0.5sec"
+        - "psd@2sec"
+        - "psd@5sec"
+      -
+        - "psd@0.2sec"
+        - "psd@1sec"
+        - "psd@2sec"
+        - "psd@5sec"
+      -
+        - "psd@0.5sec"
+        - "psd@1sec"
+        - "psd@2sec"
+        - "psd@5sec"
+      -
+        - "psd@0.2sec"
+        - "psd@0.5sec"
+        - "psd@1sec"
+        - "psd@2sec"
+        - "psd@5sec"
+#       -
+#         - "psd@0.2sec"
+#       -
+#         - "psd@0.5sec"
+#       -
+#         - "psd@1sec"
+#       -
+#         - "psd@2sec"
+      -
+        - "psd@5sec"
+    
