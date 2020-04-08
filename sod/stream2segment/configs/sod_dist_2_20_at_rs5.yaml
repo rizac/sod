@@ -1,0 +1,1122 @@
+# ==========================================================================
+# stream2segment config file to tune the processing/visualization subroutine
+# ==========================================================================
+#
+# This editable template defines the configuration parameters which will
+# be accessible in the associated processing / visualization python file.
+#
+# You are free to implement here anything you need: there are no mandatory parameters but we
+# strongly suggest to keep 'segment_select' and 'sn_windows', which add also special features
+# to the GUI.
+
+# NOTE: **this file is written in YAML syntax**, which uses Python-style indentation to
+# indicate nesting, keep it in mind when editing. You can also use a more compact format that
+# uses [] for lists and {} for maps/objects.
+# For info see http://docs.ansible.com/ansible/latest/YAMLSyntax.html
+
+# The parameter 'segment_select' defines which segments to be processed or visualized. PLEASE USE
+# THIS PARAMETER. If missing, all segments will be loaded, including segment with no
+# (or malformed) waveform data: this is in practically always useless and slows down considerably
+# the processing or visualization routine. The selection is made via the list-like argument:
+#
+# segment_select:
+#   <att>: "<expression>"
+#   <att>: "<expression>"
+#   ...
+#
+# where each <att> is a segment attribute and <expression> is a simplified SQL-select string
+# expression. Example:
+#
+# 1. To select and work on segments with downloaded data (at least one byte of data):
+# segment_select:
+#   has_data: "true"
+#
+# 2. To select and work on segments of stations activated in 2017 only:
+# segment_select:
+#   station.start_time: "[2017-01-01, 2018-01-01T00:00:00)"
+# (brackets denote intervals. Square brackets include end-points, round brackets exclude endpoints)
+#
+# 3. To select segments from specified ids, e.g. 1, 4, 342, 67 (e.g., ids which raised errors during
+# a previous run and whose id where logged might need inspection in the GUI):
+# segment_select:
+#   id: "1 4 342 67"
+#
+# 4. To select segments whose event magnitude is greater than 4.2:
+# segment_select:
+#   event.magnitude: ">4.2"
+# (the same way work the operators: =, >=, <=, <, !=)
+#
+# 5. To select segments with a particular channel sensor description:
+# segment_select:
+#   channel.sensor_description: "'GURALP CMG-40T-30S'"
+# (note: for attributes with str values and spaces, we need to quote twice, as otherwise
+# "GURALP CMG-40T-30S" would match 'GURALP' and 'CMG-40T-30S', but not the whole string.
+# See attribute types below)
+#
+# The list of segment attribute names and types is:
+#
+# ============================= ==============================================================
+# attribute                     Python type and (optional) description
+# ============================= ==============================================================
+# id                            int: segment (unique) db id
+# event_distance_deg            float: distance between the segment's station and
+#                               the event, in degrees
+# event_distance_km             float: distance between the segment's station and
+#                               the event, in km, assuming a perfectly spherical earth
+#                               with a radius of 6371 km
+# start_time                    datetime.datetime: the waveform data start time
+# arrival_time                  datetime.datetime: the station's arrival time of the waveform.
+#                               Value between 'start_time' and 'end_time'
+# end_time                      datetime.datetime: the waveform data end time
+# request_start                 datetime.datetime: the requested start time of the data
+# request_end                   datetime.datetime: the requested end time of the data
+# duration_sec                  float: the waveform data duration, in seconds
+# missing_data_sec              float: the number of seconds of missing data, with respect
+#                               to the requested time window. It might also be negative
+#                               (more data received than requested). This parameter is useful
+#                               when selecting segments: e.g., if we requested 5
+#                               minutes of data and we want to process segments with at
+#                               least 4 minutes of downloaded data, then:
+#                               missing_data_sec: '< 60'
+# missing_data_ratio            float: the portion of missing data, with respect
+#                               to the request time window. It might also be negative
+#                               (more data received than requested). This parameter is useful
+#                               when selecting segments: e.g., if you want to process
+#                               segments whose real time window is at least 90% of the
+#                               requested one, then: missing_data_ratio: '< 0.1'
+# sample_rate                   float: the waveform data sample rate.
+#                               It might differ from the segment channel's sample_rate
+# has_data                      boolean: tells if the segment has data saved (at least
+#                               one byte of data). This parameter is useful when selecting
+#                               segments (in most cases, almost necessary), e.g.:
+#                               has_data: 'true'
+# download_code                 int: the code reporting the segment download status. This
+#                               parameter is useful to further refine the segment selection
+#                               skipping beforehand segments with malformed data (code -2):
+#                               has_data: 'true'
+#                               download_code: '!=-2'
+#                               (We omit all other codes because of no interest. For details,
+#                               see Table 2 in https://doi.org/10.1785/0220180314#tb2)
+# maxgap_numsamples             float: the maximum gap or overlap found in the waveform data,
+#                               in number of points. If 0, the segment has no gaps/overlaps.
+#                               Otherwise, if >=1: the segment has gaps, if <=-1: the segment
+#                               has overlaps. Values in (-1, 1) are difficult to interpret: a
+#                               rule of thumb is to consider half a point (> 0.5 or <-0.5)
+#                               a gap / overlap.
+#                               This parameter is useful when selecting segments: e.g.,
+#                               to select segments with no gaps/overlaps, then:
+#                               maxgap_numsamples: '(-0.5, 0.5)'
+# seed_id                       str: the seed identifier in the typical format
+#                               [Network.Station.Location.Channel]. For segments
+#                               with waveform data, `data_seed_id` (see below) might be
+#                               faster to fetch.
+# data_seed_id                  str: same as 'segment.seed_id', but faster because it
+#                               reads the value stored in the waveform data. The drawback
+#                               is that this value is null for segments with no waveform data
+# has_class                     boolean: tells if the segment has (at least one) class
+#                               assigned
+# data                          bytes: the waveform (raw) bytes data. Used by `segment.stream()`
+# ----------------------------- ------------------------------------------------
+# event                         object (attributes below)
+# event.id                      int
+# event.event_id                str: the id returned by the web service or catalog
+# event.time                    datetime.datetime
+# event.latitude                float
+# event.longitude               float
+# event.depth_km                float
+# event.author                  str
+# event.catalog                 str
+# event.contributor             str
+# event.contributor_id          str
+# event.mag_type                str
+# event.magnitude               float
+# event.mag_author              str
+# event.event_location_name     str
+# ----------------------------- ------------------------------------------------
+# channel                       object (attributes below)
+# channel.id                    int
+# channel.location              str
+# channel.channel               str
+# channel.depth                 float
+# channel.azimuth               float
+# channel.dip                   float
+# channel.sensor_description    str
+# channel.scale                 float
+# channel.scale_freq            float
+# channel.scale_units           str
+# channel.sample_rate           float
+# channel.band_code             str: the first letter of channel.channel
+# channel.instrument_code       str: the second letter of channel.channel
+# channel.orientation_code      str: the third letter of channel.channel
+# channel.station               object: same as segment.station (see below)
+# ----------------------------- ------------------------------------------------
+# station                       object (attributes below)
+# station.id                    int
+# station.network               str: the station's network code, e.g. 'AZ'
+# station.station               str: the station code, e.g. 'NHZR'
+# station.netsta_code           str: the network + station code, concatenated with
+#                               the dot, e.g.: 'AZ.NHZR'
+# station.latitude              float
+# station.longitude             float
+# station.elevation             float
+# station.site_name             str
+# station.start_time            datetime.datetime
+# station.end_time              datetime.datetime
+# station.has_inventory         boolean: tells if the segment's station inventory has
+#                               data saved (at least one byte of data).
+#                               This parameter is useful when selecting segments: e.g.,
+#                               to select only segments with inventory downloaded:
+#                               station.has_inventory: 'true'
+# station.datacenter            object (same as segment.datacenter, see below)
+# ----------------------------- ------------------------------------------------
+# datacenter                    object (attributes below)
+# datacenter.id                 int
+# datacenter.station_url        str
+# datacenter.dataselect_url     str
+# datacenter.organization_name  str
+# ----------------------------- ------------------------------------------------
+# download                      object (attributes below): the download execution
+# download.id                   int
+# download.run_time             datetime.datetime
+# ----------------------------- ------------------------------------------------
+# classes.id                    int: the id(s) of the classes assigned to the segment
+# classes.label                 int: the label(s) of the classes assigned to the segment
+# classes.description           int: the description(s) of the classes assigned to the
+#                               segment
+# ============================= ================================================
+#
+segment_select:
+  has_data: 'true'
+  maxgap_numsamples: '[-0.5, 0.5]'
+  download_code: '!=-2'
+  data_seed_id: '!=null'
+  station.has_inventory: 'true'
+  missing_data_sec: '<120'
+  # id: '<300'
+  # event.time: "(2014-01-01T00:00:00, 2014-12-31T23:59:59)"
+  # event.latitude: "[24, 70]"
+  # event.longitude: "[-11, 24]"
+
+# Assign a dataset id (integer) to be saved for each row of the hdf. this is also
+# useful for uniquely identofying each segment when merging all hdfs: in this
+# case each segment is uniquely identified by the columns
+# 'Segment.db.id', 'dataset_id', 'window_type'
+dataset_id: 4
+
+
+# Settings for computing the 'signal' and 'noise' time windows on a segment waveform.
+# Set signal_window to False to compute the features on the whole window with no split.
+# If signal_window is True, each trace to be processed
+# will be splitted in two (signal and noise part), thus doubling the available traces
+# the HDF file column 'window_type' will tell you if the segment stems from a 
+# only noise window (window_type=False) or contains signal (window_type=True, the defualt)
+sn_windows:
+  arrival_time_shift: -1  # ignored if signal_window is False, otherwsie programmatically shifts the arrival time for every segment (in seconds)
+  signal_window: True  # If True, splits each segment into noise and signal, otherwise computes the whole segment
+
+# dict of bad station ids (the mapping to null values is meaningless, but YAML does not have a Set type so we use a dict)
+# bad is a dict, for faster search (the value 'null' is meaningless)
+# All segments from these stations will have the column 'outlier' set as True
+# and the column 'hand_labelled' set as True
+bad:
+  "1N.AIL1.00.HHE": null
+  "1N.AIL1.00.HHN": null
+  "1N.AIL1.00.HHZ": null
+  "AF.ANKE..BHZ": null
+  "AF.DODT..BHZ": null
+  "AF.EKNA..BHZ": null
+  "AF.KTWE..BHZ": null
+  "AF.KUKU..BHZ": null
+  "AF.LBB..BHZ": null
+  "AF.MBEY..BHZ": null
+  "AF.SHAI..BHZ": null
+  "AF.TEBE..BHZ": null
+  "AF.TEZI..BHZ": null
+  "AF.WIN..BHZ": null
+  "AF.YNDE..BHZ": null
+  "BS.JMB..BHZ": null
+  "C1.LC02..BHZ": null
+  "CA.POBL..BHZ": null
+  "CH.CHDAX..HHE": null
+  "CH.CHDAX..HHN": null
+  "CH.CHDAX..HHZ": null
+  "CH.OTTER..HGE": null
+  "CH.OTTER..HGN": null
+  "CH.OTTER..HGZ": null
+  "CL.MALA.01.HNE": null
+  "CL.MALA.01.HNN": null
+  "CL.MALA.01.HNZ": null
+  "CZ.CHVC..BHZ": null
+  "CZ.CKRC..BHZ": null
+  "CZ.CKRC..HHE": null
+  "CZ.CKRC..HHN": null
+  "CZ.CKRC..HHZ": null
+  "CZ.DPC..BHZ": null
+  "CZ.DPC..HHE": null
+  "CZ.DPC..HHN": null
+  "CZ.DPC..HHZ": null
+  "CZ.DPC..HNE": null
+  "CZ.DPC..HNN": null
+  "CZ.DPC..HNZ": null
+  "CZ.GOPC..BHZ": null
+  "CZ.GOPC..HHE": null
+  "CZ.GOPC..HHN": null
+  "CZ.GOPC..HHZ": null
+  "CZ.HSKC..BHZ": null
+  "CZ.HSKC..HHE": null
+  "CZ.HSKC..HHN": null
+  "CZ.HSKC..HHZ": null
+  "CZ.KHC..EHE": null
+  "CZ.KHC..EHN": null
+  "CZ.KHC..EHZ": null
+  "CZ.KHC..HHE": null
+  "CZ.KHC..HHN": null
+  "CZ.KHC..HHZ": null
+  "CZ.KRLC..BHZ": null
+  "CZ.KRLC..HHE": null
+  "CZ.KRLC..HHN": null
+  "CZ.KRLC..HHZ": null
+  "CZ.NKC..HHE": null
+  "CZ.NKC..HHN": null
+  "CZ.NKC..HHZ": null
+  "CZ.NKC..HNE": null
+  "CZ.NKC..HNN": null
+  "CZ.NKC..HNZ": null
+  "CZ.OKC..EHE": null
+  "CZ.OKC..EHN": null
+  "CZ.OKC..EHZ": null
+  "CZ.OKC..HHE": null
+  "CZ.OKC..HHN": null
+  "CZ.OKC..HHZ": null
+  "CZ.OSTC..BHZ": null
+  "CZ.OSTC..HHE": null
+  "CZ.OSTC..HHN": null
+  "CZ.OSTC..HHZ": null
+  "CZ.PBCC..BHZ": null
+  "CZ.PRA..BHZ": null
+  "CZ.PRU..EHE": null
+  "CZ.PRU..EHN": null
+  "CZ.PRU..EHZ": null
+  "CZ.PRU..HHE": null
+  "CZ.PRU..HHN": null
+  "CZ.PRU..HHZ": null
+  "CZ.PVCC..HHE": null
+  "CZ.PVCC..HHN": null
+  "CZ.PVCC..HHZ": null
+  "CZ.TREC..HHE": null
+  "CZ.TREC..HHN": null
+  "CZ.TREC..HHZ": null
+  "CZ.UPC..BHZ": null
+  "CZ.UPC..HHE": null
+  "CZ.UPC..HHN": null
+  "CZ.UPC..HHZ": null
+  "HP.PYL..HHE": null
+  "HP.PYL..HHN": null
+  "HP.PYL..HHZ": null
+  "IV.T1247..HHE": null
+  "IV.T1247..HHN": null
+  "IV.T1247..HHZ": null
+  "MC.AIRS..BHZ": null
+  "MC.GERD..BHZ": null
+  "MC.OLV2..BHZ": null
+  "MC.TRNT..BHZ": null
+  "MN.AQU..HHE": null
+  "MN.AQU..HHN": null
+  "MN.AQU..HHZ": null
+  "MN.AQU..HLE": null
+  "MN.AQU..HLN": null
+  "MN.AQU..HLZ": null
+  "PR.CUPR..BHZ": null
+  "SJ.BEO..BHZ": null
+  "SJ.DJES..BHZ": null
+  "SK.SRO..EHE": null
+  "SK.SRO..EHN": null
+  "SK.SRO..EHZ": null
+  "SL.BOJS..BHZ": null
+  "SL.BOJS..HNE": null
+  "SL.BOJS..HNN": null
+  "SL.BOJS..HNZ": null
+  "SL.CADS..BHZ": null
+  "SL.CADS..HHE": null
+  "SL.CADS..HHN": null
+  "SL.CADS..HHZ": null
+  "SL.CADS..HNE": null
+  "SL.CADS..HNN": null
+  "SL.CADS..HNZ": null
+  "SL.CEY..BHZ": null
+  "SL.CEY..HHE": null
+  "SL.CEY..HHN": null
+  "SL.CEY..HHZ": null
+  "SL.CEY..HNE": null
+  "SL.CEY..HNN": null
+  "SL.CEY..HNZ": null
+  "SL.CRES..BHZ": null
+  "SL.CRNS..BHZ": null
+  "SL.CRNS..HHE": null
+  "SL.CRNS..HHN": null
+  "SL.CRNS..HHZ": null
+  "SL.DOBS..BHZ": null
+  "SL.DOBS..HHE": null
+  "SL.DOBS..HHN": null
+  "SL.DOBS..HHZ": null
+  "SL.GBAS..BHZ": null
+  "SL.GBAS..HNE": null
+  "SL.GBAS..HNN": null
+  "SL.GBAS..HNZ": null
+  "SL.GBRS..BHZ": null
+  "SL.GBRS..HHE": null
+  "SL.GBRS..HHN": null
+  "SL.GBRS..HHZ": null
+  "SL.GCIS..BHZ": null
+  "SL.GCIS..HHE": null
+  "SL.GCIS..HHN": null
+  "SL.GCIS..HHZ": null
+  "SL.GOLS..BHZ": null
+  "SL.GOLS..HH1": null
+  "SL.GOLS..HH2": null
+  "SL.GOLS..HHZ": null
+  "SL.GORS..BHZ": null
+  "SL.GORS..HNE": null
+  "SL.GORS..HNN": null
+  "SL.GORS..HNZ": null
+  "SL.GROS..BHZ": null
+  "SL.GROS..HHE": null
+  "SL.GROS..HHN": null
+  "SL.GROS..HHZ": null
+  "SL.JAVS..BHZ": null
+  "SL.KNDS..BHZ": null
+  "SL.KNDS..HHE": null
+  "SL.KNDS..HHN": null
+  "SL.KNDS..HHZ": null
+  "SL.KOGS..BHZ": null
+  "SL.KOGS..HNE": null
+  "SL.KOGS..HNN": null
+  "SL.KOGS..HNZ": null
+  "SL.LJU..BHZ": null
+  "SL.LJU..HNE": null
+  "SL.LJU..HNN": null
+  "SL.LJU..HNZ": null
+  "SL.MOZS..BHZ": null
+  "SL.MOZS..HHE": null
+  "SL.MOZS..HHN": null
+  "SL.MOZS..HHZ": null
+  "SL.MOZS..HNE": null
+  "SL.MOZS..HNN": null
+  "SL.MOZS..HNZ": null
+  "SL.PDKS..BHZ": null
+  "SL.PDKS..HH1": null
+  "SL.PDKS..HH2": null
+  "SL.PDKS..HHZ": null
+  "SL.PERS..BHZ": null
+  "SL.PERS..HHE": null
+  "SL.PERS..HHN": null
+  "SL.PERS..HHZ": null
+  "SL.PERS..HNE": null
+  "SL.PERS..HNN": null
+  "SL.PERS..HNZ": null
+  "SL.ROBS..BHZ": null
+  "SL.SKDS..BHZ": null
+  "SL.SKDS..HHE": null
+  "SL.SKDS..HHN": null
+  "SL.SKDS..HHZ": null
+  "SL.VISS..BHZ": null
+  "SL.VISS..HNE": null
+  "SL.VISS..HNN": null
+  "SL.VISS..HNZ": null
+  "SL.VNDS..BHZ": null
+  "SL.VNDS..HNE": null
+  "SL.VNDS..HNN": null
+  "SL.VNDS..HNZ": null
+  "SL.VOJS..BHZ": null
+  "SL.VOJS..HNE": null
+  "SL.VOJS..HNN": null
+  "SL.VOJS..HNZ": null
+  "SL.ZAVS..BHZ": null
+  "UD.LUBAR..BHZ": null
+  "UD.MI28..BHZ": null
+  "UD.MI29..BHZ": null
+  "UD.MI30..BHZ": null
+  "X7.PY27A.00.HHE": null
+  "X7.PY27A.00.HHN": null
+  "YP.AC11.00.HNN": null
+  "YP.AC11.00.HNZ": null
+  "YU.A01..HHE": null
+  "YU.A01..HHN": null
+  "YU.A01..HHZ": null
+  "YU.A02..HHE": null
+  "YU.A02..HHN": null
+  "YU.A02..HHZ": null
+  "YU.A03..HHE": null
+  "YU.A03..HHN": null
+  "YU.A03..HHZ": null
+  "YU.A04..HHE": null
+  "YU.A04..HHN": null
+  "YU.A04..HHZ": null
+  "YU.A05..HHE": null
+  "YU.A05..HHN": null
+  "YU.A05..HHZ": null
+  "YU.A06..HHE": null
+  "YU.A06..HHN": null
+  "YU.A06..HHZ": null
+  "YU.A310..HHZ": null
+  "YU.A320..HHZ": null
+  "YU.A330..HHZ": null
+  "YU.A530..HHZ": null
+  "YU.A610..HHZ": null
+  "YU.A630..HHZ": null
+  "YU.GA01..HHE": null
+  "YU.GA01..HHN": null
+  "YU.GA01..HHZ": null
+  "YU.GA02..HHE": null
+  "YU.GA02..HHN": null
+  "YU.GA02..HHZ": null
+  "YU.GB01..HHE": null
+  "YU.GB01..HHN": null
+  "YU.GB01..HHZ": null
+  "YU.GB02..HHE": null
+  "YU.GB02..HHN": null
+  "YU.GB02..HHZ": null
+  "YU.GB03..HHE": null
+  "YU.GB03..HHN": null
+  "YU.GB03..HHZ": null
+  "YU.GB04..HHE": null
+  "YU.GB04..HHN": null
+  "YU.GB04..HHZ": null
+  "YU.GB05..HHE": null
+  "YU.GB05..HHN": null
+  "YU.GB05..HHZ": null
+  "YU.GB06..HHE": null
+  "YU.GB06..HHN": null
+  "YU.GB06..HHZ": null
+  "YU.GB07..HHE": null
+  "YU.GB07..HHN": null
+  "YU.GB07..HHZ": null
+  "YU.GC01..HHE": null
+  "YU.GC01..HHN": null
+  "YU.GC01..HHZ": null
+  "YU.GC02..HHE": null
+  "YU.GC02..HHN": null
+  "YU.GC02..HHZ": null
+  "YU.GC03..HHE": null
+  "YU.GC03..HHN": null
+  "YU.GC03..HHZ": null
+  "YU.M001..HHE": null
+  "YU.M001..HHN": null
+  "YU.M001..HHZ": null
+  "YU.M002..HHE": null
+  "YU.M002..HHN": null
+  "YU.M002..HHZ": null
+  "YU.M003..HHE": null
+  "YU.M003..HHN": null
+  "YU.M003..HHZ": null
+  "YU.M004..HHE": null
+  "YU.M004..HHN": null
+  "YU.M004..HHZ": null
+  "YU.M005..HHE": null
+  "YU.M005..HHN": null
+  "YU.M005..HHZ": null
+  "YU.M006..HHE": null
+  "YU.M006..HHN": null
+  "YU.M006..HHZ": null
+  "YU.M007..HHE": null
+  "YU.M007..HHN": null
+  "YU.M007..HHZ": null
+  "YU.M008..HHE": null
+  "YU.M008..HHN": null
+  "YU.M008..HHZ": null
+  "YX.ACHT.00.EHE": null
+  "YX.ACHT.00.EHN": null
+  "YX.ACHT.00.EHZ": null
+
+
+# dict of GOOD station ids (the mapping to null values is meaningless, but YAML does not have a Set type so we use a dict)
+# All segments from these stations will have the column 'outlier' set as False
+# (this is the default for every segment) but also the column 'hand_labelled' set as True
+good:
+  "AC.PUK..HHN": null
+  "BS.BLKB..HNN": null
+  "BS.VETAM..HNN": null
+  "BW.BE1..BHZ": null
+  "BW.FFB1..BHZ": null
+  "BW.FFB2..BHZ": null
+  "BW.FFB3..BHZ": null
+  "BW.RJOB..BHZ": null
+  "BW.RNON..BHZ": null
+  "BW.WETR..BHZ": null
+  "CH.DIX..HGN": null
+  "CH.FUSIO..HGN": null
+  "CH.FUSIO..HHN": null
+  "CH.GRIMS..HHE": null
+  "CH.GRIMS..HHN": null
+  "CH.GRIMS..HHZ": null
+  "CH.MMK..HGN": null
+  "CH.MUGIO..HHN": null
+  "CH.NALPS..HHN": null
+  "CL.ROD3.01.EHN": null
+  "CQ.OSC2.01.HHN": null
+  "CZ.JAVC..BHZ": null
+  "CZ.KRUC..BHZ": null
+  "CZ.MORC..BHZ": null
+  "CZ.VRAC..BHZ": null
+  "FR.ESCA.00.HNN": null
+  "FR.ESCA.01.HHN": null
+  "FR.MON.00.HNN": null
+  "FR.MVIF.00.HHN": null
+  "FR.OGDI.00.HHN": null
+  "FR.PYLO.00.HNE": null
+  "FR.PYLO.00.HNN": null
+  "FR.PYLO.00.HNZ": null
+  "FR.SAOF.00.HNN": null
+  "G.AIS.00.BHZ": null
+  "G.ATD.00.BHZ": null
+  "G.CAN.00.BHZ": null
+  "G.CCD.00.BHZ": null
+  "G.CRZF.00.BHZ": null
+  "G.DRV.00.BHZ": null
+  "G.DZM.00.BHZ": null
+  "G.ECH.00.BHZ": null
+  "G.FDF.00.BHZ": null
+  "G.HDC.00.BHZ": null
+  "G.INU.00.BHZ": null
+  "G.IVI.00.BHZ": null
+  "G.KIP.00.BHZ": null
+  "G.KIP.10.BHZ": null
+  "G.KIP.60.BHZ": null
+  "G.MPG.00.BHZ": null
+  "G.NOUC.00.BHZ": null
+  "G.PAF.00.BHZ": null
+  "G.PPTF.00.BHZ": null
+  "G.ROCAM.00.BHZ": null
+  "G.SANVU.00.BHZ": null
+  "G.SPB.00.BHZ": null
+  "G.SSB.00.BHZ": null
+  "G.SSB.10.BHZ": null
+  "G.TAM.00.BHZ": null
+  "G.TAOE.00.BHZ": null
+  "G.UNM.00.BHZ": null
+  "G.WUS.00.BHZ": null
+  "G.WUS.10.BHZ": null
+  "GE.ACRG..BHZ": null
+  "GE.APE..BHZ": null
+  "GE.BALJ..BHZ": null
+  "GE.BBJI..BHZ": null
+  "GE.BKB..BHZ": null
+  "GE.BKNI..BHZ": null
+  "GE.BNDI..BHZ": null
+  "GE.CSS..BHZ": null
+  "GE.DAG..BHZ": null
+  "GE.DAMY..BHZ": null
+  "GE.DSB..BHZ": null
+  "GE.EIL..BHZ": null
+  "GE.FAKI..BHZ": null
+  "GE.FLT1..BHZ": null
+  "GE.GENI..BHZ": null
+  "GE.GHAJ..BHZ": null
+  "GE.GSI..BHZ": null
+  "GE.GVD..BHZ": null
+  "GE.GVD..HHN": null
+  "GE.HALK..BHZ": null
+  "GE.HLG..BHZ": null
+  "GE.HMDM..BHZ": null
+  "GE.IBBN..BHZ": null
+  "GE.ILTH..BHZ": null
+  "GE.IMMV..BHZ": null
+  "GE.ISP.00.BHZ": null
+  "GE.ISP.10.BHZ": null
+  "GE.JAGI..BHZ": null
+  "GE.KAAM..BHZ": null
+  "GE.KARP..BHZ": null
+  "GE.KARP..HHN": null
+  "GE.KARP..HNN": null
+  "GE.KBS.00.BHZ": null
+  "GE.KBU..BHZ": null
+  "GE.KERA..BHZ": null
+  "GE.KIBK..BHZ": null
+  "GE.KMBO.00.BHZ": null
+  "GE.KMBO.10.BHZ": null
+  "GE.KMBO.60.BHZ": null
+  "GE.KTHA..BHZ": null
+  "GE.LODK..BHZ": null
+  "GE.LUWI..BHZ": null
+  "GE.LVC.00.BHZ": null
+  "GE.LVC.10.BHZ": null
+  "GE.MALK..BHZ": null
+  "GE.MATE..BHZ": null
+  "GE.MATE..HHN": null
+  "GE.MMRI..BHZ": null
+  "GE.MNAI..BHZ": null
+  "GE.MORC..BHZ": null
+  "GE.MTE..BHZ": null
+  "GE.NPW..BHZ": null
+  "GE.PABE..BHZ": null
+  "GE.PBUR..BHZ": null
+  "GE.PLAI..BHZ": null
+  "GE.PMBI..BHZ": null
+  "GE.PMG.00.BHZ": null
+  "GE.PMG.10.BHZ": null
+  "GE.PMG.60.BHZ": null
+  "GE.PSZ..BHZ": null
+  "GE.PUL..BHZ": null
+  "GE.RGN..BHZ": null
+  "GE.RUE..BHZ": null
+  "GE.SALP..BHZ": null
+  "GE.SALTA..BHZ": null
+  "GE.SANI..BHZ": null
+  "GE.SANT..HHN": null
+  "GE.SBV..BHZ": null
+  "GE.SFJD.00.BHZ": null
+  "GE.SFJD.10.BHZ": null
+  "GE.SMRI..BHZ": null
+  "GE.SNAA..BHZ": null
+  "GE.SOCY..BHZ": null
+  "GE.SOEI..BHZ": null
+  "GE.STU..BHZ": null
+  "GE.SUMG..BHZ": null
+  "GE.SUMG.10.BHZ": null
+  "GE.TIRR..HHN": null
+  "GE.TOLI2..BHZ": null
+  "GE.UGM..BHZ": null
+  "GE.UJAP..BHZ": null
+  "GE.VAL..BHZ": null
+  "GE.VOI..BHZ": null
+  "GE.WIN..BHZ": null
+  "GE.WLF..BHZ": null
+  "GE.ZKR..BHZ": null
+  "GR.A055..BHZ": null
+  "GR.AHRW..BHZ": null
+  "GR.BFO..BHZ": null
+  "GR.BSEG..BHZ": null
+  "GR.BUG..BHZ": null
+  "GR.CLL..BHZ": null
+  "GR.CLNZ..BHZ": null
+  "GR.CLZ..BHZ": null
+  "GR.FUR..BHZ": null
+  "GR.GOLD..BHZ": null
+  "GR.GOR1..BHZ": null
+  "GR.GRA1..BHZ": null
+  "GR.GRA2..BHZ": null
+  "GR.GRA3..BHZ": null
+  "GR.GRA4..BHZ": null
+  "GR.GRB1..BHZ": null
+  "GR.GRB2..BHZ": null
+  "GR.GRB3..BHZ": null
+  "GR.GRB4..BHZ": null
+  "GR.GRB5..BHZ": null
+  "GR.GRC1..BHZ": null
+  "GR.GRC2..BHZ": null
+  "GR.GRC3..BHZ": null
+  "GR.GRC4..BHZ": null
+  "GR.HAM4..BHZ": null
+  "GR.KAST..BHZ": null
+  "GR.MOX..BHZ": null
+  "GR.NRDL..BHZ": null
+  "GR.RETH..BHZ": null
+  "GR.RETHO..BHZ": null
+  "GR.SKMB..BHZ": null
+  "GR.TMO22..BHZ": null
+  "GR.TNS..BHZ": null
+  "GR.UBBA..BHZ": null
+  "GR.UBR..BHZ": null
+  "GR.WET..BHZ": null
+  "GU.ENR..HHN": null
+  "GU.FIVI..HNN": null
+  "GU.GORR..HHN": null
+  "GU.PZZ..HHN": null
+  "GU.SATI..HHN": null
+  "GU.SC2M..HHN": null
+  "HA.EPID..HHN": null
+  "HA.EREA..HHN": null
+  "HA.KARY..HHN": null
+  "HA.LOUT..HHN": null
+  "HA.MAKR..HHN": null
+  "HA.PROD..HHN": null
+  "HA.SNT1..HHN": null
+  "HC.FRMA..HHN": null
+  "HC.GVDS..HHN": null
+  "HC.KNDR..HHN": null
+  "HC.KSTL..HHN": null
+  "HI.KRI1..HNN": null
+  "HL.AMGA..HHN": null
+  "HL.ARG..HHN": null
+  "HL.ATH..HHN": null
+  "HL.DION..HHN": null
+  "HL.DION..HNN": null
+  "HL.GVD..HHN": null
+  "HL.GVD.00.HNN": null
+  "HL.JAN..HHN": null
+  "HL.KARP..HHN": null
+  "HL.KARP..HNN": null
+  "HL.KASA.00.HNN": null
+  "HL.KEK..HHN": null
+  "HL.LIA..HHN": null
+  "HL.LKR..HHN": null
+  "HL.MGNA.00.HNN": null
+  "HL.NEO..HHN": null
+  "HL.NOAC.00.HNN": null
+  "HL.PATC.00.HNN": null
+  "HL.PRK..HHN": null
+  "HL.PRK..HNN": null
+  "HL.SANT..HHN": null
+  "HL.SMG..HHN": null
+  "HL.VAM..HHN": null
+  "HL.YDRA.00.HNN": null
+  "HP.AMT.00.HHN": null
+  "HP.ANX..HHN": null
+  "HP.ANX..HNN": null
+  "HP.DRO..HHN": null
+  "HP.FSK..HNN": null
+  "HP.GUR..HHN": null
+  "HP.LTHK..HHN": null
+  "HP.PDO..HHN": null
+  "HP.PVO..HHN": null
+  "HP.SERG..HHN": null
+  "HT.CMBO..HHN": null
+  "HT.LKD2..HHN": null
+  "HT.NIS1..HHN": null
+  "HT.SOH..HHN": null
+  "HT.TSLK..HHN": null
+  "II.AAK.00.BHZ": null
+  "II.AAK.10.BHZ": null
+  "II.ABPO.10.BHZ": null
+  "II.ALE.10.BHZ": null
+  "II.ARTI.00.BHZ": null
+  "II.ARTI.10.BHZ": null
+  "II.BFO.00.BHZ": null
+  "II.BRVK.00.BHZ": null
+  "II.BRVK.10.BHZ": null
+  "II.CMLA.00.BHZ": null
+  "II.CMLA.10.BHZ": null
+  "II.COCO.10.BHZ": null
+  "II.ESK.00.BHZ": null
+  "II.ESK.10.BHZ": null
+  "II.FFC.00.BHZ": null
+  "II.FFC.10.BHZ": null
+  "II.KAPI.10.BHZ": null
+  "II.KDAK.00.BHZ": null
+  "II.KDAK.10.BHZ": null
+  "II.KIV.00.BHZ": null
+  "II.KIV.10.BHZ": null
+  "II.KURK.00.BHZ": null
+  "II.KURK.10.BHZ": null
+  "II.KWJN.10.BHZ": null
+  "II.LVZ.00.BHZ": null
+  "II.LVZ.10.BHZ": null
+  "II.MBAR.00.BHZ": null
+  "II.MBAR.10.BHZ": null
+  "II.MSEY.00.BHZ": null
+  "II.MSEY.10.BHZ": null
+  "II.OBN.00.BHZ": null
+  "II.OBN.10.BHZ": null
+  "II.PFO.00.BHZ": null
+  "II.PFO.10.BHZ": null
+  "II.RAYN.00.BHZ": null
+  "II.RAYN.10.BHZ": null
+  "II.SIMI.00.BHZ": null
+  "II.TAU.00.BHZ": null
+  "II.TAU.10.BHZ": null
+  "II.TLY.00.BHZ": null
+  "II.UOSS.10.BHZ": null
+  "II.WRAB.00.BHZ": null
+  "II.WRAB.10.BHZ": null
+  "II.XPFO.20.BHZ": null
+  "II.XPFO.50.BHZ": null
+  "IU.ADK.10.BHZ": null
+  "IU.AFI.10.BHZ": null
+  "IU.ANTO.00.BHZ": null
+  "IU.BBSR.10.BHZ": null
+  "IU.CASY.00.BHZ": null
+  "IU.CASY.10.BHZ": null
+  "IU.CCM.00.BHZ": null
+  "IU.CCM.10.BHZ": null
+  "IU.CHTO.10.BHZ": null
+  "IU.COLA.10.BHZ": null
+  "IU.COR.00.BHZ": null
+  "IU.COR.10.BHZ": null
+  "IU.COR.60.BHZ": null
+  "IU.FURI.00.BHZ": null
+  "IU.FURI.10.BHZ": null
+  "IU.GRFO..BHZ": null
+  "IU.GUMO.00.BHZ": null
+  "IU.GUMO.10.BHZ": null
+  "IU.HRV.00.BHZ": null
+  "IU.HRV.60.BHZ": null
+  "IU.INCN.00.BHZ": null
+  "IU.INCN.10.BHZ": null
+  "IU.JOHN.00.BHZ": null
+  "IU.JOHN.10.BHZ": null
+  "IU.KBL..BHZ": null
+  "IU.KBS.00.BHZ": null
+  "IU.KBS.10.BHZ": null
+  "IU.KEV.00.BHZ": null
+  "IU.KEV.10.BHZ": null
+  "IU.KIEV.00.BHZ": null
+  "IU.KIEV.10.BHZ": null
+  "IU.KIP.10.BHZ": null
+  "IU.KMBO.00.BHZ": null
+  "IU.KMBO.10.BHZ": null
+  "IU.KMBO.60.BHZ": null
+  "IU.KONO.00.BHZ": null
+  "IU.KONO.10.BHZ": null
+  "IU.LSZ.00.BHZ": null
+  "IU.LVC.00.BHZ": null
+  "IU.LVC.10.BHZ": null
+  "IU.MA2.00.BHZ": null
+  "IU.MA2.10.BHZ": null
+  "IU.MAJO.00.BHZ": null
+  "IU.MAJO.10.BHZ": null
+  "IU.MAJO.60.BHZ": null
+  "IU.MAKZ.00.BHZ": null
+  "IU.MIDW.00.BHZ": null
+  "IU.NWAO.10.BHZ": null
+  "IU.OTAV.00.BHZ": null
+  "IU.OTAV.10.BHZ": null
+  "IU.PAB.00.BHZ": null
+  "IU.PAB.10.BHZ": null
+  "IU.PET.00.BHZ": null
+  "IU.PMG.00.BHZ": null
+  "IU.PMG.10.BHZ": null
+  "IU.PMG.60.BHZ": null
+  "IU.PMSA.00.BHZ": null
+  "IU.PMSA.10.BHZ": null
+  "IU.PTCN.00.BHZ": null
+  "IU.PTCN.10.BHZ": null
+  "IU.RAO.00.BHZ": null
+  "IU.RAO.10.BHZ": null
+  "IU.RAR.10.BHZ": null
+  "IU.RCBR.00.BHZ": null
+  "IU.RSSD.00.BHZ": null
+  "IU.RSSD.10.BHZ": null
+  "IU.SAML.00.BHZ": null
+  "IU.SAML.10.BHZ": null
+  "IU.SBA.00.BHZ": null
+  "IU.SBA.10.BHZ": null
+  "IU.SDV.10.BHZ": null
+  "IU.SFJD.00.BHZ": null
+  "IU.SFJD.10.BHZ": null
+  "IU.SJG.10.BHZ": null
+  "IU.SLBS.10.BHZ": null
+  "IU.SSPA.00.BHZ": null
+  "IU.SSPA.10.BHZ": null
+  "IU.TARA.00.BHZ": null
+  "IU.TARA.10.BHZ": null
+  "IU.TATO.00.BHZ": null
+  "IU.TATO.10.BHZ": null
+  "IU.TEIG.00.BHZ": null
+  "IU.TIXI.00.BHZ": null
+  "IU.TIXI.10.BHZ": null
+  "IU.TRQA.10.BHZ": null
+  "IU.TUC.00.BHZ": null
+  "IU.TUC.10.BHZ": null
+  "IU.TUC.60.BHZ": null
+  "IU.ULN.00.BHZ": null
+  "IU.ULN.10.BHZ": null
+  "IU.WAKE.00.BHZ": null
+  "IU.WAKE.10.BHZ": null
+  "IU.WCI.10.BHZ": null
+  "IU.YAK.00.BHZ": null
+  "IU.YAK.10.BHZ": null
+  "IU.YSS.00.BHZ": null
+  "IU.YSS.10.BHZ": null
+  "IV.ACER..HHN": null
+  "IV.AIO..HHN": null
+  "IV.APEC..HHN": null
+  "IV.ATCC..EHN": null
+  "IV.ATPC..HHN": null
+  "IV.ATPC..HNN": null
+  "IV.ATVO..HNN": null
+  "IV.BORM..HNN": null
+  "IV.BRMO..HHN": null
+  "IV.CAFE..HNN": null
+  "IV.CAFR..HHN": null
+  "IV.CAR1..HHN": null
+  "IV.DOI..HHN": null
+  "IV.FAGN..HHN": null
+  "IV.FIU..EHN": null
+  "IV.FNVD..HHN": null
+  "IV.FOSV..HNN": null
+  "IV.FRON..EHN": null
+  "IV.HCRL..HHN": null
+  "IV.IMI..HHN": null
+  "IV.LNSS..HHN": null
+  "IV.LTRZ..HNN": null
+  "IV.MABI..HHN": null
+  "IV.MCEL..HNN": null
+  "IV.MCRV..HHN": null
+  "IV.MGAB..HNN": null
+  "IV.MOMA..HHN": null
+  "IV.MRB1..HHN": null
+  "IV.MSAG..HHN": null
+  "IV.MSRU..HHN": null
+  "IV.MTCR..EHN": null
+  "IV.NOCI..HHN": null
+  "IV.NOV..HHN": null
+  "IV.NOVE..EHN": null
+  "IV.ORI..HHN": null
+  "IV.PALZ..HHN": null
+  "IV.PII..HHN": null
+  "IV.PIO1..HNN": null
+  "IV.PIPA..HHN": null
+  "IV.PR02..HHN": null
+  "IV.RCAV..EHN": null
+  "IV.RM05..HNN": null
+  "IV.RM10..EHN": null
+  "IV.RM10..HNN": null
+  "IV.RM28..EHN": null
+  "IV.ROVR..HHN": null
+  "IV.SCTE..HHN": null
+  "IV.SFI..HNN": null
+  "IV.SGRT..HHN": null
+  "IV.SIRI..HNN": null
+  "IV.SMA1..EHN": null
+  "IV.T0502..EHN": null
+  "IV.T0502..HNN": null
+  "IV.T0503..EHN": null
+  "IV.T0702..EHN": null
+  "IV.T0711..EHN": null
+  "IV.T0711..HNN": null
+  "IV.VARE..HHN": null
+  "IV.VITU..HHN": null
+  "IV.ZEN8..HNN": null
+  "KO.ARMT..HHN": null
+  "KO.BALB..HHN": null
+  "KO.BGKT..HHN": null
+  "KO.CAVI..HHN": null
+  "KO.CRLT..HHN": null
+  "KO.CTKS..HHN": null
+  "KO.CTYL..HHN": null
+  "KO.ERIK..HHN": null
+  "KO.EZN..HHN": null
+  "KO.GEMT..HHN": null
+  "KO.GULA..HHN": null
+  "KO.GURO..HHN": null
+  "KO.HRTX..HHN": null
+  "KO.KAVV..HHN": null
+  "KO.KCTX..HHN": null
+  "KO.KRBG..HHN": null
+  "KO.KURC..HHN": null
+  "KO.LAP..HHN": null
+  "KO.PHSR..HHN": null
+  "KO.RKY..HHN": null
+  "KO.SAUV..HHN": null
+  "KO.SLVT..HHN": null
+  "KO.YLV..HHN": null
+  "KZ.KUR21..BHZ": null
+  "ME.KOME..HHN": null
+  "MN.AQU..BHZ": null
+  "MN.BLY..HHN": null
+  "MN.BLY..HLN": null
+  "MN.CEL..BHZ": null
+  "MN.CUC..BHZ": null
+  "MN.DIVS..BHZ": null
+  "MN.PDG..HHN": null
+  "MN.PDG..HLN": null
+  "MN.TIP..BHZ": null
+  "MN.TRI..BHZ": null
+  "MN.TUE..HHN": null
+  "MN.TUE..HLN": null
+  "MN.VLC..BHZ": null
+  "MN.VSL..BHZ": null
+  "MN.VTS..BHZ": null
+  "NI.AGOR..BHN": null
+  "NI.AGOR..HHN": null
+  "OT.TAR1..HHN": null
+  "OX.CGRP..HNN": null
+  "PZ.BRGZ..EHN": null
+  "PZ.EASY..EHN": null
+  "PZ.HYBL..EHN": null
+  "PZ.PIER..EHN": null
+  "PZ.SCRP..EHN": null
+  "RA.BELV.00.HNN": null
+  "S1.AUTAR..BHZ": null
+  "SI.KOSI..HHN": null
+  "SK.MODS..HHE": null
+  "SK.MODS..HHN": null
+  "SK.MODS..HHZ": null
+  "SK.ZST..HHE": null
+  "SK.ZST..HHN": null
+  "SK.ZST..HHZ": null
+  "TU.BORA..HHN": null
+  "TV.A001..EHN": null
+  "TV.AT01..EHN": null
+  "TV.CCN3..EHN": null
+  "XW.W02.00.BHN": null
+  "XW.W03.00.HHN": null
+  "XW.W04.00.BHN": null
+  "XW.W04.00.HHN": null
+  "XW.W05.00.BHN": null
+  "XW.W05.00.HHN": null
+  "XW.W08.00.BHN": null
+  "XW.W12.00.HHN": null
+  "XW.W13.00.BHN": null
+  "XW.W14.00.HHN": null
+  "XW.W16.00.HHN": null
+  "XY.ERE.00.HHN": null
+  "XY.KOY.00.HHN": null
+  "XY.UMT.00.HHN": null
+  "YI.E01.00.BHN": null
+  "YI.E02.00.BHN": null
+  "YI.E05.00.BHN": null
+  "YI.E12.00.BHN": null
+  "YI.E20.00.BHN": null
+  "Z3.AMOE..HHN": null
+  "ZZ.AMOE..HHN": null
+  "ZZ.PARO..HHN": null
+  "ZZ.SIFN..HHN": null
+
+
+# psd interpolation values (in seconds):
+psd_periods:
+ - 0.05 # amp@20hz
+ - 0.1  # amp@10hz 
+ - 0.2  # amp@5hz
+ - 0.5  # amp@2hz
+ - 1    # amp@1hz
+ - 2    # amp@0.5hz
+ - 3 
+ - 5 
+ - 9
+# - 100
+
+
+# Advanced settings tuning the process routine:
+advanced_settings:
+  # Use parallel sub-processes to speed up the execution.
+  multi_process: true
+  # The number of sub-processes. If null, it is set as the the number of CPUs in the
+  # system. This option is ignored if multi_process is false
+  num_processes: null
+  # Although each segment is processed one at a time, loading segments in chunks from the
+  # database is faster: the number below defines the chunk size. If multi_process is true,
+  # the chunk size also defines how many segments will be loaded in each python sub-process.
+  # Increasing this number might speed up execution but increases the memory usage.
+  # When null, the chunk size defaults to 1200 if the number N of
+  # segments to be processed is > 1200, otherwise N/10.
+  segments_chunksize: 1200
+  # Optional arguments for the output writer. Ignored for CSV output, for HDF output see:
+  # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.HDFStore.append.html
+  # (the parameters 'append' and 'value' will be ignored, if given here)
+  writer_options:
+    chunksize: 1200
+    # hdf needs a fixed length for all columns: for variable-length string columns,
+    # you need to tell in advance how many bytes to allocate with 'min_itemsize'.
+    # E.g., if you have two string columns 'col1' and 'col2' and you assume to store
+    # at most 10 ASCII characters in 'col1' and 20 in 'col2', then:
+    min_itemsize:
+      channel_code: 3
+      location_code: 3
+
+# If you want to use the GUI as hand labelling tool (for e.g. supervised classification problems)
+# or setup classes before processing, you can provide the parameter 'class_labels' which is a
+# dictionary of label names mapped to their description. If provided, the labels will first be
+# added to the database (updating the description, if the label name is already present) and
+# then will show up in the GUI where one or more classes can be assigned to a given segment via
+# check boxes. If missing, no class labels will show up in the GUI, unless already set by a
+# previous config. Example:
+#class_labels:
+#  Discarded: "Segment which does not fall in any other cathegory (e.g., unknown artifacts)"
+#  Unknown: "Segment which is either: unlabeled (not annotated) or unclassified"
+#  Ok: "Segment with no artifact"
+#  LowS2N: "Segment has a low signal-to-noise ratio"
+#  Aftershock: "Segment with non overlapping multi-events recorded (aftershock)"
+#  MultiEvent: "Segment with overlapping multi-events recorded (no aftershock)"
+#  BadCoda: "Segment with a bad coda (bad decay)"
