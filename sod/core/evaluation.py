@@ -251,7 +251,9 @@ class TrainingParam:
 
     def iterargs(self, destdir):
         '''Yields a list of N arguments
-        to be passed to `_create_save_classifier`. See `run_evaluation` for
+        to be passed to `_create_save_classifier`.
+        Skips classifier(s) whose path already exist.
+        See `run_evaluation` for
         details.
         **NOTE** This method reads the entire training set once
         before starting yielding, **be careful for performance reasons**.
@@ -464,6 +466,8 @@ def run_evaluation(training_param, test_param, destdir):
     print('Step 1 of 2: Training (creating models)')
     newly_created_models = 0
     print('Reading Training file (HDF)')
+    # returns iterable of classifier TO BE CREATED (already existing are not
+    # yielded):
     iterargs = list(training_param.iterargs(destdir))
     if iterargs:
         pool = Pool(processes=int(cpu_count()))
@@ -554,7 +558,7 @@ def create_summary_evaluationmetrics(destdir):
     print('Computing summary evaluation metrics from '
           'predictions data frames (HDF file)')
 
-    eval_df_path = join(destdir, 'summary_evaluationmetrics.hdf')
+    eval_df_path = join(destdir, 'evaluationmetrics.hdf')
 
     dfr, already_processed_tuples = None, set()
     if isfile(eval_df_path):

@@ -26,7 +26,7 @@ Created on 18 Mar 2020
 @author: rizac(at)gfz-potsdam.de
 '''
 from os.path import (join, abspath, dirname, isfile, isdir, basename, dirname,
-                     splitext, expanduser)
+                     splitext, expanduser, isabs)
 import sys
 import os
 import re
@@ -48,11 +48,38 @@ from itertools import cycle
 import importlib
 from matplotlib.ticker import MultipleLocator
 
+
+from stream2segment.process.db import Segment, Station, get_session as g_s
+import yaml
+
 # for printing, we can do this:
 # with pd.option_context('display.max_rows', -1, 'display.max_columns', 5):
 # or we simply set once here the max_col_width
 pd.set_option('display.max_colwidth', 500)
 pd.set_option('display.max_columns', 500)
+
+
+@contextlib.contextmanager
+def get_session(dbname_or_dbid):
+    '''`with get_session(dbname_or_dbid) as session:`'''
+    dbname = dbname_or_dbid
+    if not isinstance(dbname_or_dbid, str):
+        dbname = [
+            'dbpath_eu_new',
+            'dbpath_me',
+            'dbpath_chile',
+            'dbpath_sod_dist_2_20',
+            'dbpath_sod_mag_4_5',
+            'dbpath_test_dist_around_2000'
+        ][dbname_or_dbid-1]
+
+    with open(join(dirname(__file__), 'jnconfig.yaml')) as opn:
+        dbases = yaml.safe_load(opn)
+    sess = g_s(dbases[dbname], connect_args={'connect_timeout': 10})
+    try:
+        yield sess
+    finally:
+        sess.close()
 
 
 def printhtml(what):
@@ -75,14 +102,14 @@ class EVALMETRICS(Enum):
     returns the metric scalar value from a prediction dataframe
     '''
     # REMEMBER that EVALMETRICS(string) == EVALMETRICS(EVALMETRICS(string))
-    AUC = 'roc_auc_score'
     APS = 'average_precision_score'
-    LOGLOSS = 'log_loss'
     F1MAX = 'f1_max'
+    BEST_TH_PR = 'best_th_pr_curve'
+    AUC = 'roc_auc_score'
+    LOGLOSS = 'log_loss'
     PMAX = 'p_max'
     RMAX = 'r_max'
     # BEST_TH_ROC = 'best_th_roc_curve'
-    BEST_TH_PR = 'best_th_pr_curve'
 
     def __str__(self):
         return self.value
@@ -179,7 +206,22 @@ def read_summary_eval_df(**kwargs):
     Keyword arguments of the functions are the same keyword arguments as pandas
     `read_hdf`.
     '''
-    dfr = pd.read_hdf(_abspath('summary_evaluationmetrics.hdf'), **kwargs)
+    return read_eval_df('summary_evaluationmetrics.hdf', **kwargs)
+    # dfr = pd.read_hdf(_abspath('summary_evaluationmetrics.hdf'), **kwargs)
+    # # _key is the prediction dataframe path, relative to
+    # # the EVALPATH directory (see _abspath). Create a new filepath column with
+    # # the complete path of each prediction:
+    # # fAlso, consider renaming leading underscores from pandas columns
+    # # otherwise itertuples does not work (namedtuples prohibit leading
+    # # underscores in attributes)
+    # dfr.rename(columns={'_key': 'relative_filepath'}, inplace=True)
+    # return _reorder_eval_df_columns(dfr)
+
+
+def read_eval_df(path_or_name, **kwargs):
+    if not isabs(path_or_name):
+        path_or_name = _abspath(path_or_name)
+    dfr = pd.read_hdf(path_or_name, **kwargs)
     # _key is the prediction dataframe path, relative to
     # the EVALPATH directory (see _abspath). Create a new filepath column with
     # the complete path of each prediction:
@@ -582,7 +624,7 @@ def progressbar(length):
     return pbar(length)
 
 
-def get_pred_dfs(eval_df, postfunc=None, show_progress=True):
+def get_pred_dfs(eval_df, postfunc=None, show_progress=True, **kwargs):
     '''`get_pred_dfs(eval_df, postfunc=None, show_progress=True)` reads and
     returns a dict of file paths mapped to the corresponding Prediction
     dataframe, for each evaluation (row) of `eval_df`. See also `get_eval_df`.
@@ -593,7 +635,7 @@ def get_pred_dfs(eval_df, postfunc=None, show_progress=True):
     pbar = progressbar(len(eval_df)) if show_progress else None
     pred_dfs = {}
     for eval_namedtuple in eval_df.itertuples(index=False, name='Evaluation'):
-        pred_df = read_pred_df(eval_namedtuple.relative_filepath)
+        pred_df = read_pred_df(eval_namedtuple.relative_filepath, **kwargs)
         if postfunc is not None:
             pred_df = postfunc(eval_namedtuple, pred_df)
 
@@ -837,6 +879,122 @@ def get_petterson_bounds(periods):
         np.interp(periodz, np.log10(h_periods[::-1]), h_psd[::-1])
 
 
+def read_handlabelled_channels():
+    '''`read_handlabelled()` reads the annotated segments
+    from a dedicated directory and returns a dataframe with
+    columns: dataset_id (int), start_time (datetime), end_time (datetime),
+    outlier (bool), station_id (int)
+    location_code (str), channel_code (str)
+    '''
+    _root = join(expanduser('~'), 'Nextcloud', 'rizac', 'outliers_paper')
+    annotations = [join(_root, _)
+                   for _ in ['0.75_0.85_dino.csv',
+                             '0.65_0.75_dino.csv',
+                             '0.55_0.65_dino.csv']]
+
+    annotations = [pd.read_csv(_) for _ in annotations]
+    for i, annot in enumerate(annotations):
+        annot['score_d'] = pd.to_numeric(annot['score_d'], errors='coerce')
+        annot = annot[pd.notna(annot.score_d)]
+        annotations[i] = annot
+    annotations = pd.concat(annotations, axis=0, sort=False)
+
+    ret = {
+        'outlier': annotations.score_d >= 1,
+        'station_id': annotations.station_id.astype(int),
+        'location_code': annotations['location.channel'].str.split('.').str[0],
+        'channel_code': annotations['location.channel'].str.split('.').str[1],
+        'dataset_id': annotations.dataset_id.astype(int),
+        'start_time': pd.to_datetime(annotations.start_time),
+        'end_time': pd.to_datetime(annotations.end_time)
+    }
+
+    ret = pd.DataFrame(ret)
+    ret.channel_code = ret.channel_code.astype('category')
+    ret.location_code = ret.location_code.astype('category')
+    ret.loc[pd.isna(ret.start_time), 'start_time'] = datetime(1900, 1, 1)
+    ret.loc[pd.isna(ret.end_time), 'end_time'] = \
+        datetime.utcnow() + timedelta(days=365)
+    return ret
+
+
+def read_handlabelled_segments():
+    '''`read_handlabelled()` reads the annotated segments
+    from a dedicated directory and returns a dataframe with
+    columns: dataset_id (int), 'Segment.db.id' (int), 'outlier' (bool, always
+    True)
+    '''
+    # set datetime to not be null:
+    _root = join(expanduser('~'), 'Nextcloud', 'rizac', 'outliers_paper')
+    single_annots = [join(_root, _) for _ in ['lista_1_out_dino',
+                                              'lista_2_out_dino']]
+    dataset_ids, seg_ids = [], []
+    for dataset_id, annot in enumerate(single_annots, 1):
+        with open(annot, 'r') as opn:
+            content = opn.read().strip().split(' ')
+        segids = [int(_) for _ in content]
+        dataset_ids += [dataset_id] * len(segids)
+        seg_ids += segids
+
+    outlier = [True] * len(dataset_ids)
+
+    return pd.DataFrame({'Segment.db.id': seg_ids,
+                         'dataset_id': dataset_ids,
+                         'outlier': outlier})
+
+
+
+def heatmap_df(dfr, col_x, col_y, bins_x=10, bins_y=10):
+
+    cols = [col_x, col_y]
+    dfr = dfr.dropna(subset=cols)
+
+#     qcuts = [pd.cut(dfr[k], 100, duplicates='drop') for k in cols]
+#     # make a series with bins (one for each column) -> num of pts per bins:
+#     series_df_bins = dfr.groupby(qcuts).size()
+#     # convert to dataframe with columns [col_x, coly] mapped to an interval
+#     # hmdf has a column "0" with the counts according to that interval
+#     class_df_bins = series_df_bins.reset_index()
+#     # drop zeros:
+#     class_df_bins = class_df_bins[class_df_bins[0] > 0]
+    
+    if type(bins_x) == int or isinstance(bins_x, np.integer):
+        binsx = pd.interval_range(dfr[col_x].min()-1e-5, dfr[col_x].max(),
+                                  periods=bins_x+1, name=col_x)
+    else:
+        pdarrays = pd.arrays  # @UndefinedVariable
+        binsx = pdarrays.IntervalArray.from_arrays(bins_x[:-1], bins_x[1:])
+
+    if type(bins_y) == int or isinstance(bins_y, np.integer):
+        binsy = pd.interval_range(dfr[col_y].min()-1e-5, dfr[col_y].max(),
+                                  periods=bins_y+1, name=col_y)
+    else:
+        pdarrays = pd.arrays  # @UndefinedVariable
+        binsy = pdarrays.IntervalArray.from_arrays(bins_y[:-1], bins_y[1:])
+
+    ret = pd.DataFrame(index=binsy, columns=binsx, data=0)
+    ret.index.name = col_y
+    ret.columns.name = col_x
+
+    for binx in binsx:
+        flt1 = dfr[col_x] >= binx.left if binx.closed_left else dfr[col_x] > binx.left
+        flt2 = dfr[col_x] <= binx.right if binx.closed_right else dfr[col_x] < binx.right
+        count0 = (flt1 & flt2).sum()
+        for biny in binsy:
+            if count0 == 0:
+                count = 0
+            else:
+                flt3 = dfr[col_y] >= biny.left if biny.closed_left else dfr[col_y] > biny.left
+                flt4 = dfr[col_y] <= biny.right if biny.closed_right else dfr[col_y] < biny.right
+                count = (flt1 & flt2 & flt3 & flt4).sum()
+            ret.loc[biny, binx] = count
+    return ret
+            
+
+    
+    
+    
+    
 # def plot_1dclf_scores_vs_psdperiods(clf, axs, xaxis_periods=None, title=None,
 #                                     mp_hist_kwargs=None, petterson_period=None,
 #                                     petterson_mp_kwargs=None):
@@ -1045,12 +1203,11 @@ def printdoc():
     printhtml(__ret)
 
 
-# if __name__ == "__main__":
-#     fig, axs = plt.subplot(1)
-#     plt.close()
-#     fig.show()
-
-
+if __name__ == "__main__":
+    dfr = pd.DataFrame({'mag': [1, 1, 3, 5, 10], 'dist': [0, 1, 0, 1, 0]})
+    ret = heatmap_df(dfr, 'mag', 'dist', np.arange(5), np.arange(5))
+    pd.set_option('max_rows', 200)
+    print(ret.to_string())
 # printdoc()
 
 # EVALPATH HIDDEN
