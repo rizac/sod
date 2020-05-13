@@ -60,8 +60,8 @@ pd.set_option('display.max_columns', 500)
 
 
 @contextlib.contextmanager
-def get_session(dbname_or_dbid):
-    '''`with get_session(dbname_or_dbid) as session:`'''
+def dbsession(dbname_or_dbid):
+    '''`with dbsession(dbname_or_dbid) as session:`'''
     dbname = dbname_or_dbid
     if not isinstance(dbname_or_dbid, str):
         dbname = [
@@ -80,6 +80,7 @@ def get_session(dbname_or_dbid):
         yield sess
     finally:
         sess.close()
+        sess.bind.engine.dispose()
 
 
 def printhtml(what):
@@ -150,6 +151,8 @@ class EVALMETRICS(Enum):
     @classmethod
     def computeall(cls, pred_df, *evalmetrics):
         ret = [np.nan for _ in evalmetrics]
+        if pred_df.empty:
+            return ret
         y_true, y_pred = pred_df.outlier, pred_df.predicted_anomaly_score
         evalmetrics = [cls(_) for _ in evalmetrics]
 
@@ -335,7 +338,9 @@ def _get_fig_and_axes(show_argument, default_rows, default_columns,
     return fig, axes
 
 
-def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, show=True):
+def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None,
+                              ylabel=lambda metric: str(metric).replace('_', ' '),
+                              show=True):
     '''`plot_feats_vs_em(eval_df, evalmetrics=None, show=True)` plots the
     features of `eval_df` grouped and
     colored by PSD period counts versus the given `ems` (Evaluation metrics,
@@ -361,7 +366,8 @@ def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, show=True):
     fig, axes = _get_fig_and_axes(show, len(evalmetrics), 1,
                                   grid_direction_horizontal=False)
 
-    for j, metric_name in enumerate(str(_) for _ in evalmetrics):
+    for j, metric in enumerate(evalmetrics):
+        metric_name = str(metric)
         axs = axes[j]
 
         for i, feat in enumerate(feats):
@@ -399,24 +405,24 @@ def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, show=True):
             rect = matplotlib.patches.Rectangle([i-0.4, min_],
                                                 height=max_-min_,
                                                 width=.8, fill=True,
-                                                linewidth=2,
+                                                linewidth=1.5,
                                                 edgecolor=color,
                                                 facecolor='white',
                                                 zorder=10)
 
             axs.add_patch(rect)
 
-            axs.plot([i], [median], marker='.', markersize=12, color=color,
+            axs.plot([i], [median], marker='.', markersize=9, color=color,
                      linewidth=0, mew=2, zorder=20)
 
         axs.set_xticks(list(range(len(feats))))
         if j == len(evalmetrics) - 1:
             axs.set_xlabel('Features (PSD periods)')
-            axs.set_xticklabels(feat_labels, rotation=70)
+            axs.set_xticklabels(feat_labels, rotation=80)
         else:
             axs.set_xticklabels([])
 
-        axs.set_ylabel(metric_name.replace('_', ' '))
+        axs.set_ylabel(ylabel(metric))
         axs.grid(zorder=0)
 
     if show is True:
@@ -553,7 +559,7 @@ def plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True):
         axs.plot(hp_xvals, mediany, linestyle='--', color=colors[i],
                  marker='o', label=title, linewidth=2)
         axs.set_title(title.replace('=', ':\n'))
-        axs.set_xlabel(hp_xname.replace('_', ' '))
+        # axs.set_xlabel(hp_xname.replace('_', ' '))
         axs.set_ylim(df_min.values.min(), df_max.values.max())
         axs.grid()
         if i == 0:

@@ -253,8 +253,7 @@ class TrainingParam:
         '''Yields a list of N arguments
         to be passed to `_create_save_classifier`.
         Skips classifier(s) whose path already exist.
-        See `run_evaluation` for
-        details.
+        See `run_evaluation` for details.
         **NOTE** This method reads the entire training set once
         before starting yielding, **be careful for performance reasons**.
         E.g., calling `args = list(...iterargs(...))` might take a while
@@ -367,8 +366,9 @@ class TestParam:
 
     def set_classifiers_paths(self, classifiers_paths):
         '''Builds and returns from this object parameters a list of N arguments
-        to be passed to `_create_save_classifier`. See `run_evaluation` for
-        details
+        to be passed to `_create_save_classifier`.
+        Skips classifiers whose prediction dataframe already exists. 
+        See `run_evaluation` for details
         '''
         ret = odict()
         for clfpath in classifiers_paths:
@@ -500,6 +500,10 @@ def run_evaluation(training_param, test_param, destdir):
     print('Step 2 of 2: Testing (creating prediction data frames)')
     pred_filepaths = []
     test_param.set_classifiers_paths(classifier_paths)
+    # with set_classifiers_paths above, we internally stored classifiers
+    # who do NOT have a prediction dataframe. `num_iterations` below accounts
+    # for thius, thus being zero for several reasons, among which also
+    # if all classifiers already have a relative prediction dataframe:
     num_iterations = test_param.num_iterations
     if num_iterations:
         pool = Pool(processes=int(cpu_count()))
@@ -527,7 +531,8 @@ def run_evaluation(training_param, test_param, destdir):
             except Exception as exc:
                 _kill_pool(pool, str(exc))
                 raise exc
-    print("%d of %d predictions created (already existing were not overwritten)" %
+    print("%d of %d prediction HDF file(s) created "
+          "(already existing were not overwritten)" %
           (len(pred_filepaths), len(classifier_paths)))
 
     print()
@@ -638,7 +643,7 @@ def _get_summary_evaluationmetrics_mp(clfdir_and_testname):
         # try to guess if they can be floats or ints:
         ret = odict()
         for key, value in TestParam.model_params(clfdir).items():
-            # value is a tuple. First thing is to defined how to store it
+            # value is a tuple. First thing is to define how to store it
             # in a pandas DataFrame. Use its string method without brackets
             # (so that e.g., ['a', 'b'] will be stored as 'a,b' and
             # ['abc'] will be stored as 'abc':

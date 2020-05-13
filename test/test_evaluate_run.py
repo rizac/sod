@@ -28,7 +28,7 @@ from sklearn.metrics.scorer import brier_score_loss_scorer
 #     PREDICT_COL, save_df, log_loss, AGGEVAL_BASENAME)
 from sod.core.dataset import open_dataset
 from sod.evaluate import run, load_cfg as original_load_cfg
-from sod.core import paths, pdconcat
+from sod.core import paths, pdconcat, odict
 from datetime import datetime
 from sod.core.paths import EVALUATIONS_CONFIGS_DIR
 from sod.core.evaluation import _predict_mp, classifier, load, dump, predict
@@ -171,12 +171,12 @@ class Tester:
 # THE ARGUMENT mcok_pool. THIS WILL RUN THE TEST WITH A MOCKED VERSION OF
 # multiprocessing.Pool WHICH EXECUTES EVERYTHING IN A SINGLE PROCESS
 
-#     @patch('sod.core.evaluation.Pool',
-#            side_effect=lambda *a, **v: PoolMocker())
+    @patch('sod.core.evaluation.Pool',
+           side_effect=lambda *a, **v: PoolMocker())
     @patch('sod.evaluate.load_cfg')
     def test_evaluator(self,
                        mock_load_cfg,
-                       # mock_pool,
+                       mock_pool,
                        ):
         if isdir(tmpdir):
             shutil.rmtree(tmpdir)
@@ -193,6 +193,18 @@ class Tester:
 
         mock_load_cfg.side_effect = load_cfg_side_effect
 
+        def read_all_pred_dfs():
+            '''dict of pred_dataframe paths -> st_time'''
+            ret = []
+            for fle in listdir(tmpdir):
+                _ = join(tmpdir, fle, 'allset_test.hdf_')
+                if isfile(_):
+                    ret.append(_)
+            ret2 = odict()
+            for _ in sorted(ret):
+                ret2[_] = stat(_).st_mtime
+            return ret2
+
         with patch('sod.evaluate.DATASETS_DIR', datadir):
             with patch('sod.evaluate.EVALUATIONS_RESULTS_DIR', tmpdir):
                 with patch('sod.core.evaluation.DEF_CHUNKSIZE', 2):
@@ -200,7 +212,7 @@ class Tester:
                     eval_cfg_path = self.evalconfig
                     cvconfigname = basename(eval_cfg_path)
                     evalsumpath = join(tmpdir,
-                                       'summary_evaluationmetrics.hdf')
+                                       'evaluationmetrics.hdf')
 
                     runner = CliRunner()
                     result = runner.invoke(run, ["-c", cvconfigname])
@@ -211,6 +223,7 @@ class Tester:
                     evalsum_df = pd.read_hdf(evalsumpath)
                     assert len(evalsum_df) == 4
                     mtime = stat(evalsumpath).st_mtime
+                    pred_dfs = read_all_pred_dfs()
 
                     result = runner.invoke(run, ["-c", cvconfigname])
                     assert not result.exception
@@ -220,6 +233,9 @@ class Tester:
                     evalsum_df = pd.read_hdf(evalsumpath)
                     assert len(evalsum_df) == 4
                     assert stat(evalsumpath).st_mtime == mtime
+                    pred_dfs2 = read_all_pred_dfs()
+                    for _1, _2 in zip(pred_dfs.values(), pred_dfs2.values()):
+                        assert _1 == _2
 
                     # now remove one evaluation summary:
                     evalsum_df = evalsum_df[:len(evalsum_df)-1]
