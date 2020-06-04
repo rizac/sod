@@ -338,10 +338,52 @@ def _get_fig_and_axes(show_argument, default_rows, default_columns,
     return fig, axes
 
 
+@contextlib.contextmanager
+def rcparams(rcparams=None, figsizeratio=(1, 1)):
+    '''`with rcparams(rcparams={}, figsizeratio=(1.0, 1.0)):`
+    makes temporarily matplotlib rcParams.
+    Make sure to run this after %matplotlib inline.
+    For info see https://stackoverflow.com/questions/36367986/how-to-make-inline-plots-in-jupyter-notebook-larger'''
+    rcparams = rcparams or {}
+    defparams = {k: plt.rcParams[k] for k in rcparams}
+    figsize = 'figure.figsize'
+    wh = plt.rcParams[figsize]
+    defparams[figsize] = tuple(wh)
+    try:
+        figsizeratio = tuple(figsizeratio)
+    except TypeError:
+        figsizeratio = (figsizeratio, figsizeratio)
+    figsizeratio = tuple(1 if _ is None else float(_) for _ in figsizeratio)
+
+    if figsizeratio != (1, 1):
+        w, h = wh[0], wh[1]
+        area = w * h
+        relw, relh = figsizeratio
+        if relw is not None and relh is not None:
+            w *= relw
+            h *= relh
+        elif relw is not None:
+            w *= relw
+            h = area / w
+        elif relh is not None:
+            h *= relh
+            w = area / h
+        rcparams[figsize] = (w, h)
+    for k, v in rcparams.items():
+        plt.rcParams[k] = v
+    try:
+        yield
+    finally:
+        for k, v in defparams.items():
+            plt.rcParams[k] = v
+
+
 def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None,
                               ylabel=lambda metric: str(metric).replace('_', ' '),
+                              mpl_rect_args=None,
+                              mpl_plot_args=None,
                               show=True):
-    '''`plot_feats_vs_em(eval_df, evalmetrics=None, show=True)` plots the
+    '''`plot_feats_vs_evalmetrics(eval_df, evalmetrics=None, ylabel=lambda metric:..., mpl_rect_args={}, mpl_plot_args={}, show=True)` plots the
     features of `eval_df` grouped and
     colored by PSD period counts versus the given `ems` (Evaluation metrics,
     passes as strings or `EVALMETRICS` enum items. None - the default -
@@ -362,9 +404,19 @@ def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None,
     colors = _get_colors(max(len(_.split(',')) for _ in feats), .4, .85)
 #     fig = plt.figure(constrained_layout=True)
 #     gsp = fig.add_gridspec(len(evalmetrics), 1)
-    
+
     fig, axes = _get_fig_and_axes(show, len(evalmetrics), 1,
                                   grid_direction_horizontal=False)
+
+    mpl_rect_args = mpl_rect_args or {}
+    for k, v in dict(width=.8, fill=True, facecolor='white',  # linewidth=1.5,
+                     zorder=10).items():
+        mpl_rect_args.setdefault(k, v)
+
+    mpl_plot_args = mpl_plot_args or {}
+    for k, v in dict(marker='.', markersize=9,
+                     linewidth=0, mew=2, zorder=20).items():
+        mpl_plot_args.setdefault(k, v)
 
     for j, metric in enumerate(evalmetrics):
         metric_name = str(metric)
@@ -404,16 +456,12 @@ def plot_feats_vs_evalmetrics(eval_df, evalmetrics=None,
             # and a bar for the median:
             rect = matplotlib.patches.Rectangle([i-0.4, min_],
                                                 height=max_-min_,
-                                                width=.8, fill=True,
-                                                linewidth=1.5,
                                                 edgecolor=color,
-                                                facecolor='white',
-                                                zorder=10)
+                                                **mpl_rect_args)
 
             axs.add_patch(rect)
 
-            axs.plot([i], [median], marker='.', markersize=9, color=color,
-                     linewidth=0, mew=2, zorder=20)
+            axs.plot([i], [median], color=color, **mpl_plot_args)
 
         axs.set_xticks(list(range(len(feats))))
         if j == len(evalmetrics) - 1:
@@ -525,12 +573,12 @@ def get_hyperparam_dfs(eval_df, evalmetric, **hyperparams):
             df_max.loc[(hp1, hp1val), (hp2, hp2val)] = vals.max()
             df_min.loc[(hp1, hp1val), (hp2, hp2val)] = vals.min()
 
-    df_min.name = df_median.name = df_max.name = 'Carlo'
     return df_min, df_median, df_max
 
 
-def plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True):
-    '''`plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True)`
+def plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None,
+                        mpl_plot_args=None, show=True):
+    '''`plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, mpl_plot_args={}, show=True)`
     plots the scores with the output of `get_hyperparam_dfs` producing
     `N` plots where for i=1 to N, the i-th plot displays the i-th row of
     dfmedian, dfmin, and dfmax are plotted (dfmin and dfmax as shaded area,
@@ -540,6 +588,10 @@ def plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True):
     hp_yname = df_min.index.values[0][0]
     hp_xvals = [_[1] for _ in df_min.columns.values]
     hp_yvals = [_[1] for _ in df_min.index.values]
+
+    mpl_plot_args = mpl_plot_args or {}
+    for k, v in dict(linestyle='--', marker='o').items():  #, linewidth=2):
+        mpl_plot_args.setdefault(k, v)
 
 #     fig, axes = plt.subplots(1, len(df_median.index))
     fig, axes = _get_fig_and_axes(show, 1, len(df_median.index),
@@ -556,10 +608,10 @@ def plot_hyperparam_dfs(df_min, df_median, df_max, ylabel=None, show=True):
         maxy = df_max[flt].values.flatten()
         axs.fill_between(hp_xvals, miny, maxy, alpha=0.2, color=colors[i])
         title = "%s=%s" % (hp_yname, str(yval))
-        axs.plot(hp_xvals, mediany, linestyle='--', color=colors[i],
-                 marker='o', label=title, linewidth=2)
-        axs.set_title(title.replace('=', ':\n'))
-        # axs.set_xlabel(hp_xname.replace('_', ' '))
+        axs.plot(hp_xvals, mediany, color=colors[i], label=title,
+                 **mpl_plot_args)
+        axs.set_title(title)  # .replace('=', ':\n'))
+        axs.set_xlabel(hp_xname)
         axs.set_ylim(df_min.values.min(), df_max.values.max())
         axs.grid()
         if i == 0:
@@ -769,21 +821,20 @@ def _rank_eval(eval_df, evalmetrics, columns=None, mean='hmean'):
 # samey(fig.axes)
 
 def plot_freq_distribution(pred_df, axs, bins=None, title=None,
-                           mp_hist_kwargs=None):
-    '''`plot_freq_distribution(pred_dfs, ncols=None, titles=str, mp_hist_kwargs=None, show=True)`
+                           mpl_hist_args=None):
+    '''`plot_freq_distribution(pred_dfs, ncols=None, titles=str, mpl_hist_args=None, show=True)`
     plots the segments frequency distribution (histogram) for the two classes
     'inliers' and 'outliers'. `pred_dfs` is a dict of keys mapped to
     a prediction dataframe (see e.g. output of `get_pred_dfs`). `titles` is
     a function that will be called on each key of `pred_dfs` and should return
     a string. If missing, it defaults to `str(key)`
     '''
-    if mp_hist_kwargs is None:
-        mp_hist_kwargs = {}
-    mp_hist_kwargs.setdefault('density', False)
-    mp_hist_kwargs.setdefault('log', False)
-    mp_hist_kwargs.setdefault('stacked', False)
-    mp_hist_kwargs.setdefault('rwidth', .75)
-    mp_hist_kwargs.setdefault('linewidth', 2)
+    mpl_hist_args = mpl_hist_args or {}
+    for k, v in dict(density=False, log=False, stacked=False,
+                     rwidth=.75).items():
+        mpl_hist_args.setdefault(k, v)
+
+    # mp_hist_kwargs.setdefault('linewidth', 2)
     # mp_hist_kwargs.setdefault('color', )
 
 #     if 'color' not in mp_hist_kwargs:
@@ -819,13 +870,13 @@ def plot_freq_distribution(pred_df, axs, bins=None, title=None,
         [pred_df[~pred_df.outlier].predicted_anomaly_score,
          pred_df[pred_df.outlier].predicted_anomaly_score],
         bins=hist_bins, label=['inliers', 'outliers'],
-        **mp_hist_kwargs
+        **mpl_hist_args
     )
     axs.hist(
         [pred_df[~pred_df.outlier].predicted_anomaly_score,
          pred_df[pred_df.outlier].predicted_anomaly_score],
         bins=hist_bins, label=['inliers', 'outliers'],
-        **mp_hist_kwargs
+        **mpl_hist_args
     )
 
     if title:
@@ -1065,7 +1116,7 @@ def heatmap_df(dfr, col_x, col_y, bins_x=10, bins_y=10):
 
 
 def plot_pre_rec_fscore(pred_df, axs, title=None,
-                        mp_plot_kwargs=None):
+                        mpl_plot_args=None):
     '''`plot_pre_rec_fscore(pred_dfs, ncols=None, titles=str, mp_plot_kwargs=None, show=True)`
     plots the segments frequency distribution (histogram) for the two classes
     'inliers' and 'outliers'. `pred_dfs` is a dict of keys mapped to
@@ -1073,9 +1124,8 @@ def plot_pre_rec_fscore(pred_df, axs, title=None,
     a function that will be called on each key of `pred_dfs` and should return
     a string. If missing, it defaults to `str(key)`
     '''
-    if mp_plot_kwargs is None:
-        mp_plot_kwargs = {}
-    mp_plot_kwargs.setdefault('linewidth', 2)
+    mpl_plot_args = mpl_plot_args or {}
+    # mp_plot_kwargs.setdefault('linewidth', 2)
 
     prec, rec, thresholds = \
         metrics.precision_recall_curve(pred_df.outlier,
@@ -1087,11 +1137,11 @@ def plot_pre_rec_fscore(pred_df, axs, title=None,
     bth = thresholds[argmax]
 
     axs.plot(thresholds, prec, label='P(%.2f)=%.3f' % (bth, prec[argmax]),
-             linestyle='--', **mp_plot_kwargs)
+             linestyle='--', **mpl_plot_args)
     axs.plot(thresholds, rec, label='R(%.2f)=%.3f' % (bth, rec[argmax]),
-             linestyle='-.', **mp_plot_kwargs)
+             linestyle='-.', **mpl_plot_args)
     axs.plot(thresholds, fscores, label='F(%.2f)=%.3f' % (bth, fscores[argmax]),
-             linestyle='-', **mp_plot_kwargs)
+             linestyle='-', **mpl_plot_args)
 
 #     if title:
 #         argmax = np.argmax(fscores)
