@@ -78,13 +78,9 @@ distances:
 '''))
 
 
-fmin = {
-    60: 0.039373,
-    90: 0.03125,
-    120: 0.03125,
-    180: 0.012402
-}
+fmin = {60: 0.015625, 90: 0.012402, 120: 0.012402, 180: 0.012402}
 
+assert all(_ in freq_dist['frequencies'] for _ in fmin.values())
 
 def create_freq_dist():
     freqs, dists = freq_dist['frequencies'], freq_dist['distances']
@@ -133,8 +129,14 @@ def find_dist_index(distance_deg, wlen=90):
 
 from scipy.interpolate import CubicSpline
 
+
 def correction_spectrum_log10(distance_deg, wlen=90):
     distances = fdtable['dist']
+
+    if distance_deg < distances[0] or distance_deg > distances[-1]:
+        raise ValueError('Passed `distance_deg`=%f not in [%f, %f]' %
+                         (distance_deg, distances[0], distances[-1]))
+
     freq_count = len(fdtable['freq'])
     distances_table = fdtable[wlen]  # rows = len(distances), cols= len(frequencies)
     _correction_spectrum_log10 = []
@@ -146,6 +148,16 @@ def correction_spectrum_log10(distance_deg, wlen=90):
     # _correction_spectrum_log10 = [css[freqindex](distance_deg) for freqindex in range(freq_count)]
     return np.array(_correction_spectrum_log10)
 
+
+def correct_spectrum(seg_spectrum_log10, distance_deg, wlen=90):
+    '''returns the arrays freqs, spectravalues from seg_spectrum, corrected with
+    (substracting the given) correction_spectrum
+    '''
+    _correction_spectrum_log10 = correction_spectrum_log10(distance_deg, wlen)
+    freqs = fdtable['freq']
+    istart = freqs.index(fdtable['freqmin'][wlen])
+    return freqs[istart:], (seg_spectrum_log10 - _correction_spectrum_log10)[istart:]
+
 # ALL THE CODE BELOW EXCEPT main HAS TO BE COPIED TO ANY NEW MODULE:
 
 # def create_interpolators():
@@ -154,14 +166,15 @@ def correction_spectrum_log10(distance_deg, wlen=90):
 #     for wlen in [60, 90, 120, 180]:
 #         distances_table = fdtable[wlen]
 #         fdtable['interpolators'][wlen] = [CubicSpline(distances, distances_table[:, i]) for i in range(freq_count)]
-    
-fdtable = { # frequencies-distance tables of spectral values
+
+
+fdtable = {  # frequencies-distance tables of spectral values
     # distances (Km):
     "dist": np.array([20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0, 31.0, 32.0, 33.0, 34.0, 35.0, 37.5, 40.0, 42.5, 45.0, 47.5, 50.0, 52.5, 55.0, 57.5, 60.0, 62.5, 65.0, 67.5, 70.0, 72.5, 75.0, 77.5, 80.0, 82.5, 85.0, 87.5, 90.0, 92.5, 95.0, 97.5]),
     # frequencies (Hz):
     "freq": np.array([0.012402, 0.015625, 0.019686, 0.024803, 0.03125, 0.039373, 0.049606, 0.0625, 0.078745, 0.099213, 0.125, 0.15749, 0.198425, 0.25, 0.31498, 0.39685, 0.5, 0.629961, 0.793701, 1.0]),
     # min frequencies: window length in s (from theoretical P arriv. time) maopped to frequency (in Hz)
-    "freqmin": {60: 0.039373, 90: 0.03125, 120: 0.03125, 180: 0.012402},
+    "freqmin": {60: 0.015625, 90: 0.012402, 120: 0.012402, 180: 0.012402},
     # Spectral tables: window length in s (from theoretical P arriv. time)
     # mapped to tables of spectral values. For each table:
     #   row i denotes the values at dist[i]
