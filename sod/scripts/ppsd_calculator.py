@@ -70,18 +70,6 @@ def psd_values(psd_periods, tr, metadata, special_handling=None,
         :func:`~obspy.core.inventory.inventory.read_inventory` or fetched
         from a :mod:`FDSN <obspy.clients.fdsn>` webservice)
     """
-#     # XXX DIRTY HACK!!
-#     if len(tr) == self.len + 1:
-#         tr.data = tr.data[:-1]
-#     # one last check..
-#     if len(tr) != self.len:
-#         msg = "Got a piece of data with wrong length. Skipping"
-#         warnings.warn(msg)
-#         print(len(tr), self.len)
-#         return False
-#     # being paranoid, only necessary if in-place operations would follow
-#     tr.data = tr.data.astype(np.float64)
-
     # if trace has a masked array we fill in zeros
     try:
         tr.data[tr.data.mask] = 0.0
@@ -90,7 +78,7 @@ def psd_values(psd_periods, tr, metadata, special_handling=None,
     except AttributeError:
         pass
 
-    # added stuff by me:
+    # merging some PPSD.__init__ stuff here:
     ppsd_length = tr.stats.endtime - tr.stats.starttime  # float, seconds
     stats = tr.stats
     sampling_rate = stats.sampling_rate
@@ -110,13 +98,10 @@ def psd_values(psd_periods, tr, metadata, special_handling=None,
     #    (we end up with a little more than 13 segments..)
     nlap = int(0.75 * nfft)
 
-    # restitution:
-    # mcnamara apply the correction at the end in freq-domain,
-    # does it make a difference?
-    # probably should be done earlier on bigger chunk of data?!
-    # Yes, you should avoid removing the response until after you
-    # have estimated the spectra to avoid elevated lp noise
-
+    # calculate the specturm. Using matlab for this seems weird (as the PPSD
+    # has a strong focus on outputting plots, it makes sense, here not so much)
+    # but the function basically computes an fft and then its power spectrum.
+    # (also remember: matlab will be always available as ObsPy dependency)
     spec, _freq = mlab.psd(tr.data, nfft, sampling_rate,
                            detrend=mlab.detrend_linear, window=fft_taper,
                            noverlap=nlap, sides='onesided',
@@ -171,10 +156,18 @@ def psd_values(psd_periods, tr, metadata, special_handling=None,
     spec = np.log10(spec)
     spec *= 10
 
+    # smooth the spectrum: for any period P in psd_periods[i]
+    # compute a time-dependent range [Pmin, Pmax] around P, and then
+    # compute the smoothed spectrum at index i as the mean
+    # of spec on [Pmin, Pmax]. and computing their mean: for any period P in psd_periods
+    # we compute the smoothed spectrum on the period immediately before and
+    # after P, we append those two "bounding" values to an array, and we later
+    # linearly interpolate the array with our psd_values
     psd_periods = np.asarray(psd_periods)
     smoothed_psd, period_bin_centers = [], []
     _psd_periods = 1.0 / freq[::-1]
     period_limits = (_psd_periods[0], _psd_periods[-1])
+    # calculate smoothed periods
     for periods_bins in \
             _setup_yield_period_binning(psd_periods,
                                         period_smoothing_width_octaves,
@@ -184,7 +177,8 @@ def psd_values(psd_periods, tr, metadata, special_handling=None,
                            (_psd_periods <= period_bin_right)]
         smoothed_psd.append(_spec_slice.mean())
         period_bin_centers.append(period_bin_center)
-
+    # interpolate. Use log10 as it was used for training (from tests,
+    # linear interpolation does not change much anyway)
     val = np.interp(
         np.log10(psd_periods),
         np.log10(period_bin_centers),
@@ -195,23 +189,12 @@ def psd_values(psd_periods, tr, metadata, special_handling=None,
     return val
 
 
-#     smoothed_psd = []
-#     # do this for the whole period range and append the values to our lists
-#     for per_left, per_right in zip(self.period_bin_left_edges,
-#                                    self.period_bin_right_edges):
-#         specs = spec[(per_left <= self.psd_periods) &
-#                      (self.psd_periods <= per_right)]
-#         smoothed_psd.append(specs.mean())
-#     smoothed_psd = np.array(smoothed_psd, dtype=np.float32)
-#     self.__insert_processed_data(tr.stats.starttime, smoothed_psd)
-#     return True
-
-
 def _get_response(tr, metadata, nfft):
-    # check type of metadata and use the correct subroutine
-    # first, to save some time, tried to do this in __init__ like:
-    #   self._get_response = self._get_response_from_inventory
-    # but that makes the object non-picklable
+    '''Returns the response from the given trace and the given metadata'''
+    # This function is the same as _get_response_from_inventory
+    # but we keep the original PPSd skeleton to show how it
+    # might be integrated with new metadata object. For the
+    # moment `metadata` must be an Inventory object
     if isinstance(metadata, Inventory):
         return _get_response_from_inventory(tr, metadata, nfft)
 #         elif isinstance(self.metadata, Parser):
@@ -240,7 +223,12 @@ def _get_response_from_inventory(tr, metadata, nfft):
 def _setup_yield_period_binning(psd_periods, period_smoothing_width_octaves,
                                 period_step_octaves, period_limits):
     """
-    Set up period binning.
+    Set up period binning, i.e. tuples/lists [Pleft, Pcenter, Pright], from
+    `period_limits[0]` up to `period_limits[1]`. Then, for any period P
+    in psd_periods, yields the binnings [Pleft1, Pcenter1, Pright1] and
+    [Pleft2, Pcenter2, Pright2] such as Pcenter1 <= P <= Pcenter2, and so on.
+    The total amount of binnings yielded is always even and
+    at most 2 * len(psd_periods)
     """
     if period_limits is None:
         period_limits = (psd_periods[0], psd_periods[-1])
@@ -284,32 +272,6 @@ def _setup_yield_period_binning(psd_periods, period_smoothing_width_octaves,
             idx += 1
 
         previous_periods = per_left, per_center, per_right
-
-
-        # append to lists
-#         per_octaves_left.append(per_left)
-#         per_octaves_right.append(per_right)
-#         per_octaves_center.append(per_center)
-#     per_octaves_left = np.array(per_octaves_left)
-#     per_octaves_right = np.array(per_octaves_right)
-#     per_octaves_center = np.array(per_octaves_center)
-#     valid = per_octaves_right > psd_periods[0]
-#     valid &= per_octaves_left < psd_periods[-1]
-#     per_octaves_left = per_octaves_left[valid]
-#     per_octaves_right = per_octaves_right[valid]
-#     per_octaves_center = per_octaves_center[valid]
-#     _period_binning = np.vstack([
-#         # left edge of smoothing (for calculating the bin value from psd
-#         per_octaves_left,
-#         # left xedge of bin (for plotting)
-#         per_octaves_center / (period_step_factor ** 0.5),
-#         # bin center (for plotting)
-#         per_octaves_center,
-#         # right xedge of bin (for plotting)
-#         per_octaves_center * (period_step_factor ** 0.5),
-#         # right edge of smoothing (for calculating the bin value from psd
-#         per_octaves_right])
-#     return _period_binning
 
 
 if __name__ == "__main__":
