@@ -51,7 +51,7 @@ class old:
 
 def psd_values(psd_periods, tr, metadata, special_handling=None,
                period_smoothing_width_octaves=1.0,
-               period_step_octaves=0.125):
+               period_step_octaves=0.125, method='old'):
     """
     Calculates the power spectral density (psd) of the given
     trace `tr`, and returns the values in dB at the given `psd_periods`.
@@ -156,36 +156,68 @@ def psd_values(psd_periods, tr, metadata, special_handling=None,
     spec = np.log10(spec)
     spec *= 10
 
-    # smooth the spectrum: for any period P in psd_periods[i]
-    # compute a time-dependent range [Pmin, Pmax] around P, and then
-    # compute the smoothed spectrum at index i as the mean
-    # of spec on [Pmin, Pmax]. and computing their mean: for any period P in psd_periods
-    # we compute the smoothed spectrum on the period immediately before and
-    # after P, we append those two "bounding" values to an array, and we later
-    # linearly interpolate the array with our psd_values
-    psd_periods = np.asarray(psd_periods)
-    smoothed_psd, period_bin_centers = [], []
+    # setup variables for the final smoothed spectral values:
+    smoothed_psd = []
     _psd_periods = 1.0 / freq[::-1]
-    period_limits = (_psd_periods[0], _psd_periods[-1])
-    # calculate smoothed periods
-    for periods_bins in \
-            _setup_yield_period_binning(psd_periods,
-                                        period_smoothing_width_octaves,
-                                        period_step_octaves, period_limits):
-        period_bin_left, period_bin_center, period_bin_right = periods_bins
-        _spec_slice = spec[(period_bin_left <= _psd_periods) &
-                           (_psd_periods <= period_bin_right)]
-        smoothed_psd.append(_spec_slice.mean())
-        period_bin_centers.append(period_bin_center)
-    # interpolate. Use log10 as it was used for training (from tests,
-    # linear interpolation does not change much anyway)
-    val = np.interp(
-        np.log10(psd_periods),
-        np.log10(period_bin_centers),
-        smoothed_psd
-    )
-    val[psd_periods < period_bin_centers[0]] = np.nan
-    val[psd_periods > period_bin_centers[-1]] = np.nan
+    psd_periods = np.asarray(psd_periods)
+
+    if method == 'old':
+        # smooth the spectrum: for any period P in psd_periods[i] compute a
+        # time-dependent range [Pmin, Pmax] around P, and then compute the
+        # smoothed spectrum at index i as the mean of spec on [Pmin, Pmax].
+        # and computing their mean: for any period P in psd_periods we compute
+        # the smoothed spectrum on the period immediately before and after P,
+        # we append those two "bounding" values to an array, and we later
+        # linearly interpolate the array with our psd_values
+        period_bin_centers = []
+        period_limits = (_psd_periods[0], _psd_periods[-1])
+        # calculate smoothed periods
+        for periods_bins in \
+                _setup_yield_period_binning(psd_periods,
+                                            period_smoothing_width_octaves,
+                                            period_step_octaves, period_limits):
+            period_bin_left, period_bin_center, period_bin_right = periods_bins
+            _spec_slice = spec[(period_bin_left <= _psd_periods) &
+                               (_psd_periods <= period_bin_right)]
+            smoothed_psd.append(_spec_slice.mean())
+            period_bin_centers.append(period_bin_center)
+        # interpolate. Use log10 as it was used for training (from tests,
+        # linear interpolation does not change much anyway)
+        val = np.interp(
+            np.log10(psd_periods),
+            np.log10(period_bin_centers),
+            smoothed_psd
+        )
+        val[psd_periods < period_bin_centers[0]] = np.nan
+        val[psd_periods > period_bin_centers[-1]] = np.nan
+    else:
+        # the width of frequencies we average over for every bin is controlled
+        # by period_smoothing_width_octaves (default one full octave)
+        period_smoothing_width_factor = \
+            2 ** period_smoothing_width_octaves
+        period_smoothing_width_factor_sqrt = \
+            (period_smoothing_width_factor ** 0.5)
+
+#         period_bins_left = psd_periods / period_smoothing_width_factor_sqrt
+#         period_bins_right = period_bins_left * period_smoothing_width_factor
+#         period_bins_left = period_bins_left.reshape((len(psd_periods), 1))
+#         period_bins_right = period_bins_right.reshape((len(psd_periods), 1))
+#         spc_tiled = np.tile(spec, (len(period_bins_left), 1))
+#         spc_tiled[(period_bins_left > _psd_periods) |
+#                   (_psd_periods > period_bins_right)] = np.nan
+#         val = np.nanmean(spc_tiled, axis=1)
+
+        for psd_period in psd_periods:
+            # calculate left/right edge and center of psd_period bin
+            # set first smoothing bin's left edge such that the center
+            # frequency is psd_period
+            period_bin_left = psd_period / period_smoothing_width_factor_sqrt
+            period_bin_right = period_bin_left * period_smoothing_width_factor
+            _spec_slice = spec[(period_bin_left <= _psd_periods) &
+                               (_psd_periods <= period_bin_right)]
+            smoothed_psd.append(_spec_slice.mean())
+        val = np.array(smoothed_psd)
+
     return val
 
 
@@ -218,6 +250,25 @@ def _get_response_from_inventory(tr, metadata, nfft):
     resp, _ = response.get_evalresp_response(t_samp=delta, nfft=nfft,
                                              output="VEL")
     return resp
+
+
+def _get_period_binning(psd_period, period_smoothing_width_octaves,
+                        period_step_octaves):
+    # we step through the period range at step width controlled by
+    # period_step_octaves (default 1/8 octave)
+    # period_step_factor = 2 ** period_step_octaves
+
+    # the width of frequencies we average over for every bin is controlled
+    # by period_smoothing_width_octaves (default one full octave)
+    period_smoothing_width_factor = \
+        2 ** period_smoothing_width_octaves
+    # calculate left/right edge and center of psd_period bin
+    # set first smoothing bin's left edge such that the center frequency is
+    # psd_period
+    per_left = (psd_period /
+                (period_smoothing_width_factor ** 0.5))
+    per_right = per_left * period_smoothing_width_factor
+    return per_left, per_right
 
 
 def _setup_yield_period_binning(psd_periods, period_smoothing_width_octaves,
@@ -279,12 +330,18 @@ if __name__ == "__main__":
     trace, inv = 'trace_GE.APE.mseed', 'inventory_GE.APE.xml'
     stream = read(join(dirname(__file__), 'miniseed', trace))
     inv = read_inventory(join(dirname(__file__), 'miniseed', inv))
-    periods = [5] # [0.2, 2, 5, 9]
+    periods = [.2, 5]  # [0.05, 0.2, 2, 5, 9, 20]
     print(f'Periods to calculate on test miniseed: {periods}')
     t = time.time()
     _ = old.psd_values(periods, stream[0], inv)
-    print(f'Old method, values: {str(_)}, time: {time.time()-t}')
+    t = time.time()-t
+    print(f'Old method, values: {str(_)}, time: {t} s')
     t = time.time()
     _ = psd_values(periods, stream[0], inv)
-    print(f'New method, values: {str(_)}, time: {time.time()-t}')
+    t = time.time()-t
+    print(f'New method (old func), values: {str(_)}, time: {t} s')
+    t = time.time()
+    _ = psd_values(periods, stream[0], inv, method='new')
+    t = time.time()-t
+    print(f'New method (new func), values: {str(_)}, time: {t} s')
     
