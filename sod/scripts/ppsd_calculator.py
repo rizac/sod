@@ -213,12 +213,12 @@ def psd_values(psd_periods, tr, metadata, special_handling=None,
             # frequency is psd_period
             period_bin_left = psd_period / period_smoothing_width_factor_sqrt
             period_bin_right = period_bin_left * period_smoothing_width_factor
-            id1 = np.searchsorted(_psd_periods, period_bin_left)
-            id2 = np.searchsorted(_psd_periods, period_bin_right)
-            smoothed_psd.append(spec[id1:id2+1].mean())
-            # _spec_slice = spec[(period_bin_left <= _psd_periods) &
-            #                   (_psd_periods <= period_bin_right)]
-            # smoothed_psd.append(_spec_slice.mean())
+            id1 = np.searchsorted(_psd_periods, period_bin_left, side='left')
+            id2 = np.searchsorted(_psd_periods, period_bin_right, side='right')
+            smoothed_psd.append(spec[id1:id2].mean())
+#             _spec_slice = spec[(period_bin_left <= _psd_periods) &
+#                                (_psd_periods <= period_bin_right)]
+#             smoothed_psd.append(_spec_slice.mean())
         val = np.array(smoothed_psd)
 
     return val
