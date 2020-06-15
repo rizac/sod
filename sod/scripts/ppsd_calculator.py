@@ -329,8 +329,34 @@ def _setup_yield_period_binning(psd_periods, period_smoothing_width_octaves,
 
 
 if __name__ == "__main__":
-    from os.path import dirname, join
+
+    from os.path import dirname, join, sys
+
+#     for N in [100, 1000, 10000, 100000]:
+#         a = np.arange(0, N, dtype=float)
+#         i1, i2 = int(1.0*len(a)/4.0), int(3.0*len(a)/4.0)
+#         v1, v2 = a[i1], a[i2]
+#         tmean = []
+#         tsearch = []
+#         for tries in range(10):
+#             t = time.time()
+#             a[(a>v1) & (a<=v2)].mean()
+#             tmean.append(time.time() -t)
+#             t = time.time()
+#             i1 = np.searchsorted(a, v1, side='left')
+#             i2 = np.searchsorted(a, v1, side='right')
+#             a[i1:i2].mean()
+#             tsearch.append(time.time() -t)
+#         tmean, tsearch = np.array(tmean), np.array(tsearch)
+#         print(f'array with {len(a)} elements (sorted ascending)')
+#         print(f'Computational costs (in seconds)')
+#         print(f'Using expr (min median max):       {tmean.min():.5f}, {np.median(tmean):.5f}, {tmean.max():.5f} ')
+#         print(f'Using bin search (min median max): {tsearch.min():.5f}, {np.median(tsearch):.5f}, {tsearch.max():.5f} ')
+# 
+#     sys.exit(0)
+    
     trace, inv = 'trace_GE.APE.mseed', 'inventory_GE.APE.xml'
+    # trace, inv = 'GE.FLT1..HH?.mseed', 'GE.FLT1.xml'
     stream = read(join(dirname(__file__), 'miniseed', trace))
     inv = read_inventory(join(dirname(__file__), 'miniseed', inv))
     periods = [.2, 5]  # [0.05, 0.2, 2, 5, 9, 20]
