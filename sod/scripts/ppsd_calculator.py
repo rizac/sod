@@ -162,6 +162,7 @@ def psd_values(psd_periods, tr, metadata, special_handling=None,
     psd_periods = np.asarray(psd_periods)
 
     if method == 'old':
+        print('a')
         # smooth the spectrum: for any period P in psd_periods[i] compute a
         # time-dependent range [Pmin, Pmax] around P, and then compute the
         # smoothed spectrum at index i as the mean of spec on [Pmin, Pmax].
