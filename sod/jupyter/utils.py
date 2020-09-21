@@ -886,7 +886,7 @@ def plot_freq_distribution(pred_df, axs, bins=None, title=None,
 
     if bins is None:
         axs.xaxis.set_minor_locator(MultipleLocator(0.05))
-        axs.grid(axis="x", which='minor', linestyle='-')
+        # axs.grid(axis="x", which='minor', linestyle='-')
 
 #     if __r < rows - 1:
 #         axs.set_xticklabels([])
@@ -899,7 +899,7 @@ def plot_freq_distribution(pred_df, axs, bins=None, title=None,
 
     axs.set_xlabel('score')
     axs.set_ylabel('num. segments')
-    axs.grid()
+    # axs.grid()
     return axs
 
 
@@ -1161,8 +1161,8 @@ def plot_pre_rec_fscore(pred_df, axs, title=None,
 
     axs.yaxis.set_minor_locator(MultipleLocator(step))
 
-    axs.grid(axis="both", which='major', linestyle='-')
-    axs.grid(axis="both", which='minor', linestyle='-')
+    # axs.grid(axis="both", which='major', linestyle='-')
+    # axs.grid(axis="both", which='minor', linestyle='-')
 
     # axs.set_ylim(-step, 1)
     axs.set_yticks([0, 0.5, 1])
